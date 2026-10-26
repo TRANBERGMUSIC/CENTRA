@@ -120,9 +120,17 @@ jobs:
       - run: npm ci
       - name: Version and update channel
         shell: bash
+        env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
         run: |
           node scripts/set-version.mjs ${{ needs.version.outputs.version }}
-          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then node scripts/updater-artifacts.mjs off; fi
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            node scripts/updater-artifacts.mjs off
+            # Visible on the release page: this version cannot update installed apps.
+            if [ "${{ runner.os }}" = "macOS" ]; then
+              echo "Repository-secret TAURI_SIGNING_PRIVATE_KEY mangler, så denne udgivelse har ingen latest.json, og installerede apps kan ikke opdatere til den. Læg den ind under Settings -> Secrets and variables -> Actions -> Repository secrets." > MANGLER-OPDATERINGSNOEGLE.txt
+              gh release upload ${{ needs.version.outputs.tag }} MANGLER-OPDATERINGSNOEGLE.txt --clobber
+            fi
+          fi
       # Apple signing is optional: only pass the variables when the secrets exist. Empty values make
       # Tauri try to sign with a certificate that isn't there, and the Mac build fails.
       - name: Apple signing (only when set up)

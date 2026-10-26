@@ -24,12 +24,12 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
   const ref = useRef<HTMLElement>(null);
   useScreenEnter(ref, 'settings');
   const [devices, setDevices] = useState<DeviceRecord[]>(relay.devices);
-  const [update, setUpdate] = useState<Update | null | 'checking' | 'none'>(null);
+  const [update, setUpdate] = useState<Update | null | 'checking' | 'none' | 'error'>(null);
   useEffect(() => { relay.onDevices = setDevices; setDevices(relay.devices); return () => { relay.onDevices = undefined; }; }, [relay]);
 
   async function check() {
     setUpdate('checking');
-    setUpdate((await checkForUpdate()) ?? 'none');
+    try { setUpdate((await checkForUpdate()) ?? 'none'); } catch { setUpdate('error'); }
   }
 
   function exportAll() {
@@ -57,7 +57,7 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
         <Panel title="Opdateringer" className="span-7">
           <div className="kv"><span>Version</span><span className="num">{APP_VERSION} · {platform === 'desktop' ? 'desktop-app' : platform === 'mobile' ? 'mobil-app' : 'web'}</span></div>
           <div className="kv"><span>Kilde</span><span className="meta">github.com/{REPO}/releases</span></div>
-          <div className="kv"><span>{update === 'none' ? 'Du har den nyeste version' : update === 'checking' ? 'Søger …' : update && typeof update === 'object' ? `Version ${update.version} er klar` : 'Søger automatisk hver halve time'}</span>
+          <div className="kv"><span>{update === 'none' ? 'Du har den nyeste version' : update === 'error' ? 'Kunne ikke tjekke. Enten er du offline, eller den nyeste udgivelse på GitHub mangler sin opdateringsfil (latest.json).' : update === 'checking' ? 'Søger …' : update && typeof update === 'object' ? `Version ${update.version} er klar` : 'Søger automatisk ved start, hvert kvarter og når vinduet får fokus'}</span>
             {update && typeof update === 'object' ? <Btn variant="primary" size="sm" onClick={() => update.install()}>Installér og genstart</Btn> : <Btn size="sm" onClick={check}>Søg nu</Btn>}</div>
         </Panel>
         {session.sync ? (<>

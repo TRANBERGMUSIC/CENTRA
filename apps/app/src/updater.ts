@@ -55,8 +55,9 @@ export async function checkForUpdate(): Promise<Update | null> {
     const { version } = await r.json();
     if (!newer(version, APP_VERSION)) return null;
     return { version, install: async () => location.reload() };
-  } catch {
-    return null; // offline, no release yet, or not running inside the native shell
+  } catch (e) {
+    // Offline, or the newest release has no signed update file (latest.json) yet.
+    throw new Error(String((e as Error)?.message ?? e));
   }
 }
 
