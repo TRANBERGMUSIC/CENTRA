@@ -3,6 +3,7 @@ import { Icon, type IconName } from './Icon.tsx';
 import { Wordmark } from './primitives.tsx';
 import { useList, useRoute, useSession, useSyncStatus, fmt, type Route } from '../state.tsx';
 import { gsap, useGSAP, reduced, ease, dur } from '../motion.ts';
+import { lock } from '../lock.ts';
 
 /* ---------------------------------------------------------------- toasts */
 type Toast = { id: number; text: string; action?: { label: string; run: () => void } };
@@ -65,7 +66,7 @@ export function Sidebar({ onSearch }: { onSearch: () => void }) {
   const { route, go } = useRoute();
   const counts = useCounts();
   const pinned = useList('note').filter((n: any) => n.pinned);
-  const { email } = useSession();
+  const { user } = useSession();
   return (
     <aside className="sidebar" aria-label="Navigation">
       <button className="brand" onClick={() => go({ screen: 'today' })} aria-label="CENTRA, I dag">
@@ -88,7 +89,7 @@ export function Sidebar({ onSearch }: { onSearch: () => void }) {
       <div className="sidebar__foot">
         <SyncLine />
         <button className={`nav-sub ${route.screen === 'settings' ? 'is-active' : ''}`} onClick={() => go({ screen: 'settings' })}><Icon name="settings" size="sm" /><span>Indstillinger</span></button>
-        <div className="userrow"><span className="avatar avatar--me">{email.slice(0, 2).toUpperCase()}</span><div className="ellipsis">{email}<small>Krypteret på denne enhed</small></div></div>
+        <div className="userrow"><span className="avatar avatar--me">{user.slice(0, 2).toUpperCase()}</span><div className="ellipsis">{user.charAt(0).toUpperCase() + user.slice(1)}<small>Krypteret · låser selv</small></div><button className="btn btn--text btn--sm push-right" onClick={() => lock()} aria-label="Lås CENTRA" title="Lås nu">Lås</button></div>
       </div>
     </aside>
   );

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { ready, randomKey, KeyRing, randomId } from '@centra/crypto';
-import { SyncEngine, MemoryHub, MemoryRelay, MemoryStore, Clock, createAccount, unlockAccount } from '../src/index.ts';
+import { SyncEngine, MemoryHub, MemoryRelay, MemoryStore, Clock, createAccount, passwordSecrets, unlock, changePassword, recoverWithCode, rotateContentKey } from '../src/index.ts';
 
 beforeAll(ready);
 const settle = (ms = 80) => new Promise((r) => setTimeout(r, ms));
@@ -134,10 +134,31 @@ describe('sync engine', () => {
     for (const word of ['Faktura', 'Nordlyd', 'Betalingsfrist', 'subject', 'mail', id]) expect(raw).not.toContain(word);
   });
 
-  it('a second device unlocks the account with the same passphrase, and only with it', () => {
-    const { record, keys } = createAccount('lys over koncerthuset', 'interactive');
-    const other = unlockAccount('lys over koncerthuset', record);
-    expect(other.keys.get(keys.current)).toEqual(keys.get(keys.current));
-    expect(() => unlockAccount('forkert passphrase', record)).toThrow();
+  it('a second device unlocks the account with the same password, and only with it', () => {
+    const { account, keys } = createAccount('CentraTest-1710!', 'interactive');
+    const { enc } = passwordSecrets('CentraTest-1710!', account.kdf);
+    expect(unlock(account, enc).keys.get(keys.current)).toEqual(keys.get(keys.current));
+    expect(() => unlock(account, passwordSecrets('forkert', account.kdf).enc)).toThrow('wrong-password');
+  });
+
+  it('changes the password without touching the data keys, and recovers with the recovery code', () => {
+    const { account, keys, ak, recoveryCode } = createAccount('gammelt-password', 'interactive');
+    const next = changePassword(ak, 'nyt-password-2026', 'interactive');
+    const acc2 = { ...account, kdf: next.kdf, wrappedAK: next.wrappedAK };
+    expect(() => unlock(acc2, passwordSecrets('gammelt-password', acc2.kdf).enc)).toThrow();
+    expect(unlock(acc2, passwordSecrets('nyt-password-2026', acc2.kdf).enc).keys.get(keys.current)).toEqual(keys.get(keys.current));
+    expect(() => recoverWithCode(acc2.recovery, 'AAAAA-BBBBB-CCCCC-DDDDD-EEEEE', 'x', 'interactive')).toThrow('wrong-recovery-code');
+    const r = recoverWithCode(acc2.recovery, recoveryCode.toLowerCase(), 'tredje-password', 'interactive');
+    const acc3 = { ...acc2, kdf: r.password.kdf, wrappedAK: r.password.wrappedAK };
+    expect(unlock(acc3, passwordSecrets('tredje-password', acc3.kdf).enc).keys.get(keys.current)).toEqual(keys.get(keys.current));
+  });
+
+  it('rotating adds a key; old data stays readable', () => {
+    const { account, keys, ak } = createAccount('pw-pw-pw-pw', 'interactive');
+    const first = keys.current;
+    const wrapped = rotateContentKey(account, ak, keys);
+    expect(wrapped).toHaveLength(2);
+    expect(keys.current).not.toBe(first);
+    expect(() => keys.get(first)).not.toThrow();
   });
 });

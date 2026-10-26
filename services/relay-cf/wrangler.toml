@@ -1,0 +1,15 @@
+# CENTRA relay on Cloudflare: one Durable Object (with its own SQLite storage) per account.
+name = "centra-relay"
+main = "src/worker.ts"
+compatibility_date = "2026-06-01"
+
+[vars]
+ALLOWED_USERS = "tranberg"
+
+[[durable_objects.bindings]]
+name = "ACCOUNTS"
+class_name = "Account"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Account"]

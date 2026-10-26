@@ -23,21 +23,33 @@
         "hiddenTitle": true
       }
     ],
-    "security": { "csp": null }
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost ws://localhost:8787 wss: https://github.com https://objects.githubusercontent.com; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
+    }
   },
   "bundle": {
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
     "category": "Productivity",
-    "copyright": "© 2026 Willads Tranberg",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+    "copyright": "\u00a9 2026 Willads Tranberg",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
   },
   "plugins": {
     "updater": {
-      "endpoints": ["https://github.com/TRANBERGMUSIC/CENTRA/releases/latest/download/latest.json"],
-      "pubkey": "REPLACE_WITH_PUBLIC_KEY_FROM_scripts/setup-release.sh",
-      "windows": { "installMode": "passive" }
+      "endpoints": [
+        "https://github.com/TRANBERGMUSIC/CENTRA/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFFNUQ4OTA3MDhFNUEyMjYKUldRbW91VUlCNGxkcnJHRHhxMitIYXBRR0xFVndsVWZ0MDRnVURla05NZ0ZtMm9SMmI1UFJNMzcK",
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

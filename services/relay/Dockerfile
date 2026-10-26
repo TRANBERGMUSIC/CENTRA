@@ -1,9 +1,11 @@
-# Self-host the CENTRA relay (Fly.io, Railway, Render, a NAS…). It only ever stores ciphertext.
+# Self-host the CENTRA relay instead of Cloudflare. Build from the repo root:
+#   docker build -f services/relay/Dockerfile -t centra-relay .
 FROM node:22-alpine
-WORKDIR /relay
-COPY package.json server.ts ./
-RUN npm install --omit=dev
-ENV PORT=8787 DATA=/data
+WORKDIR /app
+COPY packages/relay-core packages/relay-core
+COPY services/relay/server.ts services/relay/package.json services/relay/
+RUN cd services/relay && npm install --omit=dev ws && mkdir -p node_modules/@centra && ln -s ../../../../packages/relay-core node_modules/@centra/relay-core
+ENV PORT=8787 DATA=/data ALLOWED_USERS=tranberg
 VOLUME /data
 EXPOSE 8787
-CMD ["node", "server.ts"]
+CMD ["node", "services/relay/server.ts"]

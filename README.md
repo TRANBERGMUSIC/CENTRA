@@ -1,71 +1,60 @@
 # CENTRA
 
-*Your life. In focus.* Dit personlige hverdags-hovedkvarter: noter, kalender, alle dine mailkonti, mål og en AI, der lærer, hvordan du arbejder. Én app på Mac, Windows, iPhone, Android og web. Alt synkroniseres og er end-to-end-krypteret.
+*Your life. In focus.* Dit personlige hverdags-hovedkvarter: noter, kalender, alle dine mailkonti, mål og en AI, der lærer, hvordan du arbejder. Det kører på Mac, Windows, mobil og web. Alt synkroniseres og er end-to-end-krypteret. Se [SECURITY.md](SECURITY.md).
 
-## Status: trin 2 af 7 (synk-kernen)
+## Installér
 
-| Del | Status |
-|---|---|
-| Designsystem (retning A · Mørkekammer) | Færdig: tokens, mørk/OLED/lys, ikoner, brand |
-| Synk-kerne | Færdig: Yjs til notetekst, LWW pr. felt, HLC-ure, outbox, offline først, E2E-kryptering, enheder og log ud |
-| App (React + Vite) | Kører: I dag, Noter, Kalender (uge), Indbakke, Mål, Assist, Indstillinger, ⌘K |
-| Bevægelse | GSAP (Flip, timelines), Lenis i læsefladerne, React Bits (DecryptedText, CountUp, ClickSpark, LightRays) |
-| Auto-opdatering | Opsat: Tauri-updater (Mac/Windows), OTA-bundles (iPhone/Android), GitHub Pages (web) |
-| Backend | Relæ-server (kør selv eller host). Supabase-adapter og -skema er skrevet, men ikke slået til endnu |
+**Mac / Windows**
+1. Gå til **Releases** på github.com/TRANBERGMUSIC/CENTRA.
+2. Hent `CENTRA_…_universal.dmg` (Mac) eller `CENTRA_…_x64-setup.exe` (Windows), og installér.
+3. Mac, første gang: højreklik på CENTRA i Programmer → **Åbn**.
+4. Log ind med brugernavnet **Tranberg**. Første gang vælger du selv dit password, og du får en gendannelsesnøgle. Gem den.
 
-Indbakke, kalender og Assist kører på eksempeldata, indtil de rigtige konti kobles på i trin 4–6. Eksempeldata kan fjernes under Indstillinger → Data.
+Herefter opdaterer appen sig selv.
 
-## Kom i gang (din Mac)
+**Mobil**
+1. Åbn web-adressen (`https://tranbergmusic.github.io/CENTRA/`) i Safari eller Chrome.
+2. Vælg Del → **Føj til hjemmeskærm**.
+
+Så kører den som en app i fuld skærm, virker offline og opdaterer sig selv. Når du får en Apple Developer-konto, bygges iPhone-appen automatisk til TestFlight (se [docs/IPHONE.md](docs/IPHONE.md)).
+
+## Sådan kommer nye versioner ud
+
+Du pusher til `main`, og det er det. GitHub Actions tester, bygger Mac og Windows, opdaterer web-appen og serveren og laver en ny release. Installerede apps henter den selv.
+
+## Engangsopsætning (ca. 5 minutter, kun én gang)
+
+| Hvad | Hvorfor | Hvordan |
+|---|---|---|
+| Opdateringsnøgle | Så Mac/Windows-appen kan opdatere sig selv sikkert | Følg `Desktop/CENTRA/CENTRA-noegler/LÆS-MIG.txt`: én secret, `TAURI_SIGNING_PRIVATE_KEY` |
+| Server (Cloudflare, gratis) | Så telefon og computer synker over nettet | 1) Opret gratis konto på dash.cloudflare.com. 2) Profil → API Tokens → *Create Token* → skabelonen **Edit Cloudflare Workers**. 3) Læg den som secret `CLOUDFLARE_API_TOKEN` (og `CLOUDFLARE_ACCOUNT_ID`, som står på din Workers-side) |
+| Web-appen | Til telefonen | Repo → Settings → Pages → Source: **GitHub Actions** |
+
+Secrets ligger under repo → Settings → Secrets and variables → Actions → *New repository secret*.
+
+Repoet skal være **public**, for at opdateringer og web-appen virker uden login. Det er sikkert: der ligger ingen hemmeligheder i koden.
+
+## Udvikling
 
 ```bash
 npm install
 npm run build -w @centra/design-system
-npm run relay          # synk-serveren på ws://localhost:8787 (terminal 1)
-npm run dev            # appen på http://localhost:5173 (terminal 2)
-npm run desktop        # eller som Mac-app (Tauri; kræver Rust: https://rustup.rs)
+npm run relay      # lokal server, ws://localhost:8787
+npm run dev        # appen på http://localhost:5173
+npm run desktop    # som Mac-app (kræver Rust)
+npx vitest run     # 138 tests: kryptering, synk, konflikter, sikkerhed, latens
+npm run e2e        # hele login/synk/sikkerheds-forløbet i en browser (kræver `vite preview`)
 ```
-
-Åbn appen i to vinduer, fx et almindeligt og et privat vindue, og log ind med samme e-mail og passphrase. Det, du skriver i det ene, står i det andet med det samme.
-
-Tests: `npx vitest run`. Det dækker kryptering, ure, konflikter (fuzz med 5 enheder), genstart med fyldt outbox, at serveren kun ser ciphertext, log ud af en enhed og latens over rigtige websockets.
-To-enheds-test med screenshots: `npm run e2e`. Den kræver, at relæ og dev-server kører.
-
-## Auto-opdatering via GitHub
-
-Det skal gøres én gang:
-
-1. `brew install gh && gh auth login`
-2. `bash scripts/setup-release.sh` laver signeringsnøglen til opdateringer, skriver den offentlige nøgle i `tauri.conf.json`, lægger den private nøgle som secret i repoet og slår GitHub Pages til.
-3. Commit og push.
-
-Hver gang du vil udgive:
-
-```bash
-npm run release            # 0.2.0 → 0.2.1   (eller: npm run release -- minor)
-```
-
-GitHub Actions bygger Mac (universal) og Windows, et web-bundle til mobil og web-versionen til Pages, og lægger det hele på release'en. Installerede apps tjekker ved start og hver halve time. Desktop installerer og genstarter, når du trykker "Genstart". Mobil skifter web-laget ud ved næste åbning.
-
-Uden et Apple Developer-certifikat viser macOS en advarsel første gang appen åbnes. Højreklik → Åbn klarer det. Opdateringer virker uanset hvad. Secrets til notarisering er forberedt i `release.yml`.
-
-## Synk-serveren skal kunne nås fra alle dine enheder
-
-Relæet gemmer kun krypterede data. Du har to valg:
-
-- **Host relæet**: `services/relay/Dockerfile` kører på Fly.io, Railway, Render eller en NAS. Sæt repo-variablen `CENTRA_RELAY_URL` (fx `wss://centra-relay.fly.dev`), så bliver den bygget ind i appen.
-- **Supabase**: skemaet ligger i `services/supabase/migrations`, adapteren i `packages/sync/src/supabase.ts`. Det kræver et Supabase-projekt (gratis niveau), og så kobler jeg login (e-mail-link og passkey) på.
 
 ## Struktur
 
 ```
-apps/app            React-appen (web, og indholdet i desktop- og mobilappen)
-apps/desktop        Tauri 2-skal: updater, single instance
-packages/design-system  tokens, ikoner, brand-assets, kontrast-tests
-packages/crypto     libsodium: Argon2id, XChaCha20-Poly1305, nøgleindpakning
-packages/sync       synk-motoren, relæ-klienter (WebSocket, Supabase), IndexedDB-lager
-services/relay      relæ-server (kun ciphertext) + Dockerfile
-services/supabase   produktionsskema med RLS
-scripts             release, versionsnummer, opsætning af signering
-docs                arkitektur, designsystem, roadmap
-prototypes          de tre designretninger fra trin 1
+apps/app            React-appen (web, og indholdet i desktop-appen)
+apps/desktop        Tauri 2: Mac/Windows, auto-opdatering
+packages/crypto     Argon2id, XChaCha20-Poly1305, nøgleindpakning, gendannelsesnøgle
+packages/sync       synk-motor (Yjs + LWW), konto, relæ-klient
+packages/relay-core serverprotokollen: login, lockout, lagring af ciphertext
+services/relay-cf   serveren på Cloudflare (Worker + Durable Object)
+services/relay      samme server til lokal udvikling
+docs                arkitektur, designsystem, roadmap, iPhone
 ```

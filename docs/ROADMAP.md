@@ -20,8 +20,9 @@
 
 ## Fra trin 2, mangler
 
-- **Hostet backend**: enten relæet (Dockerfile findes) eller Supabase (skema og adapter findes). Login med e-mail-link og passkey kommer sammen med Supabase.
-- **"Husk mig på denne enhed"** via Keychain/Keystore, så passphrasen ikke skal tastes ved hver start.
+- **Backend**: Cloudflare Worker + Durable Object (`services/relay-cf`) er valgt og testet lokalt. Den deployes automatisk, når `CLOUDFLARE_API_TOKEN` er sat. Login er brugernavn + password med server-verifikation, lockout og gendannelsesnøgle (se SECURITY.md). Passkey kan komme senere som ekstra faktor.
+- **"Husk mig på denne enhed"** via Keychain/Keystore, så passwordet ikke skal tastes ved hver start.
+- **iPhone-app** via TestFlight. Workflow og script er klar og slår til, når der er Apple-nøgler (docs/IPHONE.md).
 - **SQLite i stedet for IndexedDB** i Tauri og Capacitor, nødvendigt for FTS5 og vektorsøgning i trin 3.
 - **Push-notifikationer** (APNs, FCM, Web Push) kommer med indbakken i trin 5.
 - **Notarisering på Mac** kræver et Apple Developer-certifikat. Secrets er forberedt.

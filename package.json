@@ -14,8 +14,8 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "desktop": "npm run dev -w @centra/desktop",
-    "release": "node scripts/release.mjs",
-    "e2e": "node apps/app/e2e.cjs e2e-shots"
+    "e2e": "node apps/app/e2e.cjs e2e-shots",
+    "relay:cf": "npm run dev -w @centra/relay-cf"
   },
   "devDependencies": {
     "@fontsource/manrope": "^5.2.5",

@@ -8,10 +8,10 @@ import { Goals } from './screens/Goals.tsx';
 import { Calendar } from './screens/Calendar.tsx';
 import { Assist } from './screens/Assist.tsx';
 import { Settings, applyTheme, type Theme } from './screens/Settings.tsx';
-import { Unlock } from './screens/Unlock.tsx';
-import { signIn, type Session } from './session.ts';
+import { Unlock, RecoveryCode } from './screens/Unlock.tsx';
+import type { Session } from './session.ts';
+import { useAutoLock, lock } from './lock.ts';
 import { watchForUpdates } from './updater.ts';
-import { gsap, reduced } from './motion.ts';
 
 const readRoute = (): Route => {
   const [screen, id] = location.hash.replace(/^#\/?/, '').split('/');
@@ -20,18 +20,22 @@ const readRoute = (): Route => {
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
+  const [showCode, setShowCode] = useState<string | null>(null);
   const [theme, setThemeState] = useState<Theme>(() => (localStorage.getItem('centra.theme') as Theme) ?? 'dark');
   const setTheme = (t: Theme) => { setThemeState(t); localStorage.setItem('centra.theme', t); applyTheme(t); };
   useEffect(() => applyTheme(theme), [theme]);
+  useAutoLock(!!session);
 
   if (!session) {
-    return <Unlock onUnlock={async (email, pass, stage) => {
-      const s = await signIn(email, pass, stage);
-      s.relay.onRevoked = () => { alert('Denne enhed er logget ud fra en anden enhed.'); location.reload(); };
-      if (!reduced()) await gsap.to('.unlock__card', { opacity: 0, y: -8, duration: 0.2 });
+    const notice = sessionStorage.getItem('centra.lockReason') ?? undefined;
+    sessionStorage.removeItem('centra.lockReason');
+    return <Unlock notice={notice} onReady={(s) => {
+      s.relay.onClosedByServer = (code) => lock(code === 4001 ? 'Denne enhed er logget ud fra en anden enhed.' : 'Dit password er skiftet på en anden enhed. Log ind med det nye.');
+      if (s.recoveryCode) setShowCode(s.recoveryCode);
       setSession(s);
     }} />;
   }
+  if (showCode) return <RecoveryCode code={showCode} onDone={() => { setShowCode(null); session.recoveryCode = undefined; }} />;
   return (
     <SessionProvider value={session}>
       <ToastHost>

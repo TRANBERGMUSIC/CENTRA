@@ -31,14 +31,46 @@ export function newKdfParams(profile: 'moderate' | 'interactive' = 'moderate'): 
   const so = s();
   return {
     salt: so.to_base64(so.randombytes_buf(so.crypto_pwhash_SALTBYTES)),
-    ops: profile === 'moderate' ? so.crypto_pwhash_OPSLIMIT_MODERATE : so.crypto_pwhash_OPSLIMIT_INTERACTIVE,
-    mem: profile === 'moderate' ? so.crypto_pwhash_MEMLIMIT_MODERATE : so.crypto_pwhash_MEMLIMIT_INTERACTIVE,
+    // moderate: 4 passes over 64 MiB — well above OWASP's Argon2id minimum, and still under a
+    // second on a phone (256 MiB, libsodium's own "moderate", is too much for mobile WebViews).
+    ops: profile === 'moderate' ? 4 : so.crypto_pwhash_OPSLIMIT_INTERACTIVE,
+    mem: 64 * 1024 * 1024,
   };
 }
 
 export function deriveMasterKey(passphrase: string, p: KdfParams): Bytes {
   const so = s();
   return so.crypto_pwhash(32, passphrase, so.from_base64(p.salt), p.ops, p.mem, so.crypto_pwhash_ALG_ARGON2ID13);
+}
+
+/**
+ * One Argon2id run, two independent keys:
+ *   enc  — unwraps the account key; never leaves the device
+ *   auth — proves the password to the server; the server stores only SHA-256(auth), so a stolen
+ *          server database neither decrypts anything nor logs in.
+ */
+export function deriveKeys(secret: string, p: KdfParams): { enc: Bytes; auth: string } {
+  const so = s();
+  const out = so.crypto_pwhash(64, secret.normalize('NFKC'), so.from_base64(p.salt), p.ops, p.mem, so.crypto_pwhash_ALG_ARGON2ID13);
+  const enc = so.crypto_generichash(32, out.subarray(0, 32), utf8.encode('centra/enc/v1'));
+  const auth = so.crypto_generichash(32, out.subarray(32), utf8.encode('centra/auth/v1'));
+  so.memzero(out);
+  return { enc, auth: so.to_base64(auth, so.base64_variants.ORIGINAL) };
+}
+
+/** 25 random characters from an unambiguous alphabet, shown once as XXXXX-XXXXX-XXXXX-XXXXX-XXXXX (~124 bits). */
+const RECOVERY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+export function newRecoveryCode(): string {
+  const so = s();
+  const bytes = so.randombytes_buf(25);
+  const chars = Array.from(bytes, (b) => RECOVERY_ALPHABET[b % 32]).join('');
+  return chars.match(/.{5}/g)!.join('-');
+}
+export const normalizeRecoveryCode = (c: string) => c.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/** Wipe key material from memory where the platform allows it. */
+export function wipe(b?: Bytes | null) {
+  if (b) s().memzero(b);
 }
 
 export function randomKey(): Bytes {

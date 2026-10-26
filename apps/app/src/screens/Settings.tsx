@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { explain } from '../session.ts';
+import { lock } from '../lock.ts';
 import { useEngine, useSession, useSyncStatus, fmt } from '../state.tsx';
 import { Btn, Panel } from '../ui/primitives.tsx';
 import { useToast } from '../ui/Shell.tsx';
@@ -13,7 +15,8 @@ export function applyTheme(t: Theme) {
 }
 
 export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Theme) => void }) {
-  const { relay, device, email } = useSession();
+  const session = useSession();
+  const { relay, device, user } = session;
   const e = useEngine();
   const toast = useToast();
   const status = useSyncStatus();
@@ -39,8 +42,9 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
 
   return (
     <main className="canvas" ref={ref}>
-      <div className="titlerow" data-enter><div><h1>Indstillinger</h1><p>{email}</p></div></div>
+      <div className="titlerow" data-enter><div><h1>Indstillinger</h1><p>Logget ind som {user.charAt(0).toUpperCase() + user.slice(1)}</p></div></div>
       <div className="grid12">
+        <SecurityPanel />
         <Panel title="Tema" className="span-5">
           <div className="segmented" role="radiogroup" aria-label="Tema">
             {([['dark', 'Mørk'], ['oled', 'OLED sort'], ['light', 'Lys']] as const).map(([k, l]) => (
@@ -60,7 +64,10 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
               <li key={d.id} className="row">
                 <span className={`dot ${d.online ? '' : 'dot--off'}`} />
                 <span className="row__body"><span className="row__line"><span>{d.name}</span>{d.id === device && <span className="meta">denne enhed</span>}</span><span className="row__line meta">{d.online ? 'Online nu' : 'Sidst set ' + fmt.ago(new Date(d.lastSeen).toISOString())}</span></span>
-                {d.id !== device && <Btn size="sm" variant="text" onClick={() => { if (confirm(`Log ${d.name} ud? Enheden mister adgang med det samme.`)) { relay.revoke(d.id); toast({ text: `${d.name} er logget ud` }); } }}>Log ud</Btn>}
+                {d.id !== device && <Btn size="sm" variant="text" onClick={async () => {
+                  if (!confirm(`Log ${d.name} ud? Enheden mister adgang med det samme, og nye data krypteres med en ny nøgle.`)) return;
+                  try { await session.logOutDevice(d.id); toast({ text: `${d.name} er logget ud. Skift også dit password, hvis enheden er mistet.` }); } catch (e) { toast({ text: explain(e) }); }
+                }}>Log ud</Btn>}
               </li>
             ))}
           </ul>
@@ -69,7 +76,7 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
           <div className="kv"><span>Forbindelse</span><span className="meta">{status.online ? 'Online' : 'Offline, ændringer gemmes lokalt'}</span></div>
           <div className="kv"><span>Venter på at blive sendt</span><span className="num">{status.pending}</span></div>
           <div className="kv"><span>Sidst synkroniseret</span><span className="num">{status.last ? fmt.hm(new Date(status.last)) : '—'}</span></div>
-          <p className="meta pad-top">Alt indhold krypteres på enheden med en nøgle fra din passphrase (Argon2id + XChaCha20-Poly1305). Serveren gemmer kun krypterede data.</p>
+          <p className="meta pad-top">Alt indhold krypteres på enheden med en nøgle fra dit password (Argon2id + XChaCha20-Poly1305). Serveren gemmer kun krypterede data.</p>
         </Panel>
         <Panel title="Data" className="span-12">
           <div className="kv"><span>Eksportér alt som JSON</span><Btn size="sm" onClick={exportAll}>Eksportér</Btn></div>
@@ -82,5 +89,63 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
         </Panel>
       </div>
     </main>
+  );
+}
+
+/** Password, recovery code and lock: every change asks for the current password first. */
+function SecurityPanel() {
+  const session = useSession();
+  const toast = useToast();
+  const [form, setForm] = useState<null | 'password' | 'recovery'>(null);
+  const [cur, setCur] = useState('');
+  const [n1, setN1] = useState('');
+  const [n2, setN2] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [code, setCode] = useState<string | null>(null);
+  const reset = () => { setForm(null); setCur(''); setN1(''); setN2(''); setErr(null); };
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    if (form === 'password') {
+      if (n1.length < 12) return setErr('Det nye password skal være mindst 12 tegn.');
+      if (n1 !== n2) return setErr('De to nye passwords er ikke ens.');
+    }
+    setBusy(true);
+    await new Promise((r) => setTimeout(r, 20));
+    try {
+      if (form === 'password') { await session.changePassword(cur, n1); toast({ text: 'Password skiftet. Andre enheder skal logge ind igen.' }); reset(); }
+      else { const c = await session.newRecoveryCode(cur); setCode(c); setForm(null); setCur(''); }
+    } catch (x) { setErr(explain(x)); } finally { setBusy(false); }
+  }
+
+  return (
+    <Panel title="Sikkerhed" className="span-12">
+      {code ? (
+        <div className="seccode">
+          <p>Din nye gendannelsesnøgle. Den gamle virker ikke længere. Gem den nu, den vises kun én gang.</p>
+          <code className="recovery">{code}</code>
+          <div className="unlock__row"><Btn onClick={() => { void navigator.clipboard?.writeText(code); toast({ text: 'Kopieret' }); }}>Kopiér</Btn><Btn variant="primary" onClick={() => setCode(null)}>Jeg har gemt den</Btn></div>
+        </div>
+      ) : form ? (
+        <form className="secform" onSubmit={submit}>
+          <input type="text" name="username" autoComplete="username" value={session.user} readOnly hidden />
+          <label className="ufield"><span>Nuværende password</span><input type="password" autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} required /></label>
+          {form === 'password' && <>
+            <label className="ufield"><span>Nyt password (mindst 12 tegn)</span><input type="password" autoComplete="new-password" value={n1} onChange={(e) => setN1(e.target.value)} required minLength={12} /></label>
+            <label className="ufield"><span>Gentag nyt password</span><input type="password" autoComplete="new-password" value={n2} onChange={(e) => setN2(e.target.value)} required minLength={12} /></label>
+          </>}
+          {err && <p className="unlock__error" role="alert">{err}</p>}
+          <div className="unlock__row"><Btn type="button" variant="text" onClick={reset}>Annullér</Btn><Btn type="submit" variant="primary" disabled={busy}>{busy ? 'Arbejder …' : form === 'password' ? 'Skift password' : 'Lav ny nøgle'}</Btn></div>
+        </form>
+      ) : (
+        <>
+          <div className="kv"><span>Password<span className="meta block">Låser dine data op. Gemmes ingen steder.</span></span><Btn size="sm" onClick={() => setForm('password')}>Skift password</Btn></div>
+          <div className="kv"><span>Gendannelsesnøgle<span className="meta block">Den eneste vej ind, hvis du glemmer dit password.</span></span><Btn size="sm" onClick={() => setForm('recovery')}>Lav ny</Btn></div>
+          <div className="kv"><span>Automatisk lås<span className="meta block">Efter 15 min uden aktivitet, eller 5 min i baggrunden.</span></span><Btn size="sm" onClick={() => lock()}>Lås nu</Btn></div>
+        </>
+      )}
+    </Panel>
   );
 }
