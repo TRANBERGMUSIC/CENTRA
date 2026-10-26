@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.taste-skill/
+.DS_Store
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+apps/app/ios/
+apps/app/android/
+services/relay/data/
+e2e-shots/
+*.key

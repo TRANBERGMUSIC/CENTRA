@@ -1,0 +1,28 @@
+{
+  "name": "centra",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "services/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @centra/app",
+    "relay": "npm start -w @centra/relay",
+    "build": "npm run build -w @centra/design-system && npm run build -w @centra/app",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "desktop": "npm run dev -w @centra/desktop",
+    "release": "node scripts/release.mjs",
+    "e2e": "node apps/app/e2e.cjs e2e-shots"
+  },
+  "devDependencies": {
+    "@fontsource/manrope": "^5.2.5",
+    "@fontsource/newsreader": "^5.2.5",
+    "@types/node": "^22.20.5",
+    "@types/ws": "^8.18.2",
+    "typescript": "5.6",
+    "vitest": "^3.2.7"
+  }
+}

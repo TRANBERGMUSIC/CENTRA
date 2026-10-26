@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CENTRA",
+  "version": "0.2.0",
+  "identifier": "dk.tranberg.centra",
+  "build": {
+    "beforeDevCommand": "npm run dev -w @centra/app",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build -w @centra/design-system && npm run build -w @centra/app",
+    "frontendDist": "../../app/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "CENTRA",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 640,
+        "backgroundColor": "#0B0F0E",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      }
+    ],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "category": "Productivity",
+    "copyright": "© 2026 Willads Tranberg",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://github.com/TRANBERGMUSIC/CENTRA/releases/latest/download/latest.json"],
+      "pubkey": "REPLACE_WITH_PUBLIC_KEY_FROM_scripts/setup-release.sh",
+      "windows": { "installMode": "passive" }
+    }
+  }
+}

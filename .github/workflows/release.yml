@@ -1,0 +1,110 @@
+# Push a tag (npm run release) → GitHub builds everything and publishes it as a release.
+# Installed apps update themselves from that release:
+#   desktop  latest.json            (Tauri updater, signed with TAURI_SIGNING_PRIVATE_KEY)
+#   mobile   ota.json + web zip     (@capgo/capacitor-updater, over the air)
+#   web      GitHub Pages
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag: { description: 'Tag to (re)build, e.g. v0.2.1', required: true }
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.r.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: r
+        env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "CENTRA ${TAG#v}" --generate-notes
+          echo "id=$(gh api repos/${{ github.repository }}/releases/tags/$TAG --jq .id)" >> "$GITHUB_OUTPUT"
+
+  web:
+    needs: release
+    runs-on: ubuntu-latest
+    environment: { name: github-pages, url: '${{ steps.deploy.outputs.page_url }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: node scripts/set-version.mjs "$TAG"
+      - run: npm run build -w @centra/design-system && npx vitest run
+      # Mobile over-the-air bundle (served from the app's own origin, so base ./)
+      - name: Build OTA bundle
+        run: |
+          npm run build -w @centra/app
+          V="${TAG#v}"
+          (cd apps/app/dist && zip -qr "../../../centra-web-$V.zip" .)
+          SUM=$(sha256sum "centra-web-$V.zip" | cut -d' ' -f1)
+          printf '{"version":"%s","url":"https://github.com/%s/releases/download/%s/centra-web-%s.zip","checksum":"%s"}\n' "$V" "${{ github.repository }}" "$TAG" "$V" "$SUM" > ota.json
+          gh release upload "$TAG" "centra-web-$V.zip" ota.json --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_RELAY_URL: ${{ vars.CENTRA_RELAY_URL }}
+      # Web app on GitHub Pages (served under /<repo>/)
+      - name: Build for Pages
+        env:
+          CENTRA_BASE: /${{ github.event.repository.name }}/
+          VITE_RELAY_URL: ${{ vars.CENTRA_RELAY_URL }}
+        run: npm run build -w @centra/app
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: apps/app/dist }
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+  desktop:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            args: --target universal-apple-darwin
+          - os: windows-latest
+            args: ''
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: 'apps/desktop/src-tauri -> target' }
+      - run: npm ci
+      - run: node scripts/set-version.mjs "${{ env.TAG }}"
+        shell: bash
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VITE_RELAY_URL: ${{ vars.CENTRA_RELAY_URL }}
+          # Optional: Apple signing + notarisation (no Gatekeeper warning). Add these secrets when you have a Developer ID.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: apps/desktop
+          tauriScript: npx tauri
+          releaseId: ${{ needs.release.outputs.id }}
+          args: ${{ matrix.args }}
+          includeUpdaterJson: true

@@ -1,0 +1,2 @@
+{ "name": "@centra/relay", "version": "0.1.0", "type": "module", "main": "server.ts",
+  "scripts": { "start": "node server.ts" }, "dependencies": { "ws": "^8.18.0" } }
