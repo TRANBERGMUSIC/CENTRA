@@ -98,8 +98,22 @@ describe('Assist-løkken', () => {
     expect(calls.every((c) => c.url === 'https://api.anthropic.com/v1/messages')).toBe(true);
     const body = JSON.parse(calls[1].init.body);
     expect(body.messages.at(-1).content[0].type).toBe('tool_result');
-    expect(body.system).toContain('Arbejder i Netto'); // the second call already knows the new fact
+    expect(body.system).toBe(JSON.parse(calls[0].init.body).system); // one system prompt per question, so signed thinking stays valid
     expect(t.messages).toHaveLength(4);
+  });
+
+  it('tænkning fra tidligere spørgsmål sendes ikke med igen', async () => {
+    const e = await engine();
+    saveAiSettings(e, { provider: 'claude', claudeKey: 'sk-ant-test-0000000000000000' });
+    let sent: any;
+    vi.stubGlobal('fetch', vi.fn(async (_u: string, init: any) => { sent = JSON.parse(init.body); return new Response(JSON.stringify({ content: [{ type: 'text', text: 'Ok' }], stop_reason: 'end_turn' })); }));
+    const history: any = [
+      { role: 'user', content: [{ type: 'text', text: 'Hej' }] },
+      { role: 'assistant', content: [{ type: 'thinking', thinking: '…', signature: 'sig' }, { type: 'text', text: 'Hej!' }] },
+    ];
+    await ask(e, history, 'Jeg vil sige op i morgen');
+    expect(JSON.stringify(sent.messages)).not.toContain('thinking');
+    expect(sent.messages[1].content).toEqual([{ type: 'text', text: 'Hej!' }]);
   });
 
   it('falder tilbage til den lokale model uden internet', async () => {

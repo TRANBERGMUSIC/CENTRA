@@ -30,7 +30,9 @@ export const aiReady = (s: AiSettings) => (s.provider === 'claude' ? !!s.claudeK
 export type Block =
   | { type: 'text'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: any }
-  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
+  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
+  | { type: 'thinking'; thinking: string; signature: string }
+  | { type: 'redacted_thinking'; data: string };
 export type Msg = { role: 'user' | 'assistant'; content: Block[] };
 
 function system(e: SyncEngine) {
@@ -63,6 +65,7 @@ async function claude(s: AiSettings, sys: string, messages: Msg[], signal?: Abor
   if (!r.ok) {
     let msg = `Claude svarede ${r.status}`;
     try { const j = await r.json(); msg = j?.error?.message ?? msg; } catch { /* keep status */ }
+    if (r.status === 400 && /thinking|signature/i.test(msg)) msg = 'Samtalen kunne ikke fortsættes. Start en ny samtale, og prøv igen.';
     throw new AiError(r.status === 401 ? 'API-nøglen blev afvist. Tjek den under Indstillinger → Assist.' : r.status === 429 ? 'Claude har for travlt eller kvoten er brugt. Prøv igen om lidt.' : msg, r.status);
   }
   const j = await r.json();
@@ -127,10 +130,14 @@ export async function ask(e: SyncEngine, history: Msg[], text: string, opts: { s
     return ollama(s, sys, msgs, opts.signal);
   };
 
-  const messages: Msg[] = [...trim(history), { role: 'user', content: [{ type: 'text', text }] }];
+  // Claude's thinking is signed against the exact system prompt it was made with. The prompt carries
+  // the time and a fresh picture of your data, so it is built once per question (stable through the
+  // tool rounds) and thinking from earlier questions is left out of the history.
+  const sys = system(e);
+  const messages: Msg[] = [...trim(history).map(withoutThinking).filter((m) => m.content.length), { role: 'user', content: [{ type: 'text', text }] }];
   const actions: Action[] = [];
   for (let round = 0; round < 8; round++) {
-    const res = await call(system(e), messages);
+    const res = await call(sys, messages);
     messages.push({ role: 'assistant', content: res.content });
     const uses = res.content.filter((b): b is Extract<Block, { type: 'tool_use' }> => b.type === 'tool_use');
     if (res.stop !== 'tool_use' || !uses.length) break;
@@ -151,6 +158,8 @@ export async function ask(e: SyncEngine, history: Msg[], text: string, opts: { s
 }
 
 /** Keeps the last ~40 messages, cut at a plain user message so tool calls and results stay paired. */
+const withoutThinking = (m: Msg): Msg => (m.role === 'assistant' ? { ...m, content: m.content.filter((b) => b.type !== 'thinking' && b.type !== 'redacted_thinking') } : m);
+
 function trim(h: Msg[]): Msg[] {
   if (h.length <= 40) return h;
   let i = h.length - 40;
