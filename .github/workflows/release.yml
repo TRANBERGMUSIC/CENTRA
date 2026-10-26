@@ -98,8 +98,10 @@ jobs:
         include:
           # Intel Mac runners: GitHub's Apple-silicon pool is often queued for a long time.
           # The build is still universal (runs natively on both Apple silicon and Intel Macs).
+          # Only the .app here; the .dmg is made with hdiutil below (Tauri's own DMG script
+          # drives Finder via AppleScript, which often fails on headless CI machines).
           - os: macos-15-intel
-            args: --target universal-apple-darwin
+            args: --target universal-apple-darwin --bundles app
           - os: windows-latest
             args: ''
     runs-on: ${{ matrix.os }}
@@ -138,6 +140,25 @@ jobs:
           releaseId: ${{ needs.version.outputs.release_id }}
           args: ${{ matrix.args }}
           includeUpdaterJson: ${{ env.TAURI_SIGNING_PRIVATE_KEY != '' }}
+
+      - name: Mac installer (.dmg)
+        if: startsWith(matrix.os, 'macos')
+        env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
+        run: |
+          V=${{ needs.version.outputs.version }}
+          APP=apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos/CENTRA.app
+          mkdir -p dmg && cp -R "$APP" dmg/ && ln -s /Applications dmg/Programmer
+          hdiutil create -volname CENTRA -srcfolder dmg -ov -format UDZO "CENTRA_${V}_universal.dmg"
+          gh release upload ${{ needs.version.outputs.tag }} "CENTRA_${V}_universal.dmg" --clobber
+
+      # If the Mac build fails, the build log is attached to the release so it can be read without logging in.
+      - name: Mac build log on failure
+        if: failure() && startsWith(matrix.os, 'macos')
+        env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
+        run: |
+          (cd apps/desktop && npx tauri build ${{ matrix.args }} -v) > mac-build-log.txt 2>&1 || true
+          tail -c 200000 mac-build-log.txt > mac-build-fejl.txt
+          gh release upload ${{ needs.version.outputs.tag }} mac-build-fejl.txt --clobber
 
   # iPhone app via TestFlight. Switches itself on when the Apple secrets exist (see docs/IPHONE.md).
   ios-gate:
