@@ -58,6 +58,7 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
           <div className="kv"><span>{update === 'none' ? 'Du har den nyeste version' : update === 'checking' ? 'Søger …' : update && typeof update === 'object' ? `Version ${update.version} er klar` : 'Søger automatisk hver halve time'}</span>
             {update && typeof update === 'object' ? <Btn variant="primary" size="sm" onClick={() => update.install()}>Installér og genstart</Btn> : <Btn size="sm" onClick={check}>Søg nu</Btn>}</div>
         </Panel>
+        {session.sync ? (<>
         <Panel title="Enheder" className="span-7" count={devices.filter((d) => !d.revoked).length}>
           <ul className="rows">
             {devices.filter((d) => !d.revoked).map((d) => (
@@ -78,6 +79,11 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
           <div className="kv"><span>Sidst synkroniseret</span><span className="num">{status.last ? fmt.hm(new Date(status.last)) : '—'}</span></div>
           <p className="meta pad-top">Alt indhold krypteres på enheden med en nøgle fra dit password (Argon2id + XChaCha20-Poly1305). Serveren gemmer kun krypterede data.</p>
         </Panel>
+        </>) : (
+        <Panel title="Synkronisering" className="span-12">
+          <div className="kv"><span>Slået fra<span className="meta block">CENTRA kører på denne computer, og alt gemmes krypteret med en nøgle fra dit password. Sync til iPhone og andre computere er bygget og slås til senere.</span></span><span className="meta">Kun denne enhed</span></div>
+        </Panel>
+        )}
         <Panel title="Data" className="span-12">
           <div className="kv"><span>Eksportér alt som JSON</span><Btn size="sm" onClick={exportAll}>Eksportér</Btn></div>
           <div className="kv"><span>Fjern eksempeldata</span><Btn size="sm" variant="text" onClick={() => {

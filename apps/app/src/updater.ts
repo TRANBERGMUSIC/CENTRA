@@ -60,11 +60,59 @@ export async function checkForUpdate(): Promise<Update | null> {
   }
 }
 
-/** Check at launch and every 30 minutes; hand any update to `onUpdate`. */
-export function watchForUpdates(onUpdate: (u: Update) => void): () => void {
-  let seen = '';
-  const run = async () => { const u = await checkForUpdate(); if (u && u.version !== seen) { seen = u.version; onUpdate(u); } };
+/**
+ * Keeps the running app up to date without closing it:
+ *  - checks at launch, every 15 minutes, and whenever the window comes back into focus;
+ *  - downloads a new version in the background as soon as it appears (desktop);
+ *  - installs it with one click ("Genstart"), or by itself once you have been away for a while
+ *    (10 min without activity, or 2 min with the window hidden) — the same moments CENTRA would lock anyway.
+ */
+export type UpdateState = { phase: 'ready'; version: string; install: () => Promise<void> };
+
+export function watchForUpdates(onReady: (u: UpdateState) => void): () => void {
+  let busy = false, ready: UpdateState | null = null, lastCheck = 0, lastInput = Date.now(), hiddenAt: number | null = null;
+
+  async function run() {
+    if (busy || ready) return;
+    busy = true; lastCheck = Date.now();
+    try {
+      if (platform === 'desktop') {
+        const { check } = await import('@tauri-apps/plugin-updater');
+        const { relaunch } = await import('@tauri-apps/plugin-process');
+        const u = await check();
+        if (u) {
+          await u.download(); // in the background, while you keep working
+          ready = { phase: 'ready', version: u.version, install: async () => { await u.install(); await relaunch(); } };
+        }
+      } else {
+        const u = await checkForUpdate();
+        if (u) ready = { phase: 'ready', version: u.version, install: u.install };
+      }
+      if (ready) onReady(ready);
+    } catch { /* offline or no release yet: try again later */ }
+    finally { busy = false; }
+  }
+
+  const input = () => { lastInput = Date.now(); };
+  const vis = () => {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    hiddenAt = null;
+    if (Date.now() - lastCheck > 5 * 60_000) void run();
+  };
+  const idleInstall = setInterval(() => {
+    if (!ready) return;
+    const away = Date.now() - lastInput > 10 * 60_000 || (hiddenAt !== null && Date.now() - hiddenAt > 2 * 60_000);
+    if (away) void ready.install();
+  }, 30_000);
+  ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach((e) => addEventListener(e, input, { passive: true }));
+  document.addEventListener('visibilitychange', vis);
+  addEventListener('focus', vis);
   void run();
-  const t = setInterval(run, 30 * 60 * 1000);
-  return () => clearInterval(t);
+  const t = setInterval(run, 15 * 60_000);
+  return () => {
+    clearInterval(t); clearInterval(idleInstall);
+    ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach((e) => removeEventListener(e, input));
+    document.removeEventListener('visibilitychange', vis);
+    removeEventListener('focus', vis);
+  };
 }

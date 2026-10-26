@@ -1,38 +1,28 @@
 # CENTRA
 
-*Your life. In focus.* Dit personlige hverdags-hovedkvarter: noter, kalender, alle dine mailkonti, mål og en AI, der lærer, hvordan du arbejder. Det kører på Mac, Windows, mobil og web. Alt synkroniseres og er end-to-end-krypteret. Se [SECURITY.md](SECURITY.md).
+*Your life. In focus.* Dit personlige hverdags-hovedkvarter: noter, kalender, alle dine mailkonti, mål og en AI, der lærer, hvordan du arbejder. Lige nu kører den på din Mac, krypteret med dit password. Sync til iPhone og andre enheder er bygget og slås til senere. Se [SECURITY.md](SECURITY.md).
 
-## Installér
+## Installér (Mac)
 
-**Mac / Windows**
-1. Gå til **Releases** på github.com/TRANBERGMUSIC/CENTRA.
-2. Hent `CENTRA_…_universal.dmg` (Mac) eller `CENTRA_…_x64-setup.exe` (Windows), og installér.
-3. Mac, første gang: højreklik på CENTRA i Programmer → **Åbn**.
-4. Log ind med brugernavnet **Tranberg**. Første gang vælger du selv dit password, og du får en gendannelsesnøgle. Gem den.
+Dobbeltklik på **`Installer CENTRA.command`**. Den ligger i `Desktop/CENTRA` og i `installer/` i repoet. Den henter nyeste version fra GitHub, lægger CENTRA i Programmer og åbner den. Kør den igen når som helst for at geninstallere.
 
-Herefter opdaterer appen sig selv.
+Første gang logger du ind med brugernavnet **Tranberg** og vælger selv dit password. Så får du en gendannelsesnøgle, som du skal gemme.
 
-**Mobil**
-1. Åbn web-adressen (`https://tranbergmusic.github.io/CENTRA/`) i Safari eller Chrome.
-2. Vælg Del → **Føj til hjemmeskærm**.
+**Opdateringer** sker af sig selv, mens appen kører:
+- Den kigger efter nyt ved start, hvert kvarter, og når vinduet får fokus igen.
+- En ny version hentes i baggrunden. Du får en "Genstart nu"-knap, eller den installerer selv, når du har været væk et stykke tid.
 
-Så kører den som en app i fuld skærm, virker offline og opdaterer sig selv. Når du får en Apple Developer-konto, bygges iPhone-appen automatisk til TestFlight (se [docs/IPHONE.md](docs/IPHONE.md)).
+**Sync er slået fra for nu.** Alt ligger krypteret på din Mac. Koden til sync, server (Cloudflare) og iPhone-app er bygget og ligger klar (`packages/sync`, `services/relay-cf`, `docs/IPHONE.md`). Den slås til med `VITE_SYNC=on`, når vi er klar.
 
 ## Sådan kommer nye versioner ud
 
 Du pusher til `main`, og det er det. GitHub Actions tester, bygger Mac og Windows, opdaterer web-appen og serveren og laver en ny release. Installerede apps henter den selv.
 
-## Engangsopsætning (ca. 5 minutter, kun én gang)
+## Engangsopsætning (ét minut)
 
-| Hvad | Hvorfor | Hvordan |
-|---|---|---|
-| Opdateringsnøgle | Så Mac/Windows-appen kan opdatere sig selv sikkert | Følg `Desktop/CENTRA/CENTRA-noegler/LÆS-MIG.txt`: én secret, `TAURI_SIGNING_PRIVATE_KEY` |
-| Server (Cloudflare, gratis) | Så telefon og computer synker over nettet | 1) Opret gratis konto på dash.cloudflare.com. 2) Profil → API Tokens → *Create Token* → skabelonen **Edit Cloudflare Workers**. 3) Læg den som secret `CLOUDFLARE_API_TOKEN` (og `CLOUDFLARE_ACCOUNT_ID`, som står på din Workers-side) |
-| Web-appen | Til telefonen | Repo → Settings → Pages → Source: **GitHub Actions** |
+Auto-opdatering kræver én hemmelig nøgle på GitHub. Følg `Desktop/CENTRA/CENTRA-noegler/LÆS-MIG.txt`, som er én secret, `TAURI_SIGNING_PRIVATE_KEY`. Uden den bliver appen stadig bygget og kan installeres, men den kan ikke opdatere sig selv.
 
-Secrets ligger under repo → Settings → Secrets and variables → Actions → *New repository secret*.
-
-Repoet skal være **public**, for at opdateringer og web-appen virker uden login. Det er sikkert: der ligger ingen hemmeligheder i koden.
+Repoet skal være **public**, for at installer og opdateringer kan hente filerne uden login. Der ligger ingen hemmeligheder i koden. Gøres repoet privat, virker installeren stadig, hvis du er logget ind med `gh auth login`, men så skal appens auto-opdatering flyttes til Cloudflare (ikke bygget endnu).
 
 ## Udvikling
 

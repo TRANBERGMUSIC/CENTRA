@@ -25,6 +25,8 @@ export function App() {
   const setTheme = (t: Theme) => { setThemeState(t); localStorage.setItem('centra.theme', t); applyTheme(t); };
   useEffect(() => applyTheme(theme), [theme]);
   useAutoLock(!!session);
+  // On the lock screen nothing is open, so a new version installs right away.
+  useEffect(() => (session ? undefined : watchForUpdates((u) => void u.install())), [session]);
 
   if (!session) {
     const notice = sessionStorage.getItem('centra.lockReason') ?? undefined;
@@ -71,7 +73,7 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
     addEventListener('touchstart', start, { passive: true }); addEventListener('touchend', end);
     return () => { removeEventListener('touchstart', start); removeEventListener('touchend', end); };
   }, []);
-  useEffect(() => watchForUpdates((u) => toast({ text: `CENTRA ${u.version} er klar`, action: { label: 'Genstart', run: () => void u.install() } })), [toast]);
+  useEffect(() => watchForUpdates((u) => toast({ text: `CENTRA ${u.version} er hentet og klar`, sticky: true, action: { label: 'Genstart nu', run: () => void u.install() } })), [toast]);
 
   const screen = {
     today: <Today firstOpen={opened.current} />, notes: <Notes />, inbox: <Inbox />, goals: <Goals />,

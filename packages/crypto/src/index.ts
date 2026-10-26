@@ -141,3 +141,8 @@ export function randomId(bytes = 16): string {
   const so = s();
   return so.to_hex(so.randombytes_buf(bytes));
 }
+
+/** A sub-key for one purpose, derived from a parent key (BLAKE2b keyed hash). */
+export function subKey(parent: Bytes, purpose: string): Bytes {
+  return s().crypto_generichash(32, utf8.encode('centra/' + purpose), parent);
+}

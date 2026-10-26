@@ -8,18 +8,26 @@
  *  - The cached account record is the wrapped (encrypted) form, so it is safe at rest; it lets the
  *    app open offline with the same password.
  */
-import { ready, wipe, type KeyRing } from '@centra/crypto';
+import { ready, wipe, subKey, type KeyRing } from '@centra/crypto';
 import {
-  SyncEngine, WsRelay, IndexedDbStore, RelayError, createAccount, passwordSecrets, unlock, changePassword as rewrap,
+  SyncEngine, WsRelay, NullRelay, IndexedDbStore, EncryptedStore, RelayError, createAccount, passwordSecrets, unlock, changePassword as rewrap,
   recoverWithCode, newRecovery, rotateContentKey, absorbKeys, normalizeUser, type AccountPublic, type DeviceRecord, type Prelogin,
 } from '@centra/sync';
 import { seedSampleData } from './seed.ts';
 
 export const DEFAULT_USER = 'Tranberg';
 
+/**
+ * Sync with other devices. Off for now: CENTRA runs fully on this computer, encrypted, with the
+ * same engine; build with VITE_SYNC=on (and a relay) to switch it on — nothing else changes.
+ */
+export const SYNC = import.meta.env.VITE_SYNC === 'on';
+type AnyRelay = WsRelay | NullRelay;
+
 export type Session = {
   engine: SyncEngine;
-  relay: WsRelay;
+  relay: AnyRelay;
+  sync: boolean;
   user: string;
   device: string;
   created: boolean;
@@ -77,13 +85,18 @@ export function explain(e: unknown): string {
 }
 
 export type Step = 'Forbinder' | 'Låser op' | 'Opretter konto' | 'Synkroniserer';
-export type Lookup = { relay: WsRelay; pre: Prelogin & { offline?: boolean }; user: string };
+export type Lookup = { relay: AnyRelay; pre: Prelogin & { offline?: boolean }; user: string };
 
 /** Finds the account (online, or from this device's cache when offline). */
 export async function lookUp(userInput: string): Promise<Lookup> {
   await ready();
   const user = normalizeUser(userInput);
   if (!user) throw new Error('auth');
+  if (!SYNC) {
+    const cached = localStorage.getItem(preKey(user));
+    const pre = cached ? { ...JSON.parse(cached), exists: true, offline: true } : { exists: false, canRegister: user === normalizeUser(DEFAULT_USER), offline: true };
+    return { relay: new NullRelay(), pre, user };
+  }
   const relay = new WsRelay(relayUrl(), { user, device: deviceId(), name: deviceName(), platform: deviceName() });
   try {
     const pre = await relay.prelogin(3500);
@@ -107,20 +120,22 @@ export async function signIn({ relay, pre, user }: Lookup, password: string, onS
     if (!pre.canRegister) throw new Error('not-allowed');
     onStep('Opretter konto');
     const a = createAccount(password);
-    await relay.register(a.account, a.auth, a.recoveryAuth);
+    if (relay instanceof WsRelay) await relay.register(a.account, a.auth, a.recoveryAuth);
     ({ account, keys, ak, recoveryCode } = a);
     created = true;
   } else {
     const s = passwordSecrets(password, pre.kdf!);
     try {
-      if (pre.offline) {
+      if (pre.offline || relay instanceof NullRelay) {
         const cached = localStorage.getItem(cacheKey(user));
         if (!cached) throw new Error('offline');
         account = JSON.parse(cached);
-        ({ keys, ak } = unlock(account, s.enc)); // throws on a wrong password
-        relay.loginWhenOnline(s.auth);
+        localGuard.check();
+        try { ({ keys, ak } = unlock(account, s.enc)); } catch (e) { localGuard.fail(); throw e; } // throws on a wrong password
+        localGuard.reset();
+        if (relay instanceof WsRelay) relay.loginWhenOnline(s.auth);
       } else {
-        account = (await relay.login(s.auth)).account;
+        account = (await (relay as WsRelay).login(s.auth)).account;
         ({ keys, ak } = unlock(account, s.enc));
       }
     } catch (e) {
@@ -130,16 +145,21 @@ export async function signIn({ relay, pre, user }: Lookup, password: string, onS
       wipe(s.enc);
     }
   }
-  localStorage.setItem(cacheKey(user), JSON.stringify(account));
+  const remember = () => {
+    localStorage.setItem(cacheKey(user), JSON.stringify(account));
+    localStorage.setItem(preKey(user), JSON.stringify({ exists: true, kdf: account.kdf, recovery: account.recovery, canRegister: false }));
+  };
+  remember();
   localStorage.setItem('centra.lastUser', user);
 
   // Keys rotated on another device (after it logged a device out) arrive here.
-  relay.onAccount = (a) => { account = a; absorbKeys(keys, a.keys, ak); localStorage.setItem(cacheKey(user), JSON.stringify(a)); };
+  relay.onAccount = (a: unknown) => { account = a as AccountPublic; absorbKeys(keys, account.keys, ak); remember(); };
   relay.onOpen(() => { if (relay.account) relay.onAccount?.(relay.account); });
+  const storeKey = subKey(ak, 'store/v1');
 
   onStep('Synkroniserer');
   const device = deviceId();
-  const engine = new SyncEngine({ device, keys, store: new IndexedDbStore(`${user}:${device}`), relay });
+  const engine = new SyncEngine({ device, keys, store: new EncryptedStore(new IndexedDbStore(`${user}:${device}`), storeKey), relay });
   await engine.start();
   if (created) seedSampleData(engine);
 
@@ -150,24 +170,24 @@ export async function signIn({ relay, pre, user }: Lookup, password: string, onS
   };
 
   return {
-    engine, relay, user, device, created, recoveryCode, verify,
+    engine, relay, sync: SYNC, user, device, created, recoveryCode, verify,
     async changePassword(current, next) {
       const oldAuth = verify(current);
       const w = rewrap(ak, next);
-      await relay.changePassword(oldAuth, w);
+      if (relay instanceof WsRelay) await relay.changePassword(oldAuth, w);
       account = { ...account, kdf: w.kdf, wrappedAK: w.wrappedAK };
-      localStorage.setItem(cacheKey(user), JSON.stringify(account));
-      localStorage.removeItem(preKey(user));
+      remember();
     },
     async newRecoveryCode(current) {
       const a = verify(current);
       const r = newRecovery(ak);
-      await relay.setRecovery(a, r.recovery, r.recoveryAuth);
+      if (relay instanceof WsRelay) await relay.setRecovery(a, r.recovery, r.recoveryAuth);
       account = { ...account, recovery: r.recovery };
-      localStorage.setItem(cacheKey(user), JSON.stringify(account));
+      remember();
       return r.code;
     },
     async logOutDevice(id) {
+      if (!(relay instanceof WsRelay)) return;
       await relay.revoke(id);
       // Everything written from now on uses a key the removed device has never seen.
       await relay.addKeys(rotateContentKey(account, ak, keys));
@@ -179,17 +199,47 @@ export async function signIn({ relay, pre, user }: Lookup, password: string, onS
 export async function recover(userInput: string, code: string, newPassword: string, onStep: (s: Step) => void): Promise<void> {
   const { relay, pre, user } = await lookUp(userInput);
   try {
-    if (pre.offline) throw new Error('offline');
+    if (pre.offline && SYNC) throw new Error('offline');
     if (!pre.exists || !pre.recovery) throw new Error('wrong-recovery-code');
     onStep('Låser op');
     await new Promise((r) => setTimeout(r, 20));
-    const r = recoverWithCode(pre.recovery, code, newPassword);
-    await relay.recover(r.recoveryAuth, r.password);
-    localStorage.removeItem(preKey(user));
-    localStorage.removeItem(cacheKey(user));
+    localGuard.check();
+    let r;
+    try { r = recoverWithCode(pre.recovery, code, newPassword); } catch (e) { localGuard.fail(); throw e; }
+    localGuard.reset();
+    if (relay instanceof WsRelay) {
+      await relay.recover(r.recoveryAuth, r.password);
+      localStorage.removeItem(preKey(user));
+      localStorage.removeItem(cacheKey(user));
+    } else {
+      const cached: AccountPublic = JSON.parse(localStorage.getItem(cacheKey(user))!);
+      const next = { ...cached, kdf: r.password.kdf, wrappedAK: r.password.wrappedAK };
+      localStorage.setItem(cacheKey(user), JSON.stringify(next));
+      localStorage.setItem(preKey(user), JSON.stringify({ exists: true, kdf: next.kdf, recovery: next.recovery, canRegister: false }));
+    }
   } finally {
     relay.close();
   }
 }
 
 export type { DeviceRecord };
+
+/**
+ * Lock-out for local (no-server) logins, mirroring the server: 5 free tries, then 30 s, 60 s, …
+ * Argon2id already makes each guess slow; this stops someone sitting at the Mac from trying many.
+ */
+const localGuard = {
+  get(): { f: number; until: number } { try { return JSON.parse(localStorage.getItem('centra.guard') ?? '') ; } catch { return { f: 0, until: 0 }; } },
+  check() {
+    const g = this.get();
+    if (g.until > Date.now()) throw new RelayError('locked', Math.ceil((g.until - Date.now()) / 1000));
+  },
+  fail() {
+    const g = this.get();
+    const f = g.f + 1;
+    const until = f >= 5 ? Date.now() + Math.min(3_600_000, 30_000 * 2 ** (f - 5)) : 0;
+    localStorage.setItem('centra.guard', JSON.stringify({ f, until }));
+    if (until) throw new RelayError('auth', Math.ceil((until - Date.now()) / 1000));
+  },
+  reset() { localStorage.removeItem('centra.guard'); },
+};

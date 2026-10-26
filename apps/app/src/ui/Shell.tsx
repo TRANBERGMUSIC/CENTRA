@@ -6,7 +6,7 @@ import { gsap, useGSAP, reduced, ease, dur } from '../motion.ts';
 import { lock } from '../lock.ts';
 
 /* ---------------------------------------------------------------- toasts */
-type Toast = { id: number; text: string; action?: { label: string; run: () => void } };
+type Toast = { id: number; text: string; sticky?: boolean; action?: { label: string; run: () => void } };
 const ToastCtx = createContext<(t: Omit<Toast, 'id'>) => void>(() => {});
 export const useToast = () => useContext(ToastCtx);
 
@@ -15,7 +15,7 @@ export function ToastHost({ children }: { children: ReactNode }) {
   const push = useCallback((t: Omit<Toast, 'id'>) => {
     const id = Date.now() + Math.random();
     setList((l) => [...l, { ...t, id }]);
-    setTimeout(() => setList((l) => l.filter((x) => x.id !== id)), 5000);
+    if (!t.sticky) setTimeout(() => setList((l) => l.filter((x) => x.id !== id)), 5000);
   }, []);
   const ref = useRef<HTMLDivElement>(null);
   useGSAP(() => {
@@ -56,7 +56,8 @@ function useCounts() {
 
 function SyncLine() {
   const { online, pending, last } = useSyncStatus();
-  const { relay } = useSession();
+  const { relay, sync } = useSession();
+  if (!sync) return <div className="syncline"><span className="dot" />Gemt krypteret på denne computer</div>;
   const devices = relay.devices.filter((d) => !d.revoked).length;
   const text = !online ? `Offline · ${pending ? pending + ' venter' : 'alt gemt lokalt'}` : pending ? `Synkroniserer ${pending}` : `Synkroniseret ${last ? fmt.hm(new Date(last)) : ''} · ${devices} ${devices === 1 ? 'enhed' : 'enheder'}`;
   return <div className="syncline"><span className={`dot ${online ? '' : 'dot--off'}`} />{text}</div>;
