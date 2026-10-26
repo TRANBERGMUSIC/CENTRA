@@ -19,7 +19,8 @@ permissions:
   pages: write
   id-token: write
 
-concurrency: { group: release, cancel-in-progress: false }
+# A new push replaces a build that is still waiting, so you always get the newest version.
+concurrency: { group: release, cancel-in-progress: true }
 
 jobs:
   version:
@@ -95,7 +96,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          # Intel Mac runners: GitHub's Apple-silicon pool is often queued for a long time.
+          # The build is still universal (runs natively on both Apple silicon and Intel Macs).
+          - os: macos-15-intel
             args: --target universal-apple-darwin
           - os: windows-latest
             args: ''
@@ -109,7 +112,7 @@ jobs:
         with: { node-version: 22, cache: npm }
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ startsWith(matrix.os, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       - uses: swatinem/rust-cache@v2
         with: { workspaces: 'apps/desktop/src-tauri -> target' }
       - run: npm ci
@@ -137,20 +140,24 @@ jobs:
           includeUpdaterJson: ${{ env.TAURI_SIGNING_PRIVATE_KEY != '' }}
 
   # iPhone app via TestFlight. Switches itself on when the Apple secrets exist (see docs/IPHONE.md).
-  ios:
-    needs: [version, relay]
-    runs-on: macos-latest
+  ios-gate:
+    runs-on: ubuntu-latest
+    outputs:
+      on: ${{ steps.gate.outputs.on }}
     steps:
       - id: gate
         env: { KEY: '${{ secrets.APP_STORE_CONNECT_API_KEY }}' }
         run: if [ -n "$KEY" ]; then echo "on=true" >> "$GITHUB_OUTPUT"; else echo "Ingen Apple-nøgler endnu – iPhone-bygget springes over."; fi
-      - if: steps.gate.outputs.on == 'true'
-        uses: actions/checkout@v4
-      - if: steps.gate.outputs.on == 'true'
-        uses: actions/setup-node@v4
+
+  ios:
+    needs: [version, relay, ios-gate]
+    if: needs.ios-gate.outputs.on == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
-      - if: steps.gate.outputs.on == 'true'
-        env:
+      - env:
           VITE_RELAY_URL: ${{ needs.relay.outputs.url }}
           APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}

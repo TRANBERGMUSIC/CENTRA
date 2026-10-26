@@ -1,5 +1,6 @@
 #!/bin/bash
-# CENTRA – installer til Mac. Dobbeltklik for at installere eller opdatere til nyeste version.
+# CENTRA – installer til Mac. Installér eller opdatér til nyeste version med én linje i Terminal:
+#   curl -fsSL https://raw.githubusercontent.com/TRANBERGMUSIC/CENTRA/main/installer/install.sh | bash
 # Henter seneste release fra GitHub, lægger CENTRA i Programmer og åbner den.
 # Derefter opdaterer CENTRA sig selv, mens den kører.
 set -euo pipefail
@@ -20,7 +21,7 @@ JSON=$(curl -fsSL ${AUTH[@]+"${AUTH[@]}"} -H "Accept: application/vnd.github+jso
 if [ -z "$JSON" ]; then
   say "Kunne ikke finde en udgivelse på github.com/$REPO."
   say "Er der pushet til GitHub, og er bygget færdigt under Actions (ca. 15 min)? Er repoet privat, så log ind med: gh auth login"
-  read -r -p "  Tryk Enter for at lukke." _; exit 1
+  read -r -p "  Tryk Enter for at lukke." _ </dev/tty || true; exit 1
 fi
 # JSON læses med macOS' indbyggede JavaScript (ingen Python nødvendig).
 read -r VERSION ASSET_URL ASSET_API < <(osascript -l JavaScript -e '
@@ -30,7 +31,7 @@ function run(argv) {
   const a = assets.find(x => x.name.endsWith(".dmg") && /universal|aarch64/.test(x.name)) || assets.find(x => x.name.endsWith(".dmg"));
   return [(d.tag_name || "?").replace(/^v/, ""), a ? a.browser_download_url : "-", a ? a.url : "-"].join(" ");
 }' "$JSON")
-if [ "$ASSET_URL" = "-" ]; then say "Udgivelsen $VERSION har endnu ingen Mac-fil. Vent til bygget er færdigt, og prøv igen."; read -r -p "  Tryk Enter for at lukke." _; exit 1; fi
+if [ "$ASSET_URL" = "-" ]; then say "Udgivelsen $VERSION har endnu ingen Mac-fil. Vent til bygget er færdigt, og prøv igen."; read -r -p "  Tryk Enter for at lukke." _ </dev/tty || true; exit 1; fi
 
 if [ -d "$APP" ]; then
   CUR=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist" 2>/dev/null || echo "?")
@@ -58,6 +59,4 @@ xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 
 say "Færdig. Åbner CENTRA $VERSION."
 open "$APP"
-sleep 2
-osascript -e 'tell application "Terminal" to close (every window whose name contains "Installer CENTRA")' >/dev/null 2>&1 &
 exit 0

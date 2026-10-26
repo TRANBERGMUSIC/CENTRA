@@ -4,7 +4,13 @@
 
 ## Installér (Mac)
 
-Dobbeltklik på **`Installer CENTRA.command`**. Den ligger i `Desktop/CENTRA` og i `installer/` i repoet. Den henter nyeste version fra GitHub, lægger CENTRA i Programmer og åbner den. Kør den igen når som helst for at geninstallere.
+Åbn **Terminal**, indsæt denne linje, og tryk Enter:
+
+```
+curl -fsSL https://raw.githubusercontent.com/TRANBERGMUSIC/CENTRA/main/installer/install.sh | bash
+```
+
+Den henter nyeste version, lægger CENTRA i Programmer og åbner den. Du skal ikke højreklikke eller godkende noget. Kør den igen når som helst for at geninstallere.
 
 Første gang logger du ind med brugernavnet **Tranberg** og vælger selv dit password. Så får du en gendannelsesnøgle, som du skal gemme.
 
