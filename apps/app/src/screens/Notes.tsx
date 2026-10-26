@@ -4,6 +4,7 @@ import { useEngine, useList, useRecord, useRoute, useNow, fmt } from '../state.t
 import { Btn } from '../ui/primitives.tsx';
 import { Icon } from '../ui/Icon.tsx';
 import { useLenis, useScreenEnter, flipState } from '../motion.ts';
+import { useToast } from '../ui/Shell.tsx';
 
 /**
  * Notes, step 2 edition: title and metadata sync as LWW fields, the body is a shared Yjs text
@@ -51,6 +52,7 @@ function Editor({ id }: { id: string }) {
   const e = useEngine();
   const { go } = useRoute();
   const note = useRecord<any>(id);
+  const toast = useToast();
   const wrap = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const area = useRef<HTMLTextAreaElement>(null);
@@ -117,7 +119,11 @@ function Editor({ id }: { id: string }) {
           <span className="right">
             <span className="num">Redigeret {note.editedAt ? fmt.clock(note.editedAt) : ''}</span>
             <Btn size="sm" variant="text" icon="pin" onClick={togglePin}>{note.pinned ? 'Fastgjort' : 'Fastgør'}</Btn>
-            <Btn size="sm" variant="text" icon="x" onClick={() => { e.remove('note', id); go({ screen: 'notes' }); }}>Papirkurv</Btn>
+            <Btn size="sm" variant="text" icon="x" onClick={() => {
+              const { id: _i, type: _t, ...f } = note as any;
+              e.remove('note', id); go({ screen: 'notes' });
+              toast({ text: 'Noten er slettet', action: { label: 'Fortryd', run: () => { e.set('note', id, { ...f, _deleted: false }); go({ screen: 'notes', id }); } } });
+            }}>Slet</Btn>
           </span>
         </div>
         <article className="doc">

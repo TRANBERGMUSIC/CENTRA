@@ -79,6 +79,7 @@ function GoalDetail({ g, s }: { g: Goal; s: ReturnType<typeof goalStats> }) {
     go({ screen: 'goals' });
     toast({ text: `Målet "${g.title || 'Uden navn'}" er slettet`, action: { label: 'Fortryd', run: () => e.set('goal', g.id, { ...fields, _deleted: false }) } });
   }
+  const [showAll, setShowAll] = useState(false);
   const [delta, setDelta] = useState('');
   const [text, setText] = useState('');
   const prev = useRef(s.value);
@@ -154,11 +155,45 @@ function GoalDetail({ g, s }: { g: Goal; s: ReturnType<typeof goalStats> }) {
 
       <div className="glog">
         <div className="panel__head"><h3 className="panel__title">Opdateringer</h3><span className="panel__count num">{s.mine.length}</span></div>
-        <ul>{[...s.mine].reverse().slice(0, 8).map((u) => (
-          <li key={u.id}><span className="meta num">{fmt.ago(u.at)}</span><span className="strong num">{u.delta ? '+' + fmtN(u.delta) + ' ' + (g.unit ?? '') : '—'}</span><span>{u.text && <>{u.text}<br /></>}<span className="meta">{u.src}</span></span></li>
-        ))}</ul>
+        <ul>{[...s.mine].reverse().slice(0, showAll ? undefined : 8).map((u) => <UpdateRow key={u.id} u={u} unit={g.kind === 'milestones' ? '' : g.unit ?? ''} />)}</ul>
+        {s.mine.length > 8 && <button className="tag pad-top" onClick={() => setShowAll((x) => !x)}>{showAll ? 'Vis færre' : `Vis alle ${s.mine.length}`}</button>}
       </div>
     </div>
+  );
+}
+
+/** One logged update: fix the amount or the text, or delete it (with undo). */
+function UpdateRow({ u, unit }: { u: GoalUpdate; unit: string }) {
+  const e = useEngine();
+  const toast = useToast();
+  const [edit, setEdit] = useState(false);
+  const [d, setD] = useState(String(u.delta ?? 0).replace('.', ','));
+  const [t, setT] = useState(u.text ?? '');
+  const remove = () => {
+    const { id: _i, type: _t, ...f } = u as any;
+    e.remove('goalUpdate', u.id);
+    toast({ text: 'Opdatering slettet', action: { label: 'Fortryd', run: () => e.set('goalUpdate', u.id, { ...f, _deleted: false }) } });
+  };
+  if (edit) return (
+    <li className="uedit">
+      <form onSubmit={(x) => { x.preventDefault(); const n = Number(d.replace(',', '.')); e.set('goalUpdate', u.id, { delta: Number.isFinite(n) ? n : 0, text: t.trim(), src: (u.src ?? '') + (u.src?.includes('rettet') ? '' : ' · rettet') }); setEdit(false); }}>
+        <span className="meta num">{fmt.ago(u.at)}</span>
+        {unit !== '' || u.delta ? <input className="kvinput" inputMode="decimal" value={d} onChange={(x) => setD(x.target.value)} aria-label="Antal" /> : <span />}
+        <input className="kvinput" value={t} onChange={(x) => setT(x.target.value)} placeholder="Tekst" aria-label="Tekst" autoFocus />
+        <span className="uedit__btns"><Btn size="sm" type="submit">Gem</Btn><Btn size="sm" type="button" variant="text" onClick={() => setEdit(false)}>Annullér</Btn></span>
+      </form>
+    </li>
+  );
+  return (
+    <li className="urow">
+      <span className="meta num">{fmt.ago(u.at)}</span>
+      <span className="strong num">{u.delta ? (u.delta > 0 ? '+' : '') + fmtN(u.delta) + ' ' + unit : '—'}</span>
+      <span>{u.text && <>{u.text}<br /></>}<span className="meta">{u.src}</span></span>
+      <span className="urow__btns">
+        <Btn size="sm" variant="text" icon="edit" aria-label="Ret opdatering" onClick={() => setEdit(true)} />
+        <Btn size="sm" variant="text" icon="x" aria-label="Slet opdatering" onClick={remove} />
+      </span>
+    </li>
   );
 }
 

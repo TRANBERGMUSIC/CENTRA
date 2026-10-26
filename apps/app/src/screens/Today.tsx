@@ -17,7 +17,9 @@ export function Today({ firstOpen }: { firstOpen: boolean }) {
   useScreenEnter(ref, 'today');
 
   const allEvents = useList('event') as unknown as CalEvent[];
-  const events = dayOccurrences(allEvents, now) as any[];
+  const dayAll = dayOccurrences(allEvents, now) as any[];
+  const events = dayAll.filter((x) => !x.allDay);
+  const allDay = (() => { const a = new Date(now); a.setHours(0, 0, 0, 0); const b = new Date(a); b.setDate(b.getDate() + 1); return allEvents.filter((x: any) => x.allDay && new Date(x.start) < b && new Date(x.end) > a); })();
   const people = Object.fromEntries(useList('person').map((p: any) => [p.id, p]));
   const mails = useList('mail', (a, b) => b.at.localeCompare(a.at)) as any[];
   const notes = useList('note', (a, b) => (b.editedAt ?? '').localeCompare(a.editedAt ?? '')) as any[];
@@ -42,7 +44,7 @@ export function Today({ firstOpen }: { firstOpen: boolean }) {
       <div className="titlerow" data-enter>
         <div>
           <h1>{firstOpen ? <DecryptedText text={hello} animateOn="view" sequential revealDirection="start" speed={28} maxIterations={8} characters="ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅ" encryptedClassName="encrypted" /> : hello}</h1>
-          <p>{fmt.dayLabel(now)}. {finding}</p>
+          <p>{fmt.dayLabel(now)}. {allDay.length ? allDay.map((x) => x.title).join(', ') + '. ' : ''}{finding}</p>
         </div>
         <div className="actions">
           <Btn icon="calendar" onClick={() => go({ screen: 'calendar' })}>Find tid</Btn>

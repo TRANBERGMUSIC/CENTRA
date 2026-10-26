@@ -93,13 +93,28 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'watch_mail',
-    description: 'Ask CENTRA to watch for a specific mail (from a sender, about a subject) and tell the user when it arrives. Mail accounts are not connected yet; the watch is saved and starts working when they are.',
+    description: 'Ask CENTRA to watch for a specific future mail (from a sender and/or with words in the subject) and alert the user when it arrives. Give "from" and/or "subject_contains" so it can match. Works for every connected mail account.',
     input_schema: obj({ description: str('what to look for, in Danish'), from: str('optional sender name or address'), subject_contains: str('optional words in the subject') }, ['description']),
   },
   {
     name: 'search',
     description: 'Search notes (including their text), calendar, goals and what you remember about the user.',
     input_schema: obj({ query: str('search words') }, ['query']),
+  },
+  {
+    name: 'search_mail',
+    description: 'Search the user\'s mail (all connected accounts) by sender, subject and text. Returns the newest matches with ids. Use an empty query with only_needs_reply=true to list mails waiting for an answer.',
+    input_schema: obj({ query: str('words to look for (sender, subject, text)'), only_needs_reply: { type: 'boolean' }, days: num('optional: only the last N days') }, ['query']),
+  },
+  {
+    name: 'read_mail',
+    description: 'Read one mail in full (by id).',
+    input_schema: obj({ mail_id: str('mail id') }, ['mail_id']),
+  },
+  {
+    name: 'draft_reply',
+    description: 'Write a reply draft for a mail. The draft is shown in the inbox for the user to edit and send; it is never sent automatically. Write in Danish (or the mail\'s language), short and in the user\'s tone, no subject line, sign with "Willads".',
+    input_schema: obj({ mail_id: str('mail id'), body: str('the reply text') }, ['mail_id', 'body']),
   },
 ];
 
@@ -211,6 +226,26 @@ export function runTool(e: SyncEngine, name: string, input: any): ToolResult {
       const memory = e.list('memory').filter((m: any) => hit(m.statement)).map((m: any) => ({ id: m.id, statement: m.statement }));
       return { result: { notes, events, goals, memory } };
     }
+    case 'search_mail': {
+      const q = String(input.query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+      const since = input.days ? Date.now() - Number(input.days) * 86400000 : 0;
+      const hits = (e.list('mail') as any[]).filter((m) => !m.archived && (!input.only_needs_reply || m.needsReply) && (!since || new Date(m.at).getTime() >= since)
+        && q.every((w) => `${m.fromName} ${m.fromEmail} ${m.subject} ${m.body ?? m.preview}`.toLowerCase().includes(w)))
+        .sort((a, b) => b.at.localeCompare(a.at)).slice(0, 15)
+        .map((m) => ({ id: m.id, from: `${m.fromName} <${m.fromEmail}>`, subject: m.subject, at: m.at, account: m.acctName, unread: !!m.unread, needsReply: !!m.needsReply, preview: m.preview }));
+      return { result: hits.length ? hits : 'Ingen mails fundet.' };
+    }
+    case 'read_mail': {
+      const m = e.get(input.mail_id) as any;
+      if (!m || m.type !== 'mail') throw new Error('Ukendt mail');
+      return { result: { from: `${m.fromName} <${m.fromEmail}>`, to: m.to, subject: m.subject, at: m.at, account: m.acctName, attachments: m.attachments, text: String(m.body ?? m.preview ?? '').slice(0, 12000) } };
+    }
+    case 'draft_reply': {
+      const m = e.get(input.mail_id) as any;
+      if (!m || m.type !== 'mail') throw new Error('Ukendt mail');
+      e.set('mail', m.id, { draft: String(input.body) });
+      return { result: { ok: true }, action: { label: `Svarudkast til ${m.fromName || m.fromEmail}: ${m.subject}`, undo: { kind: 'restore', type: 'mail', id: m.id, fields: { draft: m.draft ?? '' } }, open: { screen: 'inbox', id: m.id } } };
+    }
   }
   throw new Error(`Ukendt værktøj: ${name}`);
 }
@@ -239,6 +274,10 @@ export function contextFor(e: SyncEngine): string {
   const end = new Date(now); end.setDate(end.getDate() + 8);
   const soon = occurrences(all.filter((x) => !x.repeat), now, end).map((x) => { const l = evLine(x); return `- [${l.id}] ${l.day} ${l.time} ${l.title}${l.place ? ' · ' + l.place : ''}`; });
   const watches = e.list('watch').filter((w: any) => w.active).map((w: any) => `- [${w.id}] ${w.description}`);
+  const accts = e.list('mailacct').map((a: any) => `${a.name} (${a.email})`);
+  const mails = (e.list('mail') as any[]).filter((m) => !m.archived);
+  const waiting = mails.filter((m) => m.needsReply).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8).map((m) => `- [${m.id}] ${m.fromName}: ${m.subject} (${String(m.at).slice(0, 10)})`);
+  const mailInfo = accts.length ? [`Forbundne konti: ${accts.join(', ')}. ${mails.length} mails i indbakken, ${mails.filter((m) => m.unread).length} ulæste. Brug search_mail og read_mail til resten.`, ...(waiting.length ? ['Venter på svar:', ...waiting] : [])] : ['Ingen mailkonti forbundet endnu (det gøres under Forbindelser).'];
   const sec = (t: string, l: string[], empty: string) => `## ${t}\n${l.length ? l.join('\n') : empty}`;
   return [
     sec('Det ved du om brugeren', memory, '(intet endnu — brugeren er ny, så lær dem at kende)'),
@@ -246,6 +285,7 @@ export function contextFor(e: SyncEngine): string {
     sec('Enkeltaftaler de næste 8 dage', soon, '(ingen)'),
     sec('Mål', goals, '(ingen)'),
     sec('Seneste noter', notes, '(ingen)'),
+    sec('Mail', mailInfo, ''),
     sec('Mail-overvågninger', watches, '(ingen)'),
   ].join('\n\n');
 }

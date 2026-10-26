@@ -12,6 +12,9 @@ import { Unlock, RecoveryCode } from './screens/Unlock.tsx';
 import type { Session } from './session.ts';
 import { useAutoLock, lock } from './lock.ts';
 import { watchForUpdates } from './updater.ts';
+import { Connections } from './screens/Connections.tsx';
+import { syncAll } from './mail.ts';
+import { syncFeeds } from './feeds.ts';
 
 const readRoute = (): Route => {
   const [screen, id] = location.hash.replace(/^#\/?/, '').split('/');
@@ -73,11 +76,27 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
     addEventListener('touchstart', start, { passive: true }); addEventListener('touchend', end);
     return () => { removeEventListener('touchstart', start); removeEventListener('touchend', end); };
   }, []);
+  // Mail every 5 minutes, calendars every 15, and both when the window comes back.
+  useEffect(() => {
+    let last = 0, lastFeeds = 0, alive = true;
+    const run = async (force = false) => {
+      if (!alive || (!force && Date.now() - last < 120_000)) return;
+      last = Date.now();
+      const r = await syncAll(e);
+      for (const h of r.hits) toast({ text: `Fundet: ${h.mail.subject} (fra ${h.mail.fromName}). Du bad Assist holde øje med "${h.watch.description}".`, sticky: true, action: { label: 'Åbn', run: () => go({ screen: 'inbox', id: h.mail.id }) } });
+      if (Date.now() - lastFeeds > 14 * 60_000) { lastFeeds = Date.now(); await syncFeeds(e); }
+    };
+    void run(true);
+    const t = setInterval(() => void run(true), 5 * 60_000);
+    const vis = () => { if (!document.hidden) void run(); };
+    document.addEventListener('visibilitychange', vis);
+    return () => { alive = false; clearInterval(t); document.removeEventListener('visibilitychange', vis); };
+  }, [e, toast, go]);
   useEffect(() => watchForUpdates((u) => toast({ text: `CENTRA ${u.version} er hentet og klar`, sticky: true, action: { label: 'Genstart nu', run: () => void u.install() } })), [toast]);
 
   const screen = {
     today: <Today firstOpen={opened.current} />, notes: <Notes />, inbox: <Inbox />, goals: <Goals />,
-    calendar: <Calendar />, assist: <Assist />, settings: <Settings theme={theme} setTheme={setTheme} />,
+    calendar: <Calendar />, assist: <Assist />, settings: <Settings theme={theme} setTheme={setTheme} />, connections: <Connections />,
   }[route.screen] ?? <Today firstOpen={false} />;
 
   return (

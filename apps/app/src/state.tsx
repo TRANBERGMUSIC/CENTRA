@@ -62,7 +62,7 @@ export function useNow(intervalMs = 30000): Date {
 }
 
 /* ---------------------------------------------------------------- routing */
-export type Route = { screen: 'today' | 'notes' | 'calendar' | 'inbox' | 'goals' | 'assist' | 'settings'; id?: string };
+export type Route = { screen: 'today' | 'notes' | 'calendar' | 'inbox' | 'goals' | 'assist' | 'settings' | 'connections'; id?: string };
 const RouteCtx = createContext<{ route: Route; go: (r: Route) => void } | null>(null);
 export const RouteProvider = RouteCtx.Provider;
 export function useRoute() {

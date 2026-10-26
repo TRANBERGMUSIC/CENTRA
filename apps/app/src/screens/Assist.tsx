@@ -97,7 +97,8 @@ export function Assist() {
   const chats = useList('chat', (a, b) => (b.at ?? '').localeCompare(a.at ?? '')) as unknown as Chat[];
   useList('setting');
   const ai = aiSettings(e);
-  const chat = chats[0];
+  const [sel, setSel] = useState<string | null>(null);
+  const chat = chats.find((c) => c.id === sel) ?? chats[0];
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState<Action[]>([]);
@@ -165,7 +166,7 @@ export function Assist() {
         <div><h1>Assist</h1><p>Skriv eller tal. Assist husker det vigtige, lægger aftaler i kalenderen, skriver noter og holder styr på dine mål. Alt kan fortrydes.</p></div>
         <div className="actions">
           <span className="meta">{ai.provider === 'claude' ? (ai.claudeKey ? CLAUDE_MODELS.find(([m]) => m === ai.claudeModel)?.[1].split(' ·')[0] ?? 'Claude' : 'Ikke forbundet') : 'Lokal · ' + ai.localModel}</span>
-          {log.length > 0 && <Btn size="sm" icon="plus" onClick={() => e.create('chat', { at: new Date().toISOString(), messages: [], log: [] })}>Ny samtale</Btn>}
+          {log.length > 0 && <Btn size="sm" icon="plus" onClick={() => setSel(e.create('chat', { at: new Date().toISOString(), messages: [], log: [] }))}>Ny samtale</Btn>}
         </div>
       </div>
       <div className="assist__grid">
@@ -208,9 +209,31 @@ export function Assist() {
         <aside className="assist__side">
           <Memory />
           <Watches />
+          <Chats chats={chats} current={chat?.id} onOpen={setSel} />
         </aside>
       </div>
     </main>
+  );
+}
+
+function Chats({ chats, current, onOpen }: { chats: Chat[]; current?: string; onOpen: (id: string | null) => void }) {
+  const e = useEngine();
+  const toast = useToast();
+  const list = chats.filter((c) => c.log?.length);
+  if (!list.length) return null;
+  return (
+    <Panel title="Samtaler" count={list.length}>
+      <ul className="rows">{list.map((c) => (
+        <li key={c.id} className={`memrow ${c.id === current ? 'is-current' : ''}`}>
+          <button className="row__body chatpick" onClick={() => onOpen(c.id)} aria-current={c.id === current}><span className="ellipsis">{c.title || 'Samtale'}</span><span className="meta">{new Date(c.at).toLocaleString('da-DK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · {c.log.length} beskeder</span></button>
+          <Btn size="sm" variant="text" icon="x" aria-label="Slet samtale" onClick={() => {
+            const { id: _i, type: _t, ...f } = c as any;
+            e.remove('chat', c.id); if (c.id === current) onOpen(null);
+            toast({ text: 'Samtalen er slettet', action: { label: 'Fortryd', run: () => e.set('chat', c.id, { ...f, _deleted: false }) } });
+          }} />
+        </li>
+      ))}</ul>
+    </Panel>
   );
 }
 
@@ -260,12 +283,13 @@ function Memory() {
 function Watches() {
   const e = useEngine();
   const watches = useList('watch').filter((w: any) => w.active) as any[];
+  const hasMail = useList('mailacct').length > 0;
   if (!watches.length) return null;
   return (
     <Panel title="Holder øje med" count={watches.length}>
       <ul className="rows">{watches.map((w) => (
         <li key={w.id} className="memrow">
-          <span className="row__body"><span>{w.description}</span><span className="meta">Starter, når dine mailkonti er forbundet</span></span>
+          <span className="row__body"><span>{w.description}</span><span className="meta">{w.lastHitAt ? `Fundet ${new Date(w.lastHitAt).toLocaleDateString('da-DK', { day: 'numeric', month: 'short' })}` : hasMail ? 'Venter på mailen' : 'Starter, når du forbinder en mailkonto'}{[w.from && `fra ${w.from}`, w.subject && `emne: ${w.subject}`].filter(Boolean).map((x) => ' · ' + x).join('')}</span></span>
           <Btn size="sm" variant="text" icon="x" aria-label="Stop" onClick={() => e.remove('watch', w.id)} />
         </li>
       ))}</ul>

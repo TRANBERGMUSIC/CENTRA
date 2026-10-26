@@ -91,6 +91,7 @@ export function Sidebar({ onSearch }: { onSearch: () => void }) {
       ))}
       <div className="sidebar__foot">
         <SyncLine />
+        <button className={`nav-sub ${route.screen === 'connections' ? 'is-active' : ''}`} onClick={() => go({ screen: 'connections' })}><Icon name="link" size="sm" /><span>Forbindelser</span></button>
         <button className={`nav-sub ${route.screen === 'settings' ? 'is-active' : ''}`} onClick={() => go({ screen: 'settings' })}><Icon name="settings" size="sm" /><span>Indstillinger</span></button>
         <div className="userrow"><span className="avatar avatar--me">{user.slice(0, 2).toUpperCase()}</span><div className="ellipsis">{user.charAt(0).toUpperCase() + user.slice(1)}<small>Krypteret · låser selv</small></div><button className="btn btn--text btn--sm push-right" onClick={() => lock()} aria-label="Lås CENTRA" title="Lås nu">Lås</button></div>
       </div>
@@ -132,6 +133,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       { kind: 'Kommando', icon: 'goals', title: 'Nyt mål', run: () => go({ screen: 'goals', id: engine.create('goal', { title: 'Nyt mål', kind: 'measure', unit: '', target: 10, area: 'Privat', order: 99 }) }) },
       { kind: 'Assist', icon: 'assist', title: q.trim() ? `Spørg Assist: ${q.trim()}` : 'Spørg Assist', run: () => { if (q.trim()) queueAssist(q.trim()); go({ screen: 'assist' }); } },
       { kind: 'Kommando', icon: 'settings', title: 'Skift tema', run: () => go({ screen: 'settings' }) },
+      { kind: 'Kommando', icon: 'link', title: 'Forbind mail eller kalender', run: () => go({ screen: 'connections' }) },
     ];
     const content: Hit[] = [
       ...notes.map((n: any) => ({ kind: 'Note', icon: 'notes' as IconName, title: n.title || 'Uden titel', sub: n.folder, run: () => go({ screen: 'notes', id: n.id }), text: engine.doc(n.id).getText('body').toString() })),
