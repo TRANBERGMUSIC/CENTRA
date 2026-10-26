@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 
 // Strict Content-Security-Policy for production builds (dev needs Vite's inline HMR scripts).
-const CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ws://localhost:8787 ws://127.0.0.1:8787 wss: https://github.com https://objects.githubusercontent.com ipc: http://ipc.localhost; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'";
+const CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ws://localhost:8787 ws://127.0.0.1:8787 wss: https://github.com https://objects.githubusercontent.com https://api.anthropic.com http://localhost:11434 http://127.0.0.1:11434 ipc: http://ipc.localhost; media-src 'self' blob: mediastream:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'";
 const csp = { name: 'centra-csp', apply: 'build' as const, transformIndexHtml: (html: string) => html.replace('<meta charset="utf-8">', `<meta charset="utf-8">\n<meta http-equiv="Content-Security-Policy" content="${CSP}">`) };
 
 export default defineConfig({

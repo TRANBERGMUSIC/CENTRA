@@ -4,12 +4,12 @@ import { vars } from './primitives.tsx';
 import { gsap, useGSAP, reduced, dur } from '../motion.ts';
 
 type Ev = { id: string; title: string; place?: string; start: string; end: string; focus?: boolean };
-const H0 = 7, H1 = 23;
+const H0 = 5, H1 = 23;
 
 const minsOf = (d: Date) => d.getHours() * 60 + d.getMinutes();
 const frac = (mins: number) => Math.min(1, Math.max(0, (mins - H0 * 60) / ((H1 - H0) * 60)));
 
-/** The signature element: the day from 07 to 23, with now and the next thing "in the light". */
+/** The signature element: the day from 05 to 23, with now and the next thing "in the light". */
 export function DayStrip({ events, now, nextId }: { events: Ev[]; now: Date; nextId?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const nowF = frac(minsOf(now));
@@ -23,7 +23,7 @@ export function DayStrip({ events, now, nextId }: { events: Ev[]; now: Date; nex
   }, { dependencies: [nowF], scope: ref });
 
   return (
-    <div className="daystrip" ref={ref} role="img" aria-label={`Dagen fra 07 til 23 med ${events.length} aftaler. Klokken er ${fmt.hm(now)}.`}>
+    <div className="daystrip" ref={ref} role="img" aria-label={`Dagen fra 05 til 23 med ${events.length} aftaler. Klokken er ${fmt.hm(now)}.`}>
       <div className="daystrip__track">
         {next && <div className="daystrip__callout num" style={vars({ '--at': frac(minsOf(new Date(next.start))) })}>{next.title} · {fmt.hm(next.start)}</div>}
         {events.map((e) => {
@@ -38,7 +38,7 @@ export function DayStrip({ events, now, nextId }: { events: Ev[]; now: Date; nex
         <div className="daystrip__now" style={{ left: `${nowF * 100}%` }} />
       </div>
       <div className="daystrip__ticks meta num">
-        {[7, 9, 11, 13, 15, 17, 19, 21, 23].map((h) => <span key={h} style={vars({ '--at': frac(h * 60) })}>{String(h).padStart(2, '0')}</span>)}
+        {[5, 7, 9, 11, 13, 15, 17, 19, 21, 23].map((h) => <span key={h} style={vars({ '--at': frac(h * 60) })}>{String(h).padStart(2, '0')}</span>)}
       </div>
     </div>
   );

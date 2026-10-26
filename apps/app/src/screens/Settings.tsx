@@ -7,6 +7,7 @@ import { useToast } from '../ui/Shell.tsx';
 import { useScreenEnter } from '../motion.ts';
 import { APP_VERSION, REPO, checkForUpdate, platform, type Update } from '../updater.ts';
 import type { DeviceRecord } from '@centra/sync';
+import { aiSettings, saveAiSettings, testAi, CLAUDE_MODELS, type AiSettings } from '../ai/agent.ts';
 
 export type Theme = 'dark' | 'oled' | 'light';
 export function applyTheme(t: Theme) {
@@ -32,7 +33,7 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
   }
 
   function exportAll() {
-    const data = { exportedAt: new Date().toISOString(), version: APP_VERSION, records: ['note', 'event', 'mail', 'goal', 'goalUpdate', 'memory', 'rule', 'suggestion', 'person'].flatMap((t) => e.list(t)),
+    const data = { exportedAt: new Date().toISOString(), version: APP_VERSION, records: ['note', 'event', 'mail', 'goal', 'goalUpdate', 'memory', 'rule', 'suggestion', 'person', 'watch', 'chat'].flatMap((t) => e.list(t)),
       noteBodies: Object.fromEntries(e.list('note').map((n) => [n.id, e.doc(n.id).getText('body').toString()])) };
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
@@ -45,6 +46,7 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
       <div className="titlerow" data-enter><div><h1>Indstillinger</h1><p>Logget ind som {user.charAt(0).toUpperCase() + user.slice(1)}</p></div></div>
       <div className="grid12">
         <SecurityPanel />
+        <AiPanel />
         <Panel title="Tema" className="span-5">
           <div className="segmented" role="radiogroup" aria-label="Tema">
             {([['dark', 'Mørk'], ['oled', 'OLED sort'], ['light', 'Lys']] as const).map(([k, l]) => (
@@ -86,12 +88,6 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
         )}
         <Panel title="Data" className="span-12">
           <div className="kv"><span>Eksportér alt som JSON</span><Btn size="sm" onClick={exportAll}>Eksportér</Btn></div>
-          <div className="kv"><span>Fjern eksempeldata</span><Btn size="sm" variant="text" onClick={() => {
-            if (!confirm('Fjern alle eksempeldata (noter, mails, mål og aftaler markeret som eksempel)?')) return;
-            let n = 0;
-            for (const t of ['note', 'event', 'mail', 'goal', 'goalUpdate', 'memory', 'suggestion', 'person']) for (const r of e.list(t)) if ((r as any).sample) { e.remove(t, r.id); n++; }
-            toast({ text: `${n} eksempler fjernet` });
-          }}>Fjern</Btn></div>
         </Panel>
       </div>
     </main>
@@ -152,6 +148,51 @@ function SecurityPanel() {
           <div className="kv"><span>Automatisk lås<span className="meta block">Efter 15 min uden aktivitet, eller 5 min i baggrunden.</span></span><Btn size="sm" onClick={() => lock()}>Lås nu</Btn></div>
         </>
       )}
+    </Panel>
+  );
+}
+
+/** Which brain Assist uses. The Claude key lives in the encrypted store and is never shown again. */
+function AiPanel() {
+  const e = useEngine();
+  const toast = useToast();
+  const [s, setS] = useState<AiSettings>(() => aiSettings(e));
+  const [key, setKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const save = (p: Partial<AiSettings>) => { saveAiSettings(e, p); setS(aiSettings(e)); };
+  async function test() {
+    setBusy(true);
+    try { const r = await testAi(aiSettings(e)); toast({ text: `Assist svarer: ${r}` }); } catch (x) { toast({ text: (x as Error).message }); } finally { setBusy(false); }
+  }
+  async function saveKey(ev: React.FormEvent) {
+    ev.preventDefault();
+    setBusy(true);
+    try { await testAi({ ...s, provider: 'claude', claudeKey: key.trim() }); save({ claudeKey: key.trim(), provider: 'claude' }); setKey(''); toast({ text: 'Nøglen virker og er gemt krypteret' }); }
+    catch (x) { toast({ text: (x as Error).message }); } finally { setBusy(false); }
+  }
+  return (
+    <Panel title="Assist" className="span-12">
+      <div className="kv"><span>Hjerne<span className="meta block">Claude er klogest. En lokal model kører helt på din Mac via Ollama.</span></span>
+        <div className="segmented" role="radiogroup" aria-label="Hjerne">
+          {([['claude', 'Claude'], ['local', 'Lokal model']] as const).map(([k, l]) => (
+            <button key={k} role="radio" aria-checked={s.provider === k} className={s.provider === k ? 'is-active' : ''} onClick={() => save({ provider: k })}>{l}</button>
+          ))}
+        </div></div>
+      <div className="kv"><span>Claude API-nøgle<span className="meta block">{s.claudeKey ? 'Gemt krypteret (slutter på …' + s.claudeKey.slice(-4) + ')' : 'Hent en på console.anthropic.com → API keys'}</span></span>
+        <form className="connect" onSubmit={saveKey}>
+          <input className="kvinput" type="password" autoComplete="off" spellCheck={false} placeholder={s.claudeKey ? 'Ny nøgle' : 'sk-ant-…'} value={key} onChange={(ev) => setKey(ev.target.value)} aria-label="Claude API-nøgle" />
+          <Btn size="sm" type="submit" disabled={busy || key.trim().length < 20}>Gem</Btn>
+          {s.claudeKey && <Btn size="sm" type="button" variant="text" onClick={() => { if (confirm('Fjern Claude-nøglen fra CENTRA?')) save({ claudeKey: '' }); }}>Fjern</Btn>}
+        </form></div>
+      <div className="kv"><span>Claude-model</span>
+        <select className="kvinput" value={s.claudeModel} onChange={(ev) => save({ claudeModel: ev.target.value })} aria-label="Claude-model">
+          {CLAUDE_MODELS.map(([m, l]) => <option key={m} value={m}>{l}</option>)}
+        </select></div>
+      <div className="kv"><span>Lokal model<span className="meta block">Navn i Ollama, fx qwen3:8b eller llama3.1. Hent med: ollama pull {s.localModel}</span></span>
+        <input className="kvinput" defaultValue={s.localModel} onBlur={(ev) => ev.target.value.trim() && save({ localModel: ev.target.value.trim() })} aria-label="Lokal model" /></div>
+      <div className="kv"><span>Brug den lokale model, når Claude ikke kan nås</span>
+        <input type="checkbox" checked={s.fallbackLocal} onChange={(ev) => save({ fallbackLocal: ev.target.checked })} aria-label="Lokal model som reserve" /></div>
+      <div className="kv"><span>Test forbindelsen</span><Btn size="sm" onClick={test} disabled={busy}>{busy ? 'Tester …' : 'Test'}</Btn></div>
     </Panel>
   );
 }

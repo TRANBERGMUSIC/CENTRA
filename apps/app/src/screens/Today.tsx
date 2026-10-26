@@ -1,11 +1,12 @@
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useEngine, useList, useNow, useRoute, fmt, greeting } from '../state.tsx';
 import { Avatar, Btn, Panel, Pill } from '../ui/primitives.tsx';
 import { Icon } from '../ui/Icon.tsx';
 import { DayStrip, Progress } from '../ui/DayStrip.tsx';
 import { useScreenEnter } from '../motion.ts';
 import { goalStats, type Goal, type GoalUpdate } from '../goals.ts';
-import { SuggestionRows } from './Assist.tsx';
+import { SuggestionRows, queueAssist } from './Assist.tsx';
+import { dayOccurrences, type CalEvent } from '../calendar.ts';
 import DecryptedText from '../bits/DecryptedText.jsx';
 
 export function Today({ firstOpen }: { firstOpen: boolean }) {
@@ -15,7 +16,8 @@ export function Today({ firstOpen }: { firstOpen: boolean }) {
   const ref = useRef<HTMLElement>(null);
   useScreenEnter(ref, 'today');
 
-  const events = useList('event', (a, b) => a.start.localeCompare(b.start)).filter((x: any) => new Date(x.start).toDateString() === now.toDateString()) as any[];
+  const allEvents = useList('event') as unknown as CalEvent[];
+  const events = dayOccurrences(allEvents, now) as any[];
   const people = Object.fromEntries(useList('person').map((p: any) => [p.id, p]));
   const mails = useList('mail', (a, b) => b.at.localeCompare(a.at)) as any[];
   const notes = useList('note', (a, b) => (b.editedAt ?? '').localeCompare(a.editedAt ?? '')) as any[];
@@ -89,14 +91,16 @@ export function Today({ firstOpen }: { firstOpen: boolean }) {
                 );
               })}
             </ul>
-          ) : <p className="muted">Ingen mails venter på svar.</p>}
+          ) : <p className="muted">{mails.length ? 'Ingen mails venter på svar.' : 'Dine mailkonti forbindes i et senere trin. Assist kan allerede nu holde øje med bestemte mails for dig.'}</p>}
         </Panel>
 
-        <Panel title="Forslag fra Assist" className="span-7" count={sugg.length} link="Det ved CENTRA om dig" onLink={() => go({ screen: 'assist' })}>
-          <SuggestionRows limit={3} />
+        <Panel title="Spørg Assist" className="span-7" link="Åbn Assist" onLink={() => go({ screen: 'assist' })}>
+          <AskBar />
+          {sugg.length > 0 && <div className="pad-top"><SuggestionRows limit={3} /></div>}
         </Panel>
 
         <Panel title="Seneste noter" className="span-5" link="Alle noter" onLink={() => go({ screen: 'notes' })}>
+          {!notes.length && <p className="muted">Ingen noter endnu. Skriv en, eller sig til Assist: "Lav en note om …"</p>}
           <ul className="rows">
             {notes.slice(0, 4).map((n) => (
               <li key={n.id}>
@@ -113,6 +117,7 @@ export function Today({ firstOpen }: { firstOpen: boolean }) {
         </Panel>
 
         <Panel title="Mål" className="span-12" count={`${onTrack} af ${goals.length} på sporet`} link="Alle mål" onLink={() => go({ screen: 'goals' })}>
+          {!goals.length && <p className="muted">Ingen mål endnu. Fortæl Assist, hvad du gerne vil nå, så sætter den målet op og følger med.</p>}
           <ul className="rows">
             {stats.map(({ g, s }) => (
               <li key={g.id}>
@@ -127,5 +132,21 @@ export function Today({ firstOpen }: { firstOpen: boolean }) {
         </Panel>
       </div>
     </main>
+  );
+}
+
+/** One line to Assist from the start page; the conversation continues on the Assist screen. */
+function AskBar() {
+  const { go } = useRoute();
+  const memory = useList('memory');
+  const [t, setT] = useState('');
+  return (
+    <>
+      {!memory.length && <p className="muted">CENTRA kender dig ikke endnu. Fortæl Assist om din arbejdstid, dine rutiner og dine mål, så fylder den kalender, noter og mål ud for dig.</p>}
+      <form className="askbar pad-top" onSubmit={(ev) => { ev.preventDefault(); if (!t.trim()) return; queueAssist(t.trim()); go({ screen: 'assist' }); }}>
+        <input value={t} onChange={(ev) => setT(ev.target.value)} placeholder={memory.length ? 'Spørg eller bed om noget …' : 'Fx: Jeg arbejder i Netto 06–16 tirsdag til fredag'} aria-label="Skriv til Assist" />
+        <Btn type="submit" variant="primary" icon="send" aria-label="Send" disabled={!t.trim()} />
+      </form>
+    </>
   );
 }

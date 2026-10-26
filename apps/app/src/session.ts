@@ -13,7 +13,6 @@ import {
   SyncEngine, WsRelay, NullRelay, IndexedDbStore, EncryptedStore, RelayError, createAccount, passwordSecrets, unlock, changePassword as rewrap,
   recoverWithCode, newRecovery, rotateContentKey, absorbKeys, normalizeUser, type AccountPublic, type DeviceRecord, type Prelogin,
 } from '@centra/sync';
-import { seedSampleData } from './seed.ts';
 
 export const DEFAULT_USER = 'Tranberg';
 
@@ -161,7 +160,7 @@ export async function signIn({ relay, pre, user }: Lookup, password: string, onS
   const device = deviceId();
   const engine = new SyncEngine({ device, keys, store: new EncryptedStore(new IndexedDbStore(`${user}:${device}`), storeKey), relay });
   await engine.start();
-  if (created) seedSampleData(engine);
+  purgeSampleData(engine);
 
   const verify = (pw: string) => {
     const s = passwordSecrets(pw, account.kdf);
@@ -243,3 +242,10 @@ const localGuard = {
   },
   reset() { localStorage.removeItem('centra.guard'); },
 };
+
+/** Earlier test builds filled a new account with invented sample content; it is removed for good on unlock. */
+function purgeSampleData(e: SyncEngine) {
+  for (const t of ['note', 'event', 'mail', 'goal', 'goalUpdate', 'memory', 'suggestion', 'person', 'rule']) {
+    for (const r of e.list(t)) if ((r as { sample?: boolean }).sample) e.remove(t, r.id);
+  }
+}

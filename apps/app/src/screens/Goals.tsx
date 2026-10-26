@@ -21,6 +21,7 @@ export function Goals() {
   const id = route.id ?? stats.find((x) => !x.s.onTrack)?.g.id ?? stats[0]?.g.id;
   const cur = stats.find((x) => x.g.id === id);
   const e = useEngine();
+  const pending = useList('suggestion').filter((x: any) => x.status === 'pending').length;
 
   const section = (title: string, list: typeof stats) => list.length > 0 && (
     <>
@@ -42,11 +43,11 @@ export function Goals() {
         {section('Kræver handling', stats.filter((x) => !x.s.onTrack))}
         {section('På sporet', stats.filter((x) => x.s.onTrack))}
       </div>
-      {cur ? <GoalDetail key={cur.g.id} g={cur.g} s={cur.s} /> : <div className="gdetail" />}
+      {cur ? <GoalDetail key={cur.g.id} g={cur.g} s={cur.s} /> : <div className="gdetail"><p className="muted pad">Ingen mål endnu. Lav et med knappen, eller fortæl Assist, hvad du gerne vil nå.</p></div>}
       <aside className="details" aria-label="Detaljer">
-        <div className="dsec"><div className="dsec__title">Forslag fra Assist</div><SuggestionRows limit={2} /></div>
+        {pending > 0 && <div className="dsec"><div className="dsec__title">Forslag fra Assist</div><SuggestionRows limit={2} /></div>}
         {cur?.g.event && <LinkedEvent id={cur.g.event} />}
-        <div className="dsec"><div className="dsec__title">CENTRA ved</div><p className="muted small">Du opdaterer dine mål søndag aften. <button className="tag" onClick={() => go({ screen: 'assist' })}>Ret</button></p></div>
+        <div className="dsec"><div className="dsec__title">Med Assist</div><p className="muted small">Sig fx "Jeg løb 5 km i dag" eller "Sæt et mål om at spare 10.000 kr inden sommer", så opdaterer Assist dine mål. <button className="tag" onClick={() => go({ screen: 'assist' })}>Åbn Assist</button></p></div>
       </aside>
     </main>
   );

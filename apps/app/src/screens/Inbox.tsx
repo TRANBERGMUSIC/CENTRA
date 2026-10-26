@@ -5,7 +5,7 @@ import { Icon } from '../ui/Icon.tsx';
 import { useToast } from '../ui/Shell.tsx';
 import { useLenis, useScreenEnter, collapseOut } from '../motion.ts';
 
-/** Step 2: the inbox UI on synced sample mail. Real accounts (Gmail, Graph, IMAP) arrive in step 5. */
+/** The inbox UI. Real accounts (Gmail, Microsoft 365, IMAP, iCloud) arrive in step 5. */
 export function Inbox() {
   const e = useEngine();
   const { route, go } = useRoute();
@@ -33,7 +33,7 @@ export function Inbox() {
     <main className="inbox" ref={ref}>
       <div className="mlist" data-lenis-prevent>
         <div className="mlist__head" data-enter>
-          <div className="mlist__title"><h1>Indbakke</h1><span className="meta">Eksempeldata · konti tilsluttes i trin 5</span></div>
+          <div className="mlist__title"><h1>Indbakke</h1><span className="meta">Mailkonti forbindes i trin 5</span></div>
           <div className="tabs" role="tablist">
             {([['inbox', 'Indbakke', all.length], ['reply', 'Venter på svar', all.filter((m) => m.needsReply).length], ['receipts', 'Kvitteringer', all.filter((m) => m.cat === 'Kvitteringer').length]] as const).map(([k, l, c]) => (
               <button key={k} role="tab" aria-selected={tab === k} className={`tab ${tab === k ? 'is-active' : ''}`} onClick={() => setTab(k)}>{l} <span className="meta num">{c}</span></button>
@@ -55,7 +55,7 @@ export function Inbox() {
               </button>
             );
           })}
-          {!rows.length && <p className="meta pad">Intet her. Godt gået.</p>}
+          {!rows.length && <p className="meta pad">{all.length ? 'Intet her. Godt gået.' : 'Ingen mail endnu. Gmail, Outlook, one.com, Simply og iCloud forbindes i et senere trin. Indtil da kan Assist holde øje med bestemte mails for dig.'}</p>}
         </div>
       </div>
       {id ? <Reader key={id} id={id} onArchive={(el) => archive(id, el)} /> : <div className="reader" />}

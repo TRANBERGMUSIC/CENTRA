@@ -4,6 +4,8 @@ import { Wordmark } from './primitives.tsx';
 import { useList, useRoute, useSession, useSyncStatus, fmt, type Route } from '../state.tsx';
 import { gsap, useGSAP, reduced, ease, dur } from '../motion.ts';
 import { lock } from '../lock.ts';
+import { queueAssist } from '../screens/Assist.tsx';
+import { repeatLabel } from '../calendar.ts';
 
 /* ---------------------------------------------------------------- toasts */
 type Toast = { id: number; text: string; sticky?: boolean; action?: { label: string; run: () => void } };
@@ -101,7 +103,7 @@ export function TabBar() {
   const counts = useCounts();
   return (
     <nav className="tabbar" aria-label="Faner">
-      {NAV.filter(([k]) => k !== 'assist').map(([k, i, l]) => (
+      {NAV.filter(([k]) => k !== 'inbox').map(([k, i, l]) => (
         <button key={k} className={route.screen === k ? 'is-active' : ''} onClick={() => go({ screen: k })} aria-current={route.screen === k ? 'page' : undefined}>
           <Icon name={i} size="tab" />{l}
           {k === 'inbox' && counts.inbox ? <span className="badge num">{counts.inbox}</span> : null}
@@ -128,17 +130,18 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     const commands: Hit[] = [
       { kind: 'Kommando', icon: 'plus', title: 'Ny note', sub: '⌘N', run: () => go({ screen: 'notes', id: engine.create('note', { title: '', folder: 'Indbakke', tags: [], editedAt: new Date().toISOString() }) }) },
       { kind: 'Kommando', icon: 'goals', title: 'Nyt mål', run: () => go({ screen: 'goals', id: engine.create('goal', { title: 'Nyt mål', kind: 'measure', unit: '', target: 10, area: 'Privat', order: 99 }) }) },
-      { kind: 'Kommando', icon: 'assist', title: 'Spørg Assist', sub: 'Kommer i trin 6', run: () => go({ screen: 'assist' }) },
+      { kind: 'Assist', icon: 'assist', title: q.trim() ? `Spørg Assist: ${q.trim()}` : 'Spørg Assist', run: () => { if (q.trim()) queueAssist(q.trim()); go({ screen: 'assist' }); } },
       { kind: 'Kommando', icon: 'settings', title: 'Skift tema', run: () => go({ screen: 'settings' }) },
     ];
     const content: Hit[] = [
       ...notes.map((n: any) => ({ kind: 'Note', icon: 'notes' as IconName, title: n.title || 'Uden titel', sub: n.folder, run: () => go({ screen: 'notes', id: n.id }), text: engine.doc(n.id).getText('body').toString() })),
       ...mails.map((m: any) => ({ kind: 'Mail', icon: 'inbox' as IconName, title: m.subject, sub: m.preview, run: () => go({ screen: 'inbox', id: m.id }) })),
-      ...events.map((e: any) => ({ kind: 'Aftale', icon: 'calendar' as IconName, title: e.title, sub: `${fmt.shortDate(e.start)} ${fmt.hm(e.start)}${e.place ? ' · ' + e.place : ''}`, run: () => go({ screen: 'calendar' }) })),
+      ...events.map((e: any) => ({ kind: 'Aftale', icon: 'calendar' as IconName, title: e.title, sub: `${e.repeat ? repeatLabel(e.repeat) : fmt.shortDate(e.start)} ${fmt.hm(e.start)}${e.place ? ' · ' + e.place : ''}`, run: () => go({ screen: 'calendar' }) })),
       ...goals.map((g: any) => ({ kind: 'Mål', icon: 'goals' as IconName, title: g.title, sub: g.area, run: () => go({ screen: 'goals', id: g.id }) })),
     ];
     if (!t) return [...commands, ...content.slice(0, 4)];
-    return [...commands, ...content].filter((h: any) => `${h.title} ${h.sub ?? ''} ${h.text ?? ''}`.toLowerCase().includes(t)).slice(0, 12);
+    const found = [...commands.slice(0, 2), ...commands.slice(3), ...content].filter((h: any) => `${h.title} ${h.sub ?? ''} ${h.text ?? ''}`.toLowerCase().includes(t)).slice(0, 11);
+    return [...found, commands[2]];
   }, [q, notes, mails, events, goals, engine, go]);
 
   useEffect(() => { setSel(0); }, [q]);
@@ -173,7 +176,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
               <Icon name={h.icon} /><span className="ellipsis"><span>{h.title}</span>{h.sub && <span className="meta"> · {h.sub}</span>}</span><span className="meta">{h.kind}</span>
             </li>
           ))}
-          {!hits.length && <li className="meta">Intet fundet for “{q}”. Søgningen bliver semantisk i trin 6.</li>}
+          
         </ul>
       </div>
     </div>

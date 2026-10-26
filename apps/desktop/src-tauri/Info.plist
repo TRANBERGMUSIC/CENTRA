@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Merged into CENTRA.app by Tauri. macOS asks once before Assist may listen. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>CENTRA bruger mikrofonen, når du taler til Assist.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>CENTRA laver din tale om til tekst, så Assist kan forstå den.</string>
+</dict>
+</plist>

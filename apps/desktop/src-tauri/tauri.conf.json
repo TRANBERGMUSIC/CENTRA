@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost ws://localhost:8787 wss: https://github.com https://objects.githubusercontent.com; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost ws://localhost:8787 wss: https://github.com https://objects.githubusercontent.com https://api.anthropic.com http://localhost:11434 http://127.0.0.1:11434; media-src 'self' blob: mediastream:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
     }
   },
   "bundle": {
