@@ -122,7 +122,7 @@ export function Today({ firstOpen }: { firstOpen: boolean }) {
             {stats.map(({ g, s }) => (
               <li key={g.id}>
                 <button className="goalrow" onClick={() => go({ screen: 'goals', id: g.id })}>
-                  <span className="row__body"><span className="strong ellipsis">{g.title}</span><span className="meta">{g.area} · {g.kind === 'habit' ? 'vane' : 'frist ' + s.due}</span></span>
+                  <span className="row__body"><span className="strong ellipsis">{g.title || 'Uden navn'}</span><span className="meta">{g.area} · {g.kind === 'habit' ? 'vane' : 'frist ' + s.due}</span></span>
                   <span className="goalrow__bar"><Progress ratio={s.ratio} focus={!s.onTrack} small /><span className="meta num">{s.label}</span></span>
                   <span className={`status ${s.onTrack ? '' : 'is-due'}`}>{s.onTrack ? 'På sporet' : 'Kræver handling'}</span>
                 </button>

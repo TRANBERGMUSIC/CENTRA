@@ -221,3 +221,16 @@ button.tag { background: none; border: 0; font: inherit; cursor: pointer; paddin
 .kvinput:focus { border-color: var(--c-focus); }
 .kv .connect { align-items: center; }
 .kv .connect .btn { height: 32px; }
+
+/* goals: naming and editing */
+.ghead { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); }
+.gtitle { display: block; width: 100%; background: none; border: 0; outline: none; color: var(--c-text); font: inherit; font-size: var(--fs-title); line-height: var(--lh-title); letter-spacing: var(--tr-title); font-weight: var(--w-strong); padding: 2px 0; margin: var(--s-1) 0 var(--s-4); border-bottom: 1px solid transparent; }
+.gtitle:hover { border-bottom-color: var(--c-border); }
+.gtitle:focus { border-bottom-color: var(--c-focus); }
+.gtitle::placeholder { color: var(--c-faint); }
+.gedit { display: flex; flex-direction: column; gap: var(--s-4); padding: var(--s-4); margin-bottom: var(--s-5); border-radius: var(--r-card); background: var(--c-surface); border: 1px solid var(--c-border); }
+.gedit__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--s-3); }
+.gedit__steps { display: flex; flex-direction: column; gap: var(--s-2); }
+.gedit__foot { display: flex; justify-content: flex-end; }
+.ufield input[type=date] { color-scheme: dark; }
+:root[data-theme="light"] .ufield input[type=date] { color-scheme: light; }

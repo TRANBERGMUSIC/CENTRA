@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEngine, useList, useRoute, useNow, fmt } from '../state.tsx';
 import { Btn } from '../ui/primitives.tsx';
 import { Icon } from '../ui/Icon.tsx';
@@ -28,7 +28,7 @@ export function Goals() {
       <div className="gsec">{title}</div>
       {list.map(({ g, s }) => (
         <button key={g.id} className={`gitem ${g.id === id ? 'is-selected' : ''}`} onClick={() => go({ screen: 'goals', id: g.id })}>
-          <span className="gitem__t"><span className="strong ellipsis">{g.title}</span><span className="meta num">{s.due}</span></span>
+          <span className="gitem__t"><span className={`strong ellipsis ${g.title ? '' : 'faint'}`}>{g.title || 'Uden navn'}</span><span className="meta num">{s.due}</span></span>
           <Progress ratio={s.ratio} focus={!s.onTrack} small />
           <span className="meta num gitem__l">{s.label}</span>
         </button>
@@ -39,7 +39,7 @@ export function Goals() {
   return (
     <main className="goals" ref={ref}>
       <div className="glist" data-enter>
-        <h1>Mål <span className="meta num">{goals.length}</span><Btn size="sm" icon="plus" onClick={() => go({ screen: 'goals', id: e.create('goal', { title: 'Nyt mål', kind: 'measure', unit: 'gange', target: 10, area: 'Privat', due: `${now.getFullYear()}-12-31`, order: goals.length + 1 }) })}>Nyt mål</Btn></h1>
+        <h1>Mål <span className="meta num">{goals.length}</span><Btn size="sm" icon="plus" onClick={() => { const nid = e.create('goal', { title: '', kind: 'measure', unit: 'gange', target: 10, area: 'Privat', start: now.toISOString().slice(0, 10), due: `${now.getFullYear()}-12-31`, order: goals.length + 1 }); fresh = nid; go({ screen: 'goals', id: nid }); }}>Nyt mål</Btn></h1>
         {section('Kræver handling', stats.filter((x) => !x.s.onTrack))}
         {section('På sporet', stats.filter((x) => x.s.onTrack))}
       </div>
@@ -60,9 +60,25 @@ function LinkedEvent({ id }: { id: string }) {
   return <div className="dsec"><div className="dsec__title">Koblet til</div><div className="row"><Icon name="calendar" /><span className="row__body"><span>{ev.title}</span><span className="meta">{ev.recurring ? 'Gentages ' + ev.recurring : fmt.shortDate(ev.start)}</span></span></div></div>;
 }
 
+/** Set when "Nyt mål" creates a goal, so its detail opens ready to be named. */
+let fresh: string | null = null;
+
 function GoalDetail({ g, s }: { g: Goal; s: ReturnType<typeof goalStats> }) {
   const e = useEngine();
   const toast = useToast();
+  const { go } = useRoute();
+  const [editing, setEditing] = useState(() => { const f = fresh === g.id; if (f) fresh = null; return f; });
+  const [title, setTitle] = useState(g.title);
+  const titleRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (editing || !g.title) { titleRef.current?.focus(); titleRef.current?.select(); } /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => { if (document.activeElement !== titleRef.current) setTitle(g.title); }, [g.title]);
+  const saveTitle = () => { const t = title.trim(); if (t !== g.title) e.set('goal', g.id, { title: t }); };
+  function removeGoal() {
+    const { id: _i, type: _t, ...fields } = g as any;
+    e.remove('goal', g.id);
+    go({ screen: 'goals' });
+    toast({ text: `Målet "${g.title || 'Uden navn'}" er slettet`, action: { label: 'Fortryd', run: () => e.set('goal', g.id, { ...fields, _deleted: false }) } });
+  }
   const [delta, setDelta] = useState('');
   const [text, setText] = useState('');
   const prev = useRef(s.value);
@@ -96,8 +112,13 @@ function GoalDetail({ g, s }: { g: Goal; s: ReturnType<typeof goalStats> }) {
 
   return (
     <div className="gdetail">
-      <div className="meta">{g.area} · {g.kind === 'measure' ? 'tal-mål' : g.kind === 'milestones' ? 'milepæle' : 'vane'}{g.due ? ' · frist ' + s.due : ''}</div>
-      <h2>{g.title}</h2>
+      <div className="ghead">
+        <div className="meta">{g.area} · {g.kind === 'measure' ? 'tal-mål' : g.kind === 'milestones' ? 'milepæle' : 'vane'}{g.due ? ' · frist ' + s.due : ''}</div>
+        <Btn size="sm" variant="text" icon="edit" aria-expanded={editing} onClick={() => setEditing((x) => !x)}>{editing ? 'Færdig' : 'Redigér'}</Btn>
+      </div>
+      <input ref={titleRef} className="gtitle" value={title} placeholder="Navngiv dit mål" aria-label="Målets navn"
+        onChange={(x) => setTitle(x.target.value)} onBlur={saveTitle} onKeyDown={(x) => { if (x.key === 'Enter') { saveTitle(); x.currentTarget.blur(); } if (x.key === 'Escape') { setTitle(g.title); x.currentTarget.blur(); } }} />
+      {editing && <GoalEdit g={g} onDelete={removeGoal} />}
       <div className="gfig">
         <b className="num"><CountUp key={g.id} from={from} to={s.value} duration={0.8} decimals={g.kind === 'measure' && s.value % 1 ? 1 : 0} separator="." decimalSeparator="," trigger="mount" /></b>
         <span className="muted num">{g.kind === 'measure' ? `af ${fmtN(g.target ?? 0)} ${g.unit ?? ''}` : g.kind === 'milestones' ? `af ${g.steps?.length} trin` : `af ${g.perWeek} denne uge`}</span>
@@ -137,6 +158,48 @@ function GoalDetail({ g, s }: { g: Goal; s: ReturnType<typeof goalStats> }) {
           <li key={u.id}><span className="meta num">{fmt.ago(u.at)}</span><span className="strong num">{u.delta ? '+' + fmtN(u.delta) + ' ' + (g.unit ?? '') : '—'}</span><span>{u.text && <>{u.text}<br /></>}<span className="meta">{u.src}</span></span></li>
         ))}</ul>
       </div>
+    </div>
+  );
+}
+
+/** Everything about a goal except its progress: kind, target, unit, steps, deadline, area. */
+function GoalEdit({ g, onDelete }: { g: Goal; onDelete: () => void }) {
+  const e = useEngine();
+  const set = (f: Partial<Goal>) => e.set('goal', g.id, f as Record<string, unknown>);
+  const [step, setStep] = useState('');
+  const steps = g.steps ?? [];
+  const numIn = (v: string) => { const n = Number(v.replace(',', '.')); return n > 0 ? n : undefined; };
+  return (
+    <div className="gedit">
+      <div className="segmented" role="radiogroup" aria-label="Type">
+        {([['measure', 'Tal-mål'], ['milestones', 'Milepæle'], ['habit', 'Vane']] as const).map(([k, l]) => (
+          <button key={k} type="button" role="radio" aria-checked={g.kind === k} className={g.kind === k ? 'is-active' : ''}
+            onClick={() => set({ kind: k, ...(k === 'habit' && !g.perWeek ? { perWeek: 2 } : {}), ...(k === 'milestones' && !g.steps ? { steps: [] } : {}) })}>{l}</button>
+        ))}
+      </div>
+      <div className="gedit__grid">
+        {g.kind === 'measure' && <>
+          <label className="ufield"><span>Mål</span><input inputMode="decimal" defaultValue={g.target ?? ''} onBlur={(x) => { const n = numIn(x.target.value); if (n) set({ target: n }); }} placeholder="fx 300" /></label>
+          <label className="ufield"><span>Enhed</span><input defaultValue={g.unit ?? ''} onBlur={(x) => set({ unit: x.target.value.trim() })} placeholder="fx km, kr, bøger" /></label>
+        </>}
+        {g.kind === 'habit' && <label className="ufield"><span>Gange om ugen</span><input inputMode="numeric" defaultValue={g.perWeek ?? 1} onBlur={(x) => { const n = numIn(x.target.value); if (n) set({ perWeek: Math.round(n) }); }} /></label>}
+        {g.kind !== 'habit' && <label className="ufield"><span>Frist</span><input type="date" defaultValue={g.due ?? ''} onChange={(x) => set({ due: x.target.value || undefined })} /></label>}
+        <label className="ufield"><span>Område</span><input list="goal-areas" defaultValue={g.area ?? ''} onBlur={(x) => set({ area: x.target.value.trim() || 'Privat' })} /></label>
+        <datalist id="goal-areas">{['Privat', 'Arbejde', 'Sundhed', 'Økonomi', 'Projekter', 'Familie'].map((a) => <option key={a} value={a} />)}</datalist>
+      </div>
+      {g.kind === 'milestones' && (
+        <div className="gedit__steps">
+          <ul className="rows">{steps.map(([t, d], i) => (
+            <li key={i} className="memrow"><span className="row__body"><span className={d ? 'faint' : ''}>{t}</span></span>
+              <Btn size="sm" variant="text" icon="x" aria-label={`Fjern ${t}`} onClick={() => set({ steps: steps.filter((_, j) => j !== i) })} /></li>
+          ))}</ul>
+          <form className="askbar" onSubmit={(x) => { x.preventDefault(); if (step.trim()) { set({ steps: [...steps, [step.trim(), false]] }); setStep(''); } }}>
+            <input value={step} onChange={(x) => setStep(x.target.value)} placeholder="Nyt trin …" aria-label="Nyt trin" />
+            <Btn type="submit" icon="plus" disabled={!step.trim()}>Tilføj</Btn>
+          </form>
+        </div>
+      )}
+      <div className="gedit__foot"><Btn size="sm" variant="text" icon="x" onClick={onDelete}>Slet mål</Btn></div>
     </div>
   );
 }
