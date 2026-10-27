@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { explain } from '../session.ts';
 import { lock } from '../lock.ts';
-import { useEngine, useRoute, useSession, useSyncStatus, fmt } from '../state.tsx';
+import { useEngine, useList, useRoute, useSession, useSyncStatus, fmt } from '../state.tsx';
 import { Btn, Panel } from '../ui/primitives.tsx';
 import { useToast } from '../ui/Shell.tsx';
 import { useScreenEnter } from '../motion.ts';
@@ -33,7 +33,7 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
   }
 
   function exportAll() {
-    const data = { exportedAt: new Date().toISOString(), version: APP_VERSION, records: ['note', 'event', 'mail', 'goal', 'goalUpdate', 'memory', 'rule', 'suggestion', 'person', 'watch', 'chat'].flatMap((t) => e.list(t)),
+    const data = { exportedAt: new Date().toISOString(), version: APP_VERSION, records: ['note', 'event', 'mail', 'goal', 'goalUpdate', 'memory', 'rule', 'suggestion', 'person', 'watch', 'chat', 'outlay', 'payment', 'expense', 'usage'].flatMap((t) => e.list(t)),
       noteBodies: Object.fromEntries(e.list('note').map((n) => [n.id, e.doc(n.id).getText('body').toString()])) };
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
@@ -86,11 +86,56 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
           <div className="kv"><span>Slået fra<span className="meta block">CENTRA kører på denne computer, og alt gemmes krypteret med en nøgle fra dit password. Sync til iPhone og andre computere er bygget og slås til senere.</span></span><span className="meta">Kun denne enhed</span></div>
         </Panel>
         )}
-        <Panel title="Data" className="span-12">
-          <div className="kv"><span>Eksportér alt som JSON</span><Btn size="sm" onClick={exportAll}>Eksportér</Btn></div>
-        </Panel>
+        <DataPanel onExport={exportAll} />
       </div>
     </main>
+  );
+}
+
+/** What can be wiped, one kind at a time or everything. Every wipe can be undone right after. */
+const KINDS: [string, string, string[]][] = [
+  ['Udlæg og betalinger', 'Alle udlæg, varer og registrerede tilbagebetalinger', ['outlay', 'payment']],
+  ['Kontakter', 'Personer med billeder, numre og noter', ['person']],
+  ['Udgifter', 'Faste udgifter og abonnementer', ['expense']],
+  ['Noter', 'Alle noter', ['note']],
+  ['Kalender', 'Aftaler du har lavet (abonnerede kalendere hentes igen)', ['event']],
+  ['Mål', 'Mål og alle deres opdateringer', ['goal', 'goalUpdate']],
+  ['Samtaler med Assist', 'Chathistorikken', ['chat']],
+  ['Det Assist ved om dig', 'Hukommelse, regler, mail-overvågning og forslag', ['memory', 'rule', 'watch', 'suggestion']],
+  ['Mails på denne computer', 'Kun kopierne i CENTRA. Mails på serveren røres ikke og hentes igen', ['mail']],
+  ['Claude-forbrug', 'Historikken over hvad Assist har kostet', ['usage']],
+];
+
+function DataPanel({ onExport }: { onExport: () => void }) {
+  const e = useEngine();
+  const toast = useToast();
+  for (const [, , types] of KINDS) for (const t of types) useList(t); // eslint-disable-line react-hooks/rules-of-hooks
+  const [ask, setAsk] = useState<string | null>(null);
+  const [word, setWord] = useState('');
+  const count = (types: string[]) => types.reduce((n, t) => n + e.list(t).length, 0);
+  const wipe = (types: string[], label: string) => {
+    const gone = types.flatMap((t) => e.list(t).map((r) => [t, r.id] as const));
+    for (const [t, id] of gone) e.remove(t, id);
+    setAsk(null); setWord('');
+    toast({ text: `${label} er slettet (${gone.length})`, action: { label: 'Fortryd', run: () => { for (const [t, id] of gone) e.set(t, id, { _deleted: false }); } } });
+  };
+  const all = KINDS.flatMap(([, , t]) => t);
+  return (
+    <Panel title="Data" className="span-12">
+      <div className="kv"><span>Eksportér alt som JSON<span className="meta block">Tag en kopi, før du sletter noget.</span></span><Btn size="sm" onClick={onExport}>Eksportér</Btn></div>
+      {KINDS.map(([label, sub, types]) => {
+        const n = count(types);
+        return (
+          <div key={label} className="kv"><span>{label}<span className="meta block">{sub}</span></span>
+            {ask === label ? <span className="kvacts"><span className="meta">Slet {n}?</span><Btn size="sm" variant="primary" onClick={() => wipe(types, label)}>Ja, slet</Btn><Btn size="sm" variant="text" onClick={() => setAsk(null)}>Annullér</Btn></span>
+              : <span className="kvacts"><span className="meta num">{n}</span><Btn size="sm" disabled={!n} onClick={() => setAsk(label)}>Slet</Btn></span>}
+          </div>
+        );
+      })}
+      <div className="kv kv--danger"><span>Slet alt indhold<span className="meta block">Alt ovenfor på én gang. Dit login, dine forbindelser og indstillinger bliver. Skriv SLET for at bekræfte.</span></span>
+        <span className="kvacts"><input className="kvinput" value={word} onChange={(x) => setWord(x.target.value)} placeholder="SLET" aria-label="Skriv SLET" style={{ width: 90 }} /><Btn size="sm" variant="primary" disabled={word.trim().toUpperCase() !== 'SLET'} onClick={() => wipe(all, 'Alt indhold')}>Slet alt</Btn></span>
+      </div>
+    </Panel>
   );
 }
 

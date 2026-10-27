@@ -93,6 +93,7 @@ function OutlayDetail({ id }: { id: string }) {
   const [drag, setDrag] = useState(false);
   const [payFor, setPayFor] = useState<string | null>(null);
   const [payAmt, setPayAmt] = useState('');
+  const [assign, setAssign] = useState<string | null>(null);
   if (!o) return <div className="split__detail" />;
   const set = (f: Partial<Outlay>) => e.set('outlay', id, f as Record<string, unknown>);
   const items = o.items ?? [];
@@ -155,7 +156,10 @@ function OutlayDetail({ id }: { id: string }) {
       onDragOver={(x) => { x.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={(x) => { x.preventDefault(); setDrag(false); void onFile(x.dataTransfer.files?.[0]); }}
       onPaste={(x) => { const f = [...x.clipboardData.files].find((y) => y.type.startsWith('image/')); if (f) { x.preventDefault(); void onFile(f); } }}>
       <button className="phone-back" onClick={() => go({ screen: 'outlays' })}><Icon name="chevron-left" size="sm" />Udlæg</button>
-      <input className="gtitle" defaultValue={o.title} placeholder="Hvad var det? (fx Pizza fredag)" aria-label="Titel" autoFocus={!o.title && !items.length} onBlur={(x) => x.target.value.trim() !== o.title && set({ title: x.target.value.trim() })} />
+      <div className="otitlerow">
+        <input className="gtitle" defaultValue={o.title} placeholder="Hvad var det? (fx Pizza fredag)" aria-label="Titel" autoFocus={!o.title && !items.length} onBlur={(x) => x.target.value.trim() !== o.title && set({ title: x.target.value.trim() })} />
+        <Btn size="sm" variant="text" icon="x" onClick={remove}>Slet udlæg</Btn>
+      </div>
       <div className="ometa">
         <label className="ufield"><span>Dato</span><input type="date" value={o.date ?? ''} onChange={(x) => set({ date: x.target.value })} /></label>
         <label className="ufield"><span>Sted</span><input defaultValue={o.place ?? ''} placeholder="Butik eller sted" onBlur={(x) => set({ place: x.target.value.trim() })} /></label>
@@ -177,7 +181,7 @@ function OutlayDetail({ id }: { id: string }) {
       </section>
 
       <section className="panel">
-        <div className="panel__head"><h2 className="panel__title">Hvem var med</h2><span className="meta push-right">Klik på navnene ved en vare for at vælge, hvem den deles mellem</span></div>
+        <div className="panel__head"><h2 className="panel__title">Hvem var med</h2></div>
         <div className="chips opeople">
           {people.map((p) => {
             const c = p === ME ? null : (e.get(p) as unknown as Person | null);
@@ -199,15 +203,25 @@ function OutlayDetail({ id }: { id: string }) {
 
       <section className="panel">
         <div className="panel__head"><h2 className="panel__title">Varer</h2><span className="panel__count num">{items.length}</span>
-          {items.length > 0 && <Btn size="sm" variant="text" className="push-right" onClick={() => setItems(items.map((it) => ({ ...it, who: [] })))}>Del alt ligeligt</Btn>}</div>
-        <ul className="oitems">
+          {items.length > 0 && <Btn size="sm" variant="text" className="push-right" onClick={() => { setItems(items.map((it) => ({ ...it, who: [] }))); setAssign(null); }}>Del alt ligeligt</Btn>}</div>
+        {items.length > 0 && people.length > 1 && (
+          <div className="oassign">
+            <span className="meta">Ikke alt skal deles? Vælg en person og tryk på de varer, der kun er deres:</span>
+            <div className="chips">{people.map((p) => (
+              <button key={p} type="button" className={`tag ${assign === p ? 'is-active' : ''}`} aria-pressed={assign === p} onClick={() => setAssign(assign === p ? null : p)}>{p === ME ? 'Mig' : personName(e, p).split(' ')[0]}</button>
+            ))}{assign && <Btn size="sm" variant="primary" onClick={() => setAssign(null)}>Færdig</Btn>}</div>
+            {assign && <p className="meta small">Tryk på en vare for at give den til {assign === ME ? 'dig' : personName(e, assign).split(' ')[0]} alene. Tryk igen for at dele den mellem alle.</p>}
+          </div>
+        )}
+        <ul className={`oitems ${assign ? 'is-assigning' : ''}`}>
           {items.map((it, i) => (
-            <li key={it.id}>
+            <li key={it.id} className={assign && it.who?.length === 1 && it.who[0] === assign ? 'is-theirs' : ''}
+              onClick={assign ? () => setItems(items.map((y, j) => (j === i ? { ...y, who: y.who?.length === 1 && y.who[0] === assign ? [] : [assign] } : y))) : undefined}>
               <input className="kvinput oitems__name" defaultValue={it.name} aria-label="Vare" onBlur={(x) => x.target.value !== it.name && setItems(items.map((y, j) => (j === i ? { ...y, name: x.target.value } : y)))} />
               <input className="kvinput oitems__amt num" inputMode="decimal" defaultValue={String(it.amount).replace('.', ',')} aria-label="Beløb" onBlur={(x) => { const n = parseKr(x.target.value); if (Number.isFinite(n) && n !== it.amount) setItems(items.map((y, j) => (j === i ? { ...y, amount: n } : y))); }} />
               <span className="oitems__who">{people.map((p) => {
                 const on = !it.who?.length || it.who.includes(p);
-                return <button key={p} aria-pressed={on} className={on ? 'is-on' : ''} title={on ? 'Med' : 'Ikke med'} onClick={() => {
+                return <button key={p} aria-pressed={on} className={on ? 'is-on' : ''} title={on ? 'Betaler med. Tryk for at fjerne' : 'Betaler ikke. Tryk for at tilføje'} onClick={() => {
                   const cur = it.who?.length ? it.who : people;
                   const next = on ? cur.filter((w) => w !== p) : [...cur, p];
                   if (!next.length) return;
@@ -235,8 +249,8 @@ function OutlayDetail({ id }: { id: string }) {
             <div key={w.person} className="oweline">
               <div className="oweline__top">
                 {c && <Avatar p={c} />}
-                <span className="row__body"><span className="strong">{c?.name ?? 'Ukendt'}</span><span className="meta num">Andel {kr(w.share)}{w.paid > 0 ? ` · betalt ${kr(w.paid)}` : ''}</span></span>
-                {w.left > 0 ? <Pill tone="focus">Mangler {kr(w.left)}</Pill> : <span className="status">Betalt</span>}
+                <span className="row__body"><span className="strong">{c?.name ?? 'Ukendt'}</span><span className="meta num">{w.share > 0 ? `Andel ${kr(w.share)}` : 'Ingen varer'}{w.paid > 0 ? ` · betalt ${kr(w.paid)}` : ''}</span></span>
+                {w.left > 0 ? <Pill tone="focus">Mangler {kr(w.left)}</Pill> : <span className="status">{w.share > 0 ? 'Betalt' : 'Skal ikke betale'}</span>}
               </div>
               {w.share > 0 && <Progress ratio={w.paid / w.share} small />}
               {w.left > 0 && (payFor === w.person ? (
@@ -268,7 +282,6 @@ function OutlayDetail({ id }: { id: string }) {
       <div className="gedit__foot">
         <label className="checkrow small"><input type="checkbox" checked={o.countMine !== false} onChange={(x) => set({ countMine: x.target.checked })} />Min andel tæller med i Udgifter</label>
         <span className="push-right" />
-        <Btn size="sm" variant="text" icon="x" onClick={remove}>Slet udlæg</Btn>
         <Btn variant="primary" icon="check" onClick={() => { go({ screen: 'outlays' }); toast({ text: `${o.title || 'Udlægget'} er gemt` }); }}>Færdig</Btn>
       </div>
     </div>

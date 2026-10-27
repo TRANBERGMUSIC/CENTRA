@@ -301,3 +301,19 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { box-shadow: 
 .odebt__items .num { text-align: right; }
 .odebt__foot { display: flex; gap: 12px; }
 .gedit__foot .btn--primary { margin-left: var(--s-2); }
+
+/* udlæg: who pays for which item */
+.otitlerow { display: flex; align-items: center; gap: var(--s-3); }
+.otitlerow .gtitle { flex: 1; min-width: 0; }
+.otitlerow .btn { flex: none; color: var(--c-negative); }
+.oassign { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; margin-bottom: 10px; border-radius: 12px; background: var(--fill); }
+.oassign .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.oassign .tag.is-active { background: var(--c-primary); color: var(--c-on-primary, #fff); }
+.oitems.is-assigning li { cursor: pointer; border-radius: 10px; transition: background 160ms var(--e-standard); }
+.oitems.is-assigning li:hover { background: var(--fill); }
+.oitems.is-assigning li > *, .oitems.is-assigning li .oitems__who button { pointer-events: none; }
+.oitems li.is-theirs { background: color-mix(in oklab, var(--c-primary) 16%, transparent); }
+.oitems__who button { background: transparent; box-shadow: inset 0 0 0 1px var(--sep); color: var(--c-faint); text-decoration: line-through; }
+.oitems__who button.is-on { background: color-mix(in oklab, var(--c-primary) 24%, transparent); box-shadow: none; color: var(--c-calm); font-weight: 600; text-decoration: none; }
+.kvacts { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.kv--danger > span:first-child { color: var(--c-negative); }
