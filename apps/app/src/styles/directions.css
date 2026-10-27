@@ -38,7 +38,7 @@
 
 /* ===== C · Værktøj — light, one tinted L-frame, the work on a white sheet ===== */
 [data-dir="c"] { --frame: #ECEFEC; }
-:root[data-theme="dark"] [data-dir="c"] { --frame: #0B0F0E; }
+:root[data-theme="dark"] [data-dir="c"] { --frame: #0B0C0F; }
 [data-dir="c"] body, body[data-dir="c"] { background: var(--frame); }
 [data-dir="c"] .app { grid-template-columns: 228px 1fr; grid-template-rows: var(--l-top-bar) 1fr; height: 100vh; }
 [data-dir="c"] .topbar { grid-column: 1 / -1; display: grid; grid-template-columns: 228px 1fr 228px; align-items: center; padding: 0 var(--s-4) 0 var(--s-5); }

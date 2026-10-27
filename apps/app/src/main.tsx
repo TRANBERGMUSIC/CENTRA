@@ -3,6 +3,7 @@ import '../../../packages/design-system/dist/tokens.css';
 import './styles/base.css';
 import './styles/directions.css';
 import './styles/app.css';
+import './styles/apple.css';
 import { App } from './App.tsx';
 
 createRoot(document.getElementById('root')!).render(<App />);

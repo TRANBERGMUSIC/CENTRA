@@ -6,8 +6,10 @@
  * (this file, via `@centra/design-system`). No component may hard-code a colour,
  * size, radius, duration or easing.
  *
- * Brand source: the CENTRA brand board (logo, palette, type, texture).
- *   Charcoal #0B0F0E · Forest #1E3A34 · Sage #6B8F81 · Stone #E8DCC6 · Terracotta #C9683A
+ * Brand source: the CENTRA brand board (2026 logo: a C around a glowing orb).
+ *   Void #0B0C0F · Amber #FFE2B8 · Flare #FF9A5C · Rose #D9507A · Violet #7B4DFF · Mist #F4F1EC
+ * The C's gradient (amber → flare → rose → violet) is the brand's signature and is used only for
+ * the logo, the living background and a few moments of motion. The UI itself acts in violet.
  *
  * The brand idea carried into the UI: "Your life. In focus." The prism in the
  * logo gathers light into one point. In the app, exactly one thing at a time is
@@ -17,12 +19,16 @@
  */
 
 export const brand = {
-  charcoal: '#0B0F0E',
-  forest: '#1E3A34',
-  sage: '#6B8F81',
-  stone: '#E8DCC6',
-  terracotta: '#C9683A',
+  void: '#0B0C0F',
+  amber: '#FFE2B8',
+  flare: '#FF9A5C',
+  rose: '#D9507A',
+  violet: '#7B4DFF',
+  mist: '#F4F1EC',
 } as const;
+
+/** The signature gradient of the C, in order along the stroke. */
+export const brandGradient = [brand.amber, brand.flare, brand.rose, brand.violet] as const;
 
 /** Semantic colour roles. Every theme defines every role. */
 export type ColorRoles = {
@@ -70,99 +76,98 @@ export type ColorRoles = {
   scrim: string;
 };
 
+/**
+ * Apple-style themes (macOS / iOS system colours, apple.com tokens): one violet for everything you
+ * can act on, flare orange for the one thing that needs you, ink on mist in light, and
+ * void greys in dark. Surfaces are separated by tone, not lines or shadows.
+ */
 export const themes: Record<'light' | 'dark' | 'oled', ColorRoles> = {
-  /** Dark: the brand board's own ground (charcoal), elevation by lightness alone. */
   dark: {
-    ground: '#0B0F0E',
-    surface: '#131816',
-    raised: '#1C2220',
-    active: '#252C29',
-    border: '#1A201E',
-    rule: '#1A201E',
-    control: '#3A4440',
-    text: '#F2EEE6',
-    muted: '#B4B8B2',
-    faint: '#959A94',
-    primary: '#E8DCC6',
-    onPrimary: '#0B0F0E',
-    focus: '#C9683A',
-    focusText: '#E0824F',
-    focusWash: '#2A1B13',
-    calm: '#8FB3A4',
-    calmWash: '#16231F',
-    positive: '#7FB89A',
-    positiveWash: '#14231C',
-    negative: '#E5697A',
-    negativeWash: '#2C1A1E',
-    warning: '#E2B45C',
-    warningWash: '#2A2214',
-    ring: '#E8DCC6',
-    scrim: 'rgba(0,0,0,0.56)',
+    ground: '#0B0C0F',
+    surface: '#16171B',
+    raised: '#212228',
+    active: '#2C2D34',
+    border: '#212228',
+    rule: '#1F2025',
+    control: '#3E3F47',
+    text: '#F4F1EC',
+    muted: '#CAC6C0',
+    faint: '#A9A5A0',
+    primary: '#7B4DFF',
+    onPrimary: '#FFFFFF',
+    focus: '#FF9A5C',
+    focusText: '#FFB27A',
+    focusWash: '#3A2416',
+    calm: '#A88CFF',
+    calmWash: '#241C40',
+    positive: '#30D158',
+    positiveWash: '#13301C',
+    negative: '#FF7B73',
+    negativeWash: '#3A1A1A',
+    warning: '#FFD60A',
+    warningWash: '#3A3210',
+    ring: '#9B7BFF',
+    scrim: 'rgba(0,0,0,0.55)',
   },
-  /** True black for OLED: same roles, the ground goes to #000 and every step follows. */
   oled: {
     ground: '#000000',
-    surface: '#0E1110',
-    raised: '#181C1A',
-    active: '#202523',
-    border: '#141716',
-    rule: '#141716',
-    control: '#343C39',
-    text: '#F2EEE6',
-    muted: '#B4B8B2',
-    faint: '#959A94',
-    primary: '#E8DCC6',
-    onPrimary: '#000000',
-    focus: '#C9683A',
-    focusText: '#E0824F',
-    focusWash: '#24170F',
-    calm: '#8FB3A4',
-    calmWash: '#111B18',
-    positive: '#7FB89A',
-    positiveWash: '#101C16',
-    negative: '#E5697A',
-    negativeWash: '#26151A',
-    warning: '#E2B45C',
-    warningWash: '#241D10',
-    ring: '#E8DCC6',
-    scrim: 'rgba(0,0,0,0.64)',
-  },
-  /**
-   * Light: a sage-tinted neutral ground (never cream — stone stays an accent of
-   * the dark theme), white sheets, charcoal ink, forest as the primary fill.
-   */
-  light: {
-    ground: '#F4F5F3',
-    surface: '#FFFFFF',
-    raised: '#F7F8F6',
-    active: '#E9ECE9',
-    border: '#E4E8E5',
-    rule: '#EEF1EE',
-    control: '#CBD2CE',
-    text: '#0B0F0E',
-    muted: '#4A524E',
-    faint: '#626B66',
-    primary: '#1E3A34',
+    surface: '#0F1013',
+    raised: '#1A1B1F',
+    active: '#25262C',
+    border: '#1A1B1F',
+    rule: '#1A1B1F',
+    control: '#35363D',
+    text: '#F4F1EC',
+    muted: '#CAC6C0',
+    faint: '#A9A5A0',
+    primary: '#7B4DFF',
     onPrimary: '#FFFFFF',
-    focus: '#C9683A',
-    focusText: '#9E4A25',
-    focusWash: '#FBEDE5',
-    calm: '#456A5C',
-    calmWash: '#EAF1EE',
-    positive: '#2F6B57',
-    positiveWash: '#E3F2EA',
-    negative: '#B4232F',
-    negativeWash: '#FCEAEA',
-    warning: '#8A5A0B',
-    warningWash: '#FBF3E1',
-    ring: '#1E3A34',
-    scrim: 'rgba(11,15,14,0.32)',
+    focus: '#FF9A5C',
+    focusText: '#FFB27A',
+    focusWash: '#33200F',
+    calm: '#A88CFF',
+    calmWash: '#1E173A',
+    positive: '#30D158',
+    positiveWash: '#102A18',
+    negative: '#FF6961',
+    negativeWash: '#331717',
+    warning: '#FFD60A',
+    warningWash: '#332C0D',
+    ring: '#9B7BFF',
+    scrim: 'rgba(0,0,0,0.6)',
+  },
+  light: {
+    ground: '#F4F1EC',
+    surface: '#FFFFFF',
+    raised: '#F4F1EC',
+    active: '#EAE5DD',
+    border: '#E6E1D9',
+    rule: '#ECE7E0',
+    control: '#D3CDC3',
+    text: '#16171B',
+    muted: '#45433F',
+    faint: '#625E58',
+    primary: '#7B4DFF',
+    onPrimary: '#FFFFFF',
+    focus: '#E5602A',
+    focusText: '#AE3F12',
+    focusWash: '#FDEDE3',
+    calm: '#5F33E6',
+    calmWash: '#EFE9FF',
+    positive: '#18692C',
+    positiveWash: '#E5F5E9',
+    negative: '#C20012',
+    negativeWash: '#FDEBEC',
+    warning: '#8A5300',
+    warningWash: '#FFF6DF',
+    ring: '#7B4DFF',
+    scrim: 'rgba(11,12,15,0.3)',
   },
 };
 
-/** One family, two weights. Manrope: geometric, slightly extended like the wordmark, real tabular figures. */
+/** San Francisco on Apple devices (the system font), Segoe UI on Windows. Weights 400 and 600, as Apple does. */
 export const font = {
-  family: "'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif",
+  family: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', system-ui, 'Segoe UI', 'Helvetica Neue', 'Manrope', sans-serif",
   /** Brand wordmark only. Never used for UI text. */
   wordmark: 'CENTRA wordmark (SVG asset)',
   weight: { regular: 400, strong: 600 },
@@ -171,11 +176,11 @@ export const font = {
 /** Type scale: size / line-height in px. Five steps; app type is never display type. */
 export const type = {
   meta: { size: 12, line: 16 },
-  body: { size: 14, line: 20 },
-  reading: { size: 16, line: 26 }, // note editor & mail body
-  section: { size: 16, line: 24 },
-  title: { size: 24, line: 32, tracking: -0.01 },
-  greeting: { size: 32, line: 40, tracking: -0.02 }, // home only
+  body: { size: 15, line: 21 },
+  reading: { size: 17, line: 25 }, // note editor & mail body (Apple runs reading text at 17)
+  section: { size: 17, line: 22 },
+  title: { size: 30, line: 36, tracking: -0.022 },
+  greeting: { size: 40, line: 46, tracking: -0.028 }, // home only
 } as const;
 
 /** 4px base. */
@@ -183,15 +188,15 @@ export const space = { 0: 0, 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 8: 32, 10: 
 
 /** Tight radii (the directions may switch to the soft set). Nested radii step down. */
 export const radius = {
-  tight: { sheet: 12, card: 8, control: 6, chip: 4, round: 999 },
+  tight: { sheet: 22, card: 18, control: 10, chip: 999, round: 999 },
   soft: { sheet: 20, card: 16, control: 999, chip: 999, round: 999 },
 } as const;
 
 /** Shadows exist only on what floats. Resting surfaces never cast one. */
 export const shadow = {
   light: {
-    popover: '0 8px 24px rgba(11,15,14,0.10), 0 1px 2px rgba(11,15,14,0.06)',
-    dialog: '0 24px 64px rgba(11,15,14,0.16)',
+    popover: '0 10px 30px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.08)',
+    dialog: '0 24px 70px rgba(0,0,0,0.22), 0 0 0 0.5px rgba(0,0,0,0.08)',
   },
   dark: {
     popover: '0 8px 24px rgba(0,0,0,0.40)',
@@ -226,7 +231,7 @@ export const haptics = {
 
 /** Layout constants. */
 export const layout = {
-  sidebar: 240,
+  sidebar: 252,
   railCompact: 56,
   topBar: 48,
   listColumn: 384,

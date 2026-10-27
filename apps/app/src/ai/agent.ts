@@ -7,6 +7,7 @@
  */
 import type { SyncEngine } from '@centra/sync';
 import { TOOLS, runTool, contextFor, type Action } from './tools.ts';
+import { recordUsage, routeModel, spentThisMonth, MODEL_NAMES, type Feature, type Usage } from './usage.ts';
 
 export type AiSettings = {
   provider: 'claude' | 'local';
@@ -17,9 +18,15 @@ export type AiSettings = {
   fallbackLocal: boolean;
   /** Sort new mail into important / noise with the fast model. */
   triage: boolean;
+  /** 'auto' picks Haiku / Sonnet / Opus per question; otherwise one fixed model id. */
+  modelMode: string;
+  /** Monthly Claude budget in DKK (0 = none). Over it, auto mode uses only Haiku. */
+  budgetDkk: number;
+  /** Kroner per US dollar, for showing prices. */
+  usdDkk: number;
 };
-export const DEFAULT_AI: AiSettings = { provider: 'claude', claudeModel: 'claude-sonnet-5-5', localUrl: 'http://localhost:11434', localModel: 'qwen3:8b', fallbackLocal: true, triage: true };
-export const CLAUDE_MODELS: [string, string][] = [['claude-sonnet-5-5', 'Sonnet 5.5 · anbefalet'], ['claude-haiku-5-5', 'Haiku 5.5 · hurtigst'], ['claude-opus-5-5', 'Opus 5.5 · klogest']];
+export const DEFAULT_AI: AiSettings = { provider: 'claude', claudeModel: 'claude-sonnet-5-5', localUrl: 'http://localhost:11434', localModel: 'qwen3:8b', fallbackLocal: true, triage: true, modelMode: 'auto', budgetDkk: 0, usdDkk: 6.9 };
+export const CLAUDE_MODELS: [string, string][] = [['auto', 'Automatisk · billigste der kan klare opgaven'], ['claude-haiku-5-5', 'Haiku 5.5 · hurtigst og billigst'], ['claude-sonnet-5-5', 'Sonnet 5.5 · alsidig'], ['claude-opus-5-5', 'Opus 5.5 · klogest']];
 
 export function aiSettings(e: SyncEngine): AiSettings {
   const r = (e.get('setting-ai') ?? {}) as Partial<AiSettings>;
@@ -37,12 +44,12 @@ export type Block =
   | { type: 'redacted_thinking'; data: string };
 export type Msg = { role: 'user' | 'assistant'; content: Block[] };
 
-function system(e: SyncEngine) {
-  const now = new Date();
-  const when = now.toLocaleString('da-DK', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-  return `Du er Assist i CENTRA, Willads' personlige hovedkvarter for hverdagen (noter, kalender, mail, mål). Du taler dansk: kort, varmt og direkte, uden fyld.
-
-Nu: ${when} (dansk tid, ${now.toISOString().slice(0, 10)}).
+/**
+ * The instructions never change, so Claude caches them (with the tools) and later calls pay about
+ * a twentieth for that part. Today's date and your data go in a separate block in the newest
+ * message instead, so they don't break the cache.
+ */
+const SYSTEM = `Du er Assist i CENTRA, Willads' personlige hovedkvarter for hverdagen (noter, kalender, mail, mål, udlæg, udgifter, kontakter). Du taler dansk: kort, varmt og direkte, uden fyld. Dato, klokkeslæt og brugerens data står i <kontekst> i den nyeste besked.
 
 Sådan arbejder du:
 - Når brugeren fortæller noget om sig selv, der stadig er sandt senere (rutiner, arbejdstider, personer, vaner, præferencer, steder), så gem det med remember. Ét faktum pr. kald.
@@ -55,17 +62,26 @@ Sådan arbejder du:
 - Mail: find med search_mail, læs med read_mail, og lav svarudkast med draft_reply (de sendes aldrig automatisk; brugeren sender selv fra indbakken). "Hold øje med en mail …" → watch_mail med afsender og/eller ord fra emnet. Er der ingen mailkonti, så sig at de forbindes under Forbindelser.
 - Gør det, brugeren beder om, med det samme og bekræft kort, hvad du har gjort. Alt kan fortrydes med én knap, så du behøver ikke spørge om lov. Spørg kun, hvis en nødvendig oplysning mangler (fx hvilken dag).
 - Brug id'er fra konteksten herunder. Find aldrig på fakta om brugeren.
-- Når brugeren er ny og ikke ved, hvor de skal starte, så stil ét spørgsmål ad gangen om deres hverdag: arbejde, faste aftaler, træning, mål, vigtige personer.
+- Når brugeren er ny og ikke ved, hvor de skal starte, så stil ét spørgsmål ad gangen om deres hverdag: arbejde, faste aftaler, træning, mål, vigtige personer.`;
 
-${contextFor(e)}`;
+function contextBlock(e: SyncEngine) {
+  const now = new Date();
+  const when = now.toLocaleString('da-DK', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return `<kontekst>\nNu: ${when} (dansk tid, ${now.toISOString().slice(0, 10)}).\n\n${contextFor(e)}\n</kontekst>`;
 }
 
 /* ---------------------------------------------------------------- providers */
-async function claude(s: AiSettings, sys: string, messages: Msg[], signal?: AbortSignal, o: { tools?: boolean; model?: string; maxTokens?: number } = {}): Promise<{ content: Block[]; stop: string }> {
+type CallOpts = { tools?: boolean; model?: string; maxTokens?: number; e?: SyncEngine; feature?: Feature; cache?: boolean };
+type CallResult = { content: Block[]; stop: string; usage?: Usage; model?: string; usd?: number };
+
+async function claude(s: AiSettings, sys: string, messages: Msg[], signal?: AbortSignal, o: CallOpts = {}): Promise<CallResult> {
+  const model = o.model ?? (s.modelMode && s.modelMode !== 'auto' ? s.modelMode : 'claude-sonnet-5-5');
+  const tools = o.tools === false ? undefined : TOOLS.map((t, i) => (i === TOOLS.length - 1 && o.cache ? { ...t, cache_control: { type: 'ephemeral' } } : t));
+  const system = o.cache ? [{ type: 'text', text: sys, cache_control: { type: 'ephemeral' } }] : sys;
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST', signal,
     headers: { 'content-type': 'application/json', 'x-api-key': s.claudeKey!, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-    body: JSON.stringify({ model: o.model ?? s.claudeModel, max_tokens: o.maxTokens ?? 2048, system: sys, ...(o.tools === false ? {} : { tools: TOOLS }), messages }),
+    body: JSON.stringify({ model, max_tokens: o.maxTokens ?? 2048, system, ...(tools ? { tools } : {}), messages }),
   });
   if (!r.ok) {
     let msg = `Claude svarede ${r.status}`;
@@ -74,10 +90,19 @@ async function claude(s: AiSettings, sys: string, messages: Msg[], signal?: Abor
     throw new AiError(r.status === 401 ? 'API-nøglen blev afvist. Tjek den under Indstillinger → Assist.' : r.status === 429 ? 'Claude har for travlt eller kvoten er brugt. Prøv igen om lidt.' : msg, r.status);
   }
   const j = await r.json();
-  return { content: j.content as Block[], stop: j.stop_reason };
+  const usd = o.e && j.usage ? recordUsage(o.e, model, o.feature ?? 'andet', j.usage) : undefined;
+  return { content: j.content as Block[], stop: j.stop_reason, usage: j.usage, model, usd };
 }
 
-async function ollama(s: AiSettings, sys: string, messages: Msg[], signal?: AbortSignal): Promise<{ content: Block[]; stop: string }> {
+/** Marks the end of a message as a cache point without touching the stored conversation. */
+function cachePoint(m: Msg): Msg {
+  const c = [...m.content];
+  const i = c.length - 1;
+  if (i >= 0 && !c[i].type.includes('thinking')) c[i] = { ...c[i], cache_control: { type: 'ephemeral' } } as unknown as Block;
+  return { ...m, content: c };
+}
+
+async function ollama(s: AiSettings, sys: string, messages: Msg[], signal?: AbortSignal): Promise<CallResult> {
   const out: any[] = [{ role: 'system', content: sys }];
   for (const m of messages) {
     if (m.role === 'assistant') {
@@ -115,7 +140,7 @@ async function ollama(s: AiSettings, sys: string, messages: Msg[], signal?: Abor
 export class AiError extends Error { constructor(m: string, public status: number) { super(m); } }
 
 /* ---------------------------------------------------------------- the loop */
-export type Turn = { messages: Msg[]; reply: string; actions: Action[]; via: 'claude' | 'local' };
+export type Turn = { messages: Msg[]; reply: string; actions: Action[]; via: 'claude' | 'local'; model?: string; why?: string; usd?: number };
 
 /**
  * Sends the conversation, runs the tools Assist asks for, and repeats until it answers.
@@ -124,9 +149,12 @@ export type Turn = { messages: Msg[]; reply: string; actions: Action[]; via: 'cl
 export async function ask(e: SyncEngine, history: Msg[], text: string, opts: { signal?: AbortSignal; onAction?: (a: Action) => void } = {}): Promise<Turn> {
   const s = aiSettings(e);
   let via: 'claude' | 'local' = s.provider === 'claude' && s.claudeKey ? 'claude' : 'local';
+  // One model for the whole question (thinking is tied to the model that made it).
+  const route = routeModel(text, { mode: s.modelMode || 'auto', budgetUsd: s.budgetDkk ? s.budgetDkk / (s.usdDkk || 6.9) : 0, spentUsd: spentThisMonth(e), turns: history.length });
+  let usd = 0;
   const call = async (sys: string, msgs: Msg[]) => {
     if (via === 'claude') {
-      try { return await claude(s, sys, msgs, opts.signal); } catch (err) {
+      try { const r = await claude(s, sys, msgs, opts.signal, { model: route.model, e, feature: 'chat', cache: true }); usd += r.usd ?? 0; return r; } catch (err) {
         // No internet or Claude down: carry on with the local model if that's allowed.
         if (s.fallbackLocal && !(err instanceof AiError && (err.status === 401 || err.status === 400)) && !opts.signal?.aborted) { via = 'local'; return ollama(s, sys, msgs, opts.signal); }
         throw err;
@@ -138,11 +166,18 @@ export async function ask(e: SyncEngine, history: Msg[], text: string, opts: { s
   // Claude's thinking is signed against the exact system prompt it was made with. The prompt carries
   // the time and a fresh picture of your data, so it is built once per question (stable through the
   // tool rounds) and thinking from earlier questions is left out of the history.
-  const sys = system(e);
+  const ctx = contextBlock(e);
   const messages: Msg[] = [...trim(history).map(withoutThinking).filter((m) => m.content.length), { role: 'user', content: [{ type: 'text', text }] }];
+  const fresh = messages.length - 1; // the question just asked: it carries today's context when sent
   const actions: Action[] = [];
+  const outgoing = () => messages.map((m, i) => {
+    let x = i === fresh ? { ...m, content: [{ type: 'text', text: ctx } as Block, ...m.content] } : m;
+    // Cache points: end of the earlier conversation, and the newest message (tool rounds reuse it).
+    if (i === fresh - 1 || i === messages.length - 1) x = cachePoint(x);
+    return x;
+  });
   for (let round = 0; round < 8; round++) {
-    const res = await call(sys, messages);
+    const res = await call(SYSTEM, via === 'claude' ? outgoing() : messages.map((m, i) => (i === fresh ? { ...m, content: [{ type: 'text', text: ctx } as Block, ...m.content] } : m)));
     messages.push({ role: 'assistant', content: res.content });
     const uses = res.content.filter((b): b is Extract<Block, { type: 'tool_use' }> => b.type === 'tool_use');
     if (res.stop !== 'tool_use' || !uses.length) break;
@@ -159,7 +194,7 @@ export async function ask(e: SyncEngine, history: Msg[], text: string, opts: { s
   }
   const last = messages[messages.length - 1];
   const reply = last.role === 'assistant' ? last.content.filter((b) => b.type === 'text').map((b: any) => b.text).join('\n').trim() : '';
-  return { messages, reply: reply || (actions.length ? 'Klaret.' : ''), actions, via };
+  return { messages, reply: reply || (actions.length ? 'Klaret.' : ''), actions, via, model: via === 'claude' ? route.model : s.localModel, why: route.why, usd };
 }
 
 /** Keeps the last ~40 messages, cut at a plain user message so tool calls and results stay paired. */
@@ -175,7 +210,7 @@ function trim(h: Msg[]): Msg[] {
 /** A quick round-trip to check the key or the local model from Settings. */
 export async function testAi(s: AiSettings): Promise<string> {
   const r = s.provider === 'claude'
-    ? await claude(s, 'Svar kun med ordet: klar', [{ role: 'user', content: [{ type: 'text', text: 'Test' }] }])
+    ? await claude(s, 'Svar kun med ordet: klar', [{ role: 'user', content: [{ type: 'text', text: 'Test' }] }], undefined, { model: 'claude-haiku-5-5', tools: false, maxTokens: 50 })
     : await ollama(s, 'Svar kun med ordet: klar', [{ role: 'user', content: [{ type: 'text', text: 'Test' }] }]);
   return r.content.filter((b) => b.type === 'text').map((b: any) => b.text).join(' ').trim() || 'klar';
 }
@@ -184,14 +219,14 @@ export async function testAi(s: AiSettings): Promise<string> {
  * One question that must come back as JSON (reading a receipt, sorting mail). `images` are data
  * URLs; Claude reads them directly, a local model only if it can see (e.g. qwen2.5vl, llava).
  */
-export async function askJson<T>(e: SyncEngine, sys: string, text: string, opts: { images?: string[]; fast?: boolean; maxTokens?: number } = {}): Promise<T> {
+export async function askJson<T>(e: SyncEngine, sys: string, text: string, opts: { images?: string[]; fast?: boolean; maxTokens?: number; feature?: Feature } = {}): Promise<T> {
   const s = aiSettings(e);
   const images = opts.images ?? [];
   let raw = '';
   if (s.provider === 'claude' && s.claudeKey) {
     const content: any[] = images.map((d) => { const m = /^data:(image\/[a-z+]+);base64,(.*)$/.exec(d)!; return { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } }; });
     content.push({ type: 'text', text });
-    const r = await claude(s, sys, [{ role: 'user', content }], undefined, { tools: false, model: opts.fast ? 'claude-haiku-5-5' : undefined, maxTokens: opts.maxTokens ?? 4096 });
+    const r = await claude(s, sys, [{ role: 'user', content }], undefined, { tools: false, model: opts.fast ? 'claude-haiku-5-5' : 'claude-sonnet-5-5', maxTokens: opts.maxTokens ?? 4096, e, feature: opts.feature ?? 'andet' });
     raw = r.content.filter((b) => b.type === 'text').map((b: any) => b.text).join('');
   } else {
     let r: Response;
@@ -205,3 +240,5 @@ export async function askJson<T>(e: SyncEngine, sys: string, text: string, opts:
   const json = raw.slice(raw.search(/[[{]/), Math.max(raw.lastIndexOf('}'), raw.lastIndexOf(']')) + 1);
   try { return JSON.parse(json) as T; } catch { throw new AiError('Svaret kunne ikke læses. Prøv igen.', 0); }
 }
+
+export { MODEL_NAMES };

@@ -18,7 +18,7 @@ export async function triageMails(e: SyncEngine, ids: string[]): Promise<number>
     const batch = mails.slice(i, i + 20);
     const text = batch.map((m) => `id: ${m.id}\nfra: ${m.fromName} <${m.fromEmail}>\nemne: ${m.subject}\nuddrag: ${String(m.preview ?? '').slice(0, 200)}`).join('\n---\n');
     try {
-      const r = await askJson<{ mails: { id: string; important: boolean; summary: string }[] }>(e, SYS, text, { fast: true, maxTokens: 2000 });
+      const r = await askJson<{ mails: { id: string; important: boolean; summary: string }[] }>(e, SYS, text, { fast: true, maxTokens: 2000, feature: 'mailsortering' });
       for (const x of r.mails ?? []) {
         const m = batch.find((b) => b.id === x.id);
         if (!m) continue;

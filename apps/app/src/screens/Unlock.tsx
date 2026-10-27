@@ -1,15 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Wordmark } from '../ui/primitives.tsx';
-import { reduced } from '../motion.ts';
+import { reduced, gsap, useGSAP } from '../motion.ts';
+import { Aura } from '../ui/Logo.tsx';
 import { DEFAULT_USER, explain, lookUp, recover, signIn, type Lookup, type Session, type Step } from '../session.ts';
-import LightRays from '../bits/LightRays.jsx';
 import DecryptedText from '../bits/DecryptedText.jsx';
 
 type Mode = 'login' | 'create' | 'recover';
 const MIN = 12;
 
 /**
- * The one brand moment: the prism's light behind the wordmark while the vault opens.
+ * The one brand moment: the brand's light drifting behind the logo while the vault opens.
  * Login, first-time setup (choose the password) and recovery (forgot the password) live here.
  */
 export function Unlock({ onReady, notice }: { onReady: (s: Session) => void; notice?: string }) {
@@ -23,6 +23,19 @@ export function Unlock({ onReady, notice }: { onReady: (s: Session) => void; not
   const [info, setInfo] = useState<string | null>(null);
   const [wait, setWait] = useState(0);
   const [pending, setPending] = useState<Lookup | null>(null);
+  const card = useRef<HTMLFormElement>(null);
+
+  // Arrival: the icon settles, then the wordmark, tagline and fields rise in one after another.
+  useGSAP(() => {
+    if (reduced()) return;
+    gsap.from(card.current!.children, { y: 22, opacity: 0, filter: 'blur(8px)', duration: 0.9, ease: 'expo.out', stagger: 0.06, delay: 0.1, clearProps: 'all' });
+  }, { scope: card });
+  // Fields that appear later (second password, recovery key, a message) slide open instead of popping.
+  useGSAP(() => {
+    if (reduced()) return;
+    gsap.from(card.current!.querySelectorAll('.ufield:not([data-seen]), .unlock__info, .unlock__error'), { height: 0, opacity: 0, y: -6, duration: 0.35, ease: 'power3.out', clearProps: 'all' });
+    card.current!.querySelectorAll('.ufield').forEach((f) => f.setAttribute('data-seen', ''));
+  }, { scope: card, dependencies: [mode, error, info] });
 
   useEffect(() => {
     if (!wait) return;
@@ -66,7 +79,7 @@ export function Unlock({ onReady, notice }: { onReady: (s: Session) => void; not
       }
       const s = await signIn(look, pw, setStep);
       setPending(null);
-      if (!reduced()) await new Promise((r) => setTimeout(r, 250));
+      if (!reduced()) await new Promise((r) => gsap.to(card.current, { y: -24, scale: 0.96, opacity: 0, filter: 'blur(10px)', duration: 0.45, ease: 'power2.in', onComplete: r }));
       onReady(s);
     } catch (e) {
       setPending(null);
@@ -78,10 +91,9 @@ export function Unlock({ onReady, notice }: { onReady: (s: Session) => void; not
   return (
     <main className="unlock">
       <div className="unlock__light" aria-hidden="true">
-        {reduced() ? <img src="./texture-background.png" alt="" /> :
-          <LightRays raysOrigin="top-center" raysColor="#E8DCC6" raysSpeed={0.6} lightSpread={0.55} rayLength={2.4} haze={0.2} glow={0.35} intensity={0.75} followMouse mouseInfluence={0.06} cursorShadow={false} clickPulse={false} opacity={0.8} />}
+        <Aura />
       </div>
-      <form className="unlock__card" onSubmit={submit} autoComplete="on">
+      <form ref={card} className="unlock__card" onSubmit={submit} autoComplete="on">
         <img className="unlock__symbol" src="./app-icon-dark.png" alt="" />
         <Wordmark className="unlock__word" />
         <p className="unlock__tag">Your life. In focus.</p>

@@ -98,7 +98,13 @@ describe('Assist-løkken', () => {
     expect(calls.every((c) => c.url === 'https://api.anthropic.com/v1/messages')).toBe(true);
     const body = JSON.parse(calls[1].init.body);
     expect(body.messages.at(-1).content[0].type).toBe('tool_result');
-    expect(body.system).toBe(JSON.parse(calls[0].init.body).system); // one system prompt per question, so signed thinking stays valid
+    expect(body.system).toEqual(JSON.parse(calls[0].init.body).system); // same cached instructions every call
+    expect(body.system[0].cache_control).toEqual({ type: 'ephemeral' });
+    expect(body.tools.at(-1).cache_control).toEqual({ type: 'ephemeral' });
+    // today's context rides along in the newest question, and is not stored in the history
+    expect(body.messages[0].content[0].text).toMatch(/^<kontekst>/);
+    expect(JSON.stringify(t.messages)).not.toContain('<kontekst>');
+    expect(t.model).toBe('claude-sonnet-5-5');
     expect(t.messages).toHaveLength(4);
   });
 
@@ -113,7 +119,7 @@ describe('Assist-løkken', () => {
     ];
     await ask(e, history, 'Jeg vil sige op i morgen');
     expect(JSON.stringify(sent.messages)).not.toContain('thinking');
-    expect(sent.messages[1].content).toEqual([{ type: 'text', text: 'Hej!' }]);
+    expect(sent.messages[1].content).toEqual([{ type: 'text', text: 'Hej!', cache_control: { type: 'ephemeral' } }]);
   });
 
   it('falder tilbage til den lokale model uden internet', async () => {
@@ -133,5 +139,41 @@ describe('Assist-løkken', () => {
     saveAiSettings(e, { provider: 'claude', claudeKey: 'sk-ant-wrong-000000000000000' });
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { message: 'invalid x-api-key' } }), { status: 401 })));
     await expect(ask(e, [], 'Hej')).rejects.toThrow(/API-nøglen blev afvist/);
+  });
+});
+
+import { routeModel, costOf, recordUsage, spentThisMonth } from '../src/ai/usage.ts';
+describe('modelvalg og forbrug', () => {
+  it('vælger den billigste model, der kan klare opgaven', () => {
+    const r = (t: string, o: any = {}) => routeModel(t, { mode: 'auto', ...o }).model;
+    expect(r('Mads har betalt 100')).toBe('claude-haiku-5-5');
+    expect(r('husk at jeg løber om tirsdagen')).toBe('claude-haiku-5-5');
+    expect(r('ja')).toBe('claude-haiku-5-5');
+    expect(r('Hvad har jeg i kalenderen på fredag, og hvem skal jeg møde?')).toBe('claude-sonnet-5-5');
+    expect(r('Planlæg min uge med træning, arbejde og tid til SmartLink')).toBe('claude-opus-5-5');
+    expect(r('Planlæg min uge', { budgetUsd: 1, spentUsd: 1.2 })).toBe('claude-haiku-5-5');
+    expect(routeModel('Planlæg', { mode: 'claude-sonnet-5-5' }).model).toBe('claude-sonnet-5-5');
+  });
+  it('regner prisen ud efter Anthropics priser, også Haikus store prompts', async () => {
+    expect(costOf('claude-sonnet-5-5', { input_tokens: 1e6, output_tokens: 1e6 })).toBe(12);
+    expect(costOf('claude-sonnet-5-5', { cache_read_input_tokens: 1e6 })).toBeCloseTo(0.1);
+    expect(costOf('claude-haiku-5-5', { input_tokens: 50_000, output_tokens: 1000 })).toBeCloseTo(0.0055);
+    expect(costOf('claude-haiku-5-5', { input_tokens: 150_000 })).toBeCloseTo(0.075);
+    const e = await engine();
+    recordUsage(e, 'claude-haiku-5-5', 'chat', { input_tokens: 2000, output_tokens: 200 });
+    recordUsage(e, 'claude-haiku-5-5', 'chat', { input_tokens: 2000, output_tokens: 200 });
+    expect(e.list('usage')).toHaveLength(1);
+    expect((e.list('usage')[0] as any).calls).toBe(2);
+    expect(spentThisMonth(e)).toBeCloseTo(0.0006);
+  });
+  it('Assist registrerer forbruget for hvert kald', async () => {
+    const e = await engine();
+    saveAiSettings(e, { provider: 'claude', claudeKey: 'sk-ant-test-0000000000000000' });
+    let model = '';
+    vi.stubGlobal('fetch', vi.fn(async (_u: string, init: any) => { model = JSON.parse(init.body).model; return new Response(JSON.stringify({ content: [{ type: 'text', text: 'Noteret.' }], stop_reason: 'end_turn', usage: { input_tokens: 800, cache_read_input_tokens: 5000, output_tokens: 40 } })); }));
+    const t = await ask(e, [], 'husk at jeg drikker kaffe sort');
+    expect(model).toBe('claude-haiku-5-5');
+    expect(t.usd).toBeCloseTo((800 * 0.1 + 5000 * 0.01 + 40 * 0.5) / 1e6);
+    expect((e.list('usage')[0] as any).feature).toBe('chat');
   });
 });

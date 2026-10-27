@@ -458,3 +458,15 @@ button.chatpick { background: none; border: 0; font: inherit; color: inherit; te
   .note__close { opacity: 1; transform: scale(1); }
 }
 @media (prefers-reduced-motion: reduce) { .note, .note__close { transition: none; } }
+.modelpill { font-size: var(--fs-meta); color: var(--c-muted); border: 1px solid var(--c-control); border-radius: 999px; padding: 4px 10px; }
+.modelpill:hover { color: var(--c-text); background: var(--c-raised); }
+.chat .msg__meta { font-size: 11px; color: var(--c-faint); }
+.budgetbar { display: flex; flex-direction: column; gap: 6px; padding: var(--s-2) 0 var(--s-3); }
+.legend--row { flex-direction: row; flex-wrap: wrap; gap: var(--s-3); margin-top: var(--s-2); }
+.legend--row li { display: flex; gap: 6px; padding: 0; }
+.utable { width: 100%; border-collapse: collapse; margin-top: var(--s-2); }
+.utable th { text-align: left; font-size: var(--fs-meta); font-weight: var(--w-regular); color: var(--c-faint); padding: var(--s-2) var(--s-2) var(--s-2) 0; border-bottom: 1px solid var(--c-rule); }
+.utable td { padding: var(--s-3) var(--s-2) var(--s-3) 0; border-bottom: 1px solid var(--c-rule); }
+.utable .num { text-align: right; }
+.utable td:first-child { display: flex; align-items: center; gap: var(--s-2); }
+.modelpill { white-space: nowrap; }

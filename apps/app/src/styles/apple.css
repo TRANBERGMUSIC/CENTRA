@@ -1,0 +1,282 @@
+/*
+ * CENTRA · Apple look. Loaded last: the system font, one blue for everything you can act on,
+ * orange only for what needs you, pill buttons, filled fields, segmented controls, switches,
+ * grouped cards separated by tone, a translucent sidebar and frosted bars. Press = scale(.97).
+ * Source: VoltAgent/awesome-design-md · apple/DESIGN.md, adapted from apple.com to macOS/iOS apps.
+ */
+:root {
+  --fill: rgba(118, 118, 128, 0.12);
+  --fill-strong: rgba(118, 118, 128, 0.2);
+  --link: var(--c-calm);
+  --sep: rgba(60, 60, 67, 0.12);
+  --side: rgba(236, 236, 240, 0.78);
+  --bar: rgba(250, 250, 252, 0.78);
+  --seg-on: #ffffff;
+  --seg-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  --ring-soft: color-mix(in oklab, var(--c-ring) 38%, transparent);
+}
+:root[data-theme="dark"], :root[data-theme="oled"] {
+  --fill: rgba(118, 118, 128, 0.24);
+  --fill-strong: rgba(118, 118, 128, 0.32);
+  --sep: rgba(84, 84, 88, 0.5);
+  --side: rgba(30, 30, 32, 0.72);
+  --bar: rgba(28, 28, 30, 0.78);
+  --seg-on: #636366;
+  --seg-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+:root[data-theme="oled"] { --side: rgba(10, 10, 12, 0.8); --bar: rgba(12, 12, 14, 0.8); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="oled"]) { --fill: rgba(118, 118, 128, 0.24); --fill-strong: rgba(118, 118, 128, 0.32); --sep: rgba(84, 84, 88, 0.5); --side: rgba(30, 30, 32, 0.72); --bar: rgba(28, 28, 30, 0.78); --seg-on: #636366; --seg-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); }
+}
+
+/* ---------------------------------------------------------------- type */
+body { font-feature-settings: normal; letter-spacing: -0.012em; text-rendering: optimizeLegibility; }
+.meta { letter-spacing: 0; }
+h1, h2, h3 { letter-spacing: -0.02em; }
+[data-dir="a"] .titlerow h1, .nlist h1, .glist h1, .mlist__head h1, .split__list h1 { font-weight: 600; letter-spacing: -0.024em; }
+[data-dir="a"] .titlerow h1 { font-size: var(--fs-title); line-height: var(--lh-title); }
+[data-dir="a"] .titlerow p { font-size: var(--fs-section); line-height: 1.4; color: var(--c-faint); letter-spacing: -0.016em; }
+.nlist h1, .glist h1, .mlist__head h1, .split__list h1 { font-size: 26px; line-height: 32px; }
+.panel__title { font-size: var(--fs-section); line-height: var(--lh-section); font-weight: 600; letter-spacing: -0.02em; }
+.panel__link, .tag, a.btn--text, .msg__body a, .memrow a.row__body { color: var(--link); }
+.panel__link:hover { color: var(--link); text-decoration: underline; }
+.gtitle { font-size: 30px; line-height: 36px; letter-spacing: -0.024em; }
+.doc__title { letter-spacing: -0.024em; }
+.kbd { border: 0; background: var(--fill); color: var(--c-faint); border-radius: 5px; }
+
+/* ---------------------------------------------------------------- focus: Apple's soft blue ring */
+:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring-soft); border-radius: 10px; }
+input:focus-visible, textarea:focus-visible, select:focus-visible { box-shadow: 0 0 0 3px var(--ring-soft); }
+
+/* ---------------------------------------------------------------- sidebar: translucent, blue glyphs */
+.sidebar { background: var(--side); -webkit-backdrop-filter: saturate(1.8) blur(30px); backdrop-filter: saturate(1.8) blur(30px); border-right: 0.5px solid var(--sep); padding: var(--s-4) 10px; gap: 1px; }
+.brand { padding: 2px 8px 14px; }
+.searchbtn { height: 32px; border-radius: 9px; background: var(--fill); color: var(--c-faint); margin-bottom: var(--s-3); }
+.searchbtn:hover { background: var(--fill-strong); }
+.nav-item, .nav-sub { height: 32px; border-radius: 8px; color: var(--c-text); gap: 10px; padding: 0 10px; margin-bottom: 1px; }
+.nav-item .ic, .nav-sub .ic { color: var(--c-ring); width: 18px; height: 18px; }
+.nav-item:hover, .nav-sub:hover { background: var(--fill); color: var(--c-text); }
+.nav-item.is-active, .nav-sub.is-active { background: var(--fill-strong); color: var(--c-text); font-weight: 600; }
+.nav-item .count { color: var(--c-faint); font-weight: 400; }
+.nav-item .count.is-due { min-width: 20px; height: 18px; padding: 0 6px; border-radius: 9px; background: var(--c-focus); color: #fff; font-size: 11px; line-height: 18px; text-align: center; font-weight: 600; }
+.nav-group { padding: var(--s-5) 10px 6px; font-weight: 600; font-size: 11px; color: var(--c-faint); }
+.userrow { border-radius: 10px; }
+.syncline { padding: 6px 10px; }
+
+/* ---------------------------------------------------------------- canvas and cards */
+[data-dir="a"] .canvas { padding: 36px 44px 56px; }
+[data-dir="a"] .grid12 { gap: 18px; }
+[data-dir="a"] .titlerow { margin-bottom: 28px; }
+.panel { border-radius: 18px; padding: 22px 24px; }
+:root:not([data-theme="dark"]):not([data-theme="oled"]) .panel, :root[data-theme="light"] .panel { box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.05); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .panel { box-shadow: none; } }
+.kpi, .owecard, .replybox, .gedit, .tip { border-radius: 18px; }
+.kpi b, .owecard__sum { letter-spacing: -0.028em; font-weight: 600; }
+.rows > li + li, .xlist li, .oweline, .glog li, .utable td, .utable th { border-color: var(--sep) !important; }
+.row, .mrow, .gitem, .prow, .orow, .goalrow, .memrow { border-radius: 12px; }
+.mrow.is-selected, .gitem.is-selected, .prow.is-selected, .orow.is-selected, .nrow.is-selected, .memrow.is-current { background: color-mix(in oklab, var(--c-primary) 14%, transparent); }
+.mrow:hover, .gitem:hover, .prow:hover, .orow:hover, .row:hover { background: var(--fill); }
+
+/* ---------------------------------------------------------------- buttons: pills */
+.btn { border-radius: 999px; height: 34px; padding: 0 16px; font-weight: 500; letter-spacing: -0.01em; transition: transform 120ms var(--e-standard), background 150ms var(--e-standard), opacity 150ms; }
+.btn:active { transform: scale(0.97); }
+.btn--sm { height: 28px; padding: 0 12px; font-size: 13px; }
+.btn--primary { background: var(--c-primary); color: #fff; }
+.btn--primary:hover { background: color-mix(in oklab, var(--c-primary) 88%, black); }
+.btn--secondary { border: 0; background: var(--fill); color: var(--link); }
+.btn--secondary:hover { background: var(--fill-strong); }
+.btn--text { color: var(--link); font-weight: 400; }
+.btn--text:hover { background: var(--fill); color: var(--link); }
+.btn:disabled { opacity: 0.4; cursor: default; transform: none; }
+.btn .ic { color: inherit; }
+[data-dir="a"] .btn--primary { height: 34px; padding: 0 18px; }
+.titlerow .actions .btn--secondary { height: 34px; }
+.iconbtn { border: 0; background: var(--fill); color: var(--link); border-radius: 50%; }
+.iconbtn:hover:not(:disabled) { background: var(--fill-strong); color: var(--link); }
+.iconbtn.is-live { background: var(--c-negative); color: #fff; border: 0; }
+.act__btn { color: var(--link); }
+.note__btn { font-weight: 500; }
+
+/* ---------------------------------------------------------------- fields: filled, no outlines */
+.ufield { font-size: 13px; color: var(--c-faint); }
+.ufield input, .ufield select, .kvinput, .msearch, .askbar input, .otext, .pnotes, .memedit input, .chat .composer textarea, .composer textarea, .connect input,
+.unlock input[type=password], .unlock input[type=text], .gupdate .field, .field {
+  background: var(--fill); border: 0; border-radius: 10px; color: var(--c-text); box-shadow: none;
+}
+.ufield input, .ufield select { height: 40px; font-size: 15px; }
+.kvinput { height: 32px; }
+.msearch { height: 34px; border-radius: 10px; }
+.ufield input:focus, .ufield select:focus, .kvinput:focus, .msearch:focus, .askbar input:focus, .otext:focus, .pnotes:focus, .memedit input:focus,
+.chat .composer textarea:focus, .connect input:focus, .gupdate .field:focus-within {
+  border: 0; background: var(--c-surface); box-shadow: 0 0 0 3px var(--ring-soft), 0 0 0 1px var(--c-ring);
+}
+.chat .composer { border-top: 0.5px solid var(--sep); }
+.chat .composer textarea { border-radius: 20px; padding: 9px 14px; }
+.addperson input { border: 0; background: var(--fill); }
+.addperson input:focus { background: var(--c-surface); box-shadow: 0 0 0 3px var(--ring-soft), 0 0 0 1px var(--c-ring); }
+.gtitle:hover { border-bottom-color: transparent; }
+.gtitle:focus { border-bottom-color: transparent; }
+
+/* ---------------------------------------------------------------- segmented controls and tabs */
+.segmented, .tabs, .acctpick { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px; border-radius: 9px; background: var(--fill); border: 0; }
+.tabs { margin-top: var(--s-3); width: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.segmented button, .tab, .acctpick button {
+  height: 28px; padding: 0 12px; border-radius: 7px; border: 0; margin: 0; background: none; color: var(--c-text); font-weight: 400; font-size: 13px;
+  white-space: nowrap; transition: background 150ms var(--e-standard);
+}
+.tab { flex: 1 0 auto; justify-content: center; }
+.segmented button.is-active, .tab.is-active, .acctpick button.is-active { background: var(--seg-on); color: var(--c-text); box-shadow: var(--seg-shadow); font-weight: 600; border: 0; }
+.tab .meta { font-size: 12px; }
+.chips .tag { border: 0; background: var(--fill); color: var(--c-text); padding: 7px 14px; }
+.chips .tag:hover { background: var(--fill-strong); }
+.daypick button { border: 0; background: var(--fill); color: var(--c-text); border-radius: 999px; }
+.daypick button.is-active { background: var(--c-primary); color: #fff; }
+.oitems__who button { border: 0; background: var(--fill); }
+.oitems__who button.is-on { background: color-mix(in oklab, var(--c-primary) 18%, transparent); color: var(--link); }
+.pill { border-radius: 999px; font-weight: 500; }
+.pill--focus { background: color-mix(in oklab, var(--c-focus) 16%, transparent); color: var(--c-focus-text); }
+.pill--calm { background: color-mix(in oklab, var(--c-primary) 14%, transparent); color: var(--link); }
+.pchip { background: var(--fill); }
+.provider { border: 0; background: var(--fill); border-radius: 14px; }
+.provider:hover { background: var(--fill-strong); }
+
+/* ---------------------------------------------------------------- switches (every settings checkbox) */
+.kv input[type=checkbox], .checkrow input[type=checkbox] {
+  appearance: none; -webkit-appearance: none; flex: none; width: 42px; height: 26px; border-radius: 13px; margin: 0; position: relative; cursor: pointer;
+  background: var(--fill-strong); transition: background 200ms var(--e-standard);
+}
+.kv input[type=checkbox]::after, .checkrow input[type=checkbox]::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 22px; height: 22px; border-radius: 50%; background: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.04); transition: transform 220ms cubic-bezier(.3, 1.4, .5, 1);
+}
+.kv input[type=checkbox]:checked, .checkrow input[type=checkbox]:checked { background: var(--c-positive); }
+.kv input[type=checkbox]:checked::after, .checkrow input[type=checkbox]:checked::after { transform: translateX(16px); }
+.checkrow { color: var(--c-text); }
+
+/* ---------------------------------------------------------------- progress, status, day strip, calendar */
+.prog { background: var(--fill); border-radius: 999px; }
+.prog > i { background: var(--c-primary); border-radius: 999px; }
+.prog.is-focus > i { background: var(--c-focus); }
+.daystrip__track { border-radius: 14px; background: var(--fill); }
+.daystrip__ev { border-radius: 8px; background: color-mix(in oklab, var(--c-primary) 20%, var(--c-surface)); box-shadow: inset 3px 0 0 var(--c-primary); }
+.daystrip__ev.is-next { background: color-mix(in oklab, var(--c-focus) 18%, var(--c-surface)); box-shadow: inset 3px 0 0 var(--c-focus); }
+.daystrip__now, .daystrip__now::before { background: var(--c-negative); }
+.week__ev { border-radius: 8px; background: color-mix(in oklab, var(--c-primary) 18%, var(--c-surface)) !important; box-shadow: inset 3px 0 0 var(--c-primary); color: var(--c-text); }
+.week__ev.is-feed { background: color-mix(in oklab, var(--viz-3) 18%, var(--c-surface)) !important; box-shadow: inset 3px 0 0 var(--viz-3); }
+.week__ev.is-past { opacity: 0.55; }
+.week__now { background: var(--c-negative) !important; }
+.week__day.is-today .week__head .num { background: var(--c-negative); color: #fff; border-radius: 999px; padding: 0 7px; }
+.unread-dot { background: var(--c-primary); }
+
+/* ---------------------------------------------------------------- sheets, palette, scrim: frosted */
+.scrim { background: var(--c-scrim); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
+.palette, .sheet { border-radius: 22px; background: color-mix(in oklab, var(--c-surface) 88%, transparent); -webkit-backdrop-filter: saturate(1.8) blur(40px); backdrop-filter: saturate(1.8) blur(40px); }
+:root[data-theme="dark"] .palette, :root[data-theme="oled"] .palette, :root[data-theme="dark"] .sheet, :root[data-theme="oled"] .sheet { background: color-mix(in oklab, var(--c-raised) 86%, transparent); }
+.palette__field { border-bottom: 0.5px solid var(--sep); height: 54px; font-size: 20px; }
+.palette__list li { border-radius: 10px; }
+.palette__list li.is-active { background: var(--c-primary); color: #fff; }
+.palette__list li.is-active .meta, .palette__list li.is-active .ic { color: rgba(255, 255, 255, 0.85); }
+
+/* ---------------------------------------------------------------- avatars: iOS contact monograms */
+.avatar { background: linear-gradient(180deg, hsl(var(--h) 28% 66%), hsl(var(--h) 26% 52%)); color: #fff; font-weight: 600; }
+.avatar--me { background: linear-gradient(180deg, #a5abb8, #858994); }
+.avatar--img { background: none; }
+
+/* ---------------------------------------------------------------- phone: frosted tab bar */
+@media (max-width: 640px) {
+  .tabbar { background: var(--bar); -webkit-backdrop-filter: saturate(1.8) blur(24px); backdrop-filter: saturate(1.8) blur(24px); border-top: 0.5px solid var(--sep); }
+  .tabbar button { color: var(--c-faint); font-weight: 500; }
+  .tabbar button.is-active { color: var(--c-ring); font-weight: 600; }
+  .pull { border-radius: 10px; background: var(--fill); height: 36px; }
+  [data-dir="a"] .canvas { padding: 16px 16px 40px; }
+  [data-dir="a"] .titlerow h1 { font-size: 30px; line-height: 36px; }
+}
+
+/* ---------------------------------------------------------------- scrollbars: thin, out of the way */
+* { scrollbar-width: thin; scrollbar-color: rgba(128, 128, 128, 0.4) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, 0.35); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Inbox filters sit in a narrow column: let the segmented control wrap instead of clipping "Andet" and "Arkiv". */
+.inbox .tabs { flex-wrap: wrap; overflow: visible; width: auto; display: flex; }
+.inbox .tabs .tab { flex: 1 1 auto; justify-content: center; }
+.kv select.kvinput { width: auto; min-width: 0; max-width: 60%; flex: 0 0 auto; }
+
+/* ================================================================ brand + motion
+   The 2026 brand (void, amber, flare, rose, violet, mist) and the app's living layer. The logo
+   itself never moves; the app does: screens rise out of a blur, the sidebar pill and segmented
+   thumbs glide, panels catch a soft light under the pointer, and the brand's light drifts behind
+   the unlock screen and the greeting. Everything is off under prefers-reduced-motion. */
+:root {
+  --brand-void: #0B0C0F; --brand-amber: #FFE2B8; --brand-flare: #FF9A5C; --brand-rose: #D9507A; --brand-violet: #7B4DFF; --brand-mist: #F4F1EC;
+  --brand-gradient: linear-gradient(135deg, var(--brand-amber), var(--brand-flare) 38%, var(--brand-rose) 72%, var(--brand-violet));
+  --spot: rgba(123, 77, 255, 0.07); --spot-2: rgba(255, 154, 92, 0.05); --aura-alpha: 0.32; --aura-blend: multiply;
+}
+:root[data-theme="dark"], :root[data-theme="oled"] { --spot: rgba(155, 123, 255, 0.11); --spot-2: rgba(255, 154, 92, 0.06); --aura-alpha: 0.38; --aura-blend: screen; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --spot: rgba(155, 123, 255, 0.11); --spot-2: rgba(255, 154, 92, 0.06); --aura-alpha: 0.38; --aura-blend: screen; }
+}
+
+/* the brand's light */
+.aura { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.aura__b { position: absolute; width: 52vmax; height: 52vmax; border-radius: 50%; filter: blur(90px); opacity: calc(var(--aura-alpha) * var(--aura, 1)); mix-blend-mode: var(--aura-blend); will-change: transform; }
+.aura__b--amber { background: var(--brand-amber); left: 14%; top: -34%; width: 40vmax; height: 40vmax; }
+.aura__b--flare { background: var(--brand-flare); left: -18%; top: 20%; width: 44vmax; height: 44vmax; }
+.aura__b--rose { background: var(--brand-rose); left: 34%; top: 48%; width: 40vmax; height: 40vmax; }
+.aura__b--violet { background: var(--brand-violet); left: 58%; top: -6%; width: 46vmax; height: 46vmax; }
+.unlock .aura { opacity: 0.9; }
+.unlock__card { z-index: 1; }
+.unlock__symbol { box-shadow: 0 18px 50px rgba(255, 154, 92, 0.25), 0 4px 14px rgba(0, 0, 0, 0.3); }
+.canvas--today { position: relative; isolation: isolate; }
+.aura--today { inset: 0 0 auto 0; height: 340px; --aura: 0.45; -webkit-mask-image: linear-gradient(#000 30%, transparent); mask-image: linear-gradient(#000 30%, transparent); z-index: -1; }
+.aura--today .aura__b { width: 34vmax; height: 34vmax; filter: blur(70px); }
+
+/* sidebar: one pill that glides, with a thin line of the brand gradient */
+.brand__icon { width: 30px; height: 30px; flex: none; }
+.sidebar nav { position: relative; }
+.nav-pill { position: absolute; left: 0; right: 0; top: 0; height: 32px; border-radius: 8px; background: var(--fill-strong); opacity: 0; pointer-events: none; }
+.nav-pill::before { content: ''; position: absolute; left: 3px; top: 8px; bottom: 8px; width: 3px; border-radius: 2px; background: linear-gradient(var(--brand-amber), var(--brand-flare), var(--brand-rose), var(--brand-violet)); }
+.sidebar nav .nav-item { position: relative; z-index: 1; }
+.sidebar nav .nav-item.is-active { background: transparent; }
+.sidebar nav .nav-item.is-active:hover { background: transparent; }
+
+/* segmented controls: the white/grey thumb slides to the chosen option */
+[data-thumb] { position: relative; }
+.seg-thumb { position: absolute; left: 0; top: 0; border-radius: 7px; background: var(--seg-on); box-shadow: var(--seg-shadow); pointer-events: none; z-index: 0; opacity: 0; }
+[data-thumb] > button { position: relative; z-index: 1; }
+[data-thumb] > button.is-active { background: transparent !important; box-shadow: none !important; }
+.acctpick .seg-thumb { border-radius: 7px; }
+
+/* panels catch a soft light under the pointer */
+.panel, .kpi { position: relative; isolation: isolate; }
+.panel::after, .kpi::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: -1; opacity: 0; transition: opacity 400ms var(--e-standard);
+  background: radial-gradient(520px circle at var(--mx, 50%) var(--my, 50%), var(--spot), var(--spot-2) 40%, transparent 70%);
+}
+.panel:hover::after, .kpi:hover::after { opacity: 1; }
+.kpi { transition: transform 300ms cubic-bezier(.2, .9, .3, 1.2); }
+.kpi:hover { transform: translateY(-2px); }
+
+/* the primary button: a sweep of light on hover, a spring on press */
+.btn--primary { position: relative; overflow: hidden; isolation: isolate; }
+.btn--primary::after { content: ''; position: absolute; inset: 0; z-index: -1; background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.3) 50%, transparent 70%); transform: translateX(-120%); transition: transform 0s; }
+.btn--primary:hover::after { transform: translateX(120%); transition: transform 750ms cubic-bezier(.3, .7, .2, 1); }
+.btn, .nav-item, .tab, .segmented button { transition: background 150ms var(--e-standard), transform 220ms cubic-bezier(.2, .9, .3, 1.4); }
+.btn:active, .nav-item:active, .tab:active, .segmented button:active { transform: scale(0.96); }
+
+/* little living details */
+.daystrip__now::before { animation: nowpulse 2.4s ease-in-out infinite; }
+@keyframes nowpulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.45); } 50% { box-shadow: 0 0 0 6px rgba(255, 59, 48, 0); } }
+.nav-item .count.is-due { animation: badgepop 500ms cubic-bezier(.2, .9, .3, 1.6) both; }
+@keyframes badgepop { from { transform: scale(0.4); opacity: 0; } }
+.prog i { background: var(--brand-gradient) !important; }
+.prog.is-focus i { background: var(--c-focus) !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .aura__b { opacity: calc(var(--aura-alpha) * 0.6); }
+  .panel::after, .kpi::after, .btn--primary::after { display: none; }
+  .daystrip__now::before, .nav-item .count.is-due { animation: none; }
+  .kpi:hover { transform: none; }
+}

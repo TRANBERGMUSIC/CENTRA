@@ -12,7 +12,7 @@ const SYS = `Du læser kvitteringer og indkøbslister for en dansk bruger. Svar 
 - total er beløbet betalt i alt, hvis det står der.`;
 
 export async function readReceipt(e: SyncEngine, input: { image?: string; text?: string }): Promise<ReadReceipt> {
-  const r = await askJson<ReadReceipt>(e, SYS, input.text?.trim() ? `Det her er købt:\n${input.text}` : 'Læs denne kvittering.', { images: input.image ? [input.image] : [] });
+  const r = await askJson<ReadReceipt>(e, SYS, input.text?.trim() ? `Det her er købt:\n${input.text}` : 'Læs denne kvittering.', { images: input.image ? [input.image] : [], feature: 'kvittering' });
   const items = (r.items ?? []).map((i) => ({ name: String(i.name ?? '').trim(), amount: Math.round(Number(i.amount) * 100) / 100 })).filter((i) => i.name && Number.isFinite(i.amount) && i.amount !== 0);
   return { store: r.store ?? undefined, date: /^\d{4}-\d{2}-\d{2}$/.test(r.date ?? '') ? r.date : undefined, total: Number.isFinite(Number(r.total)) ? Number(r.total) : undefined, items };
 }

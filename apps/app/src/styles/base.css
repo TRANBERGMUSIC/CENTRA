@@ -219,7 +219,7 @@ ul { list-style: none; margin: 0; padding: 0; }
   }
   .tabbar a { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11px; line-height: 14px; color: var(--c-faint); padding-top: 4px; position: relative; }
   .tabbar a.is-active { color: var(--c-text); font-weight: var(--w-strong); }
-  .tabbar .badge { position: absolute; top: 0; left: calc(50% + 6px); min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--c-focus); color: var(--c-badge-ink, #0B0F0E); font-size: 11px; line-height: 16px; font-weight: var(--w-strong); }
+  .tabbar .badge { position: absolute; top: 0; left: calc(50% + 6px); min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--c-focus); color: var(--c-badge-ink, #0B0C0F); font-size: 11px; line-height: 16px; font-weight: var(--w-strong); }
   .phonehead { display: flex; align-items: center; gap: var(--s-2); height: 48px; padding: 0 var(--s-4); }
   .pull { display: flex; align-items: center; justify-content: center; gap: var(--s-2); height: 36px; margin: 0 var(--s-4); border-radius: var(--r-control); background: var(--c-raised); color: var(--c-faint); font-size: var(--fs-meta); }
   .inbox { grid-template-columns: 1fr; height: auto; }

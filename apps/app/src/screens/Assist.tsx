@@ -4,7 +4,9 @@ import { Btn, Panel } from '../ui/primitives.tsx';
 import { useToast } from '../ui/Shell.tsx';
 import { collapseOut, useScreenEnter, reduced } from '../motion.ts';
 import { Icon } from '../ui/Icon.tsx';
-import { ask, aiSettings, aiReady, saveAiSettings, testAi, AiError, CLAUDE_MODELS, type Msg } from '../ai/agent.ts';
+import { ask, aiSettings, aiReady, saveAiSettings, testAi, AiError, type Msg } from '../ai/agent.ts';
+import { MODEL_NAMES, spentThisMonth } from '../ai/usage.ts';
+import { kr } from '../money.ts';
 import { applyUndo, type Action } from '../ai/tools.ts';
 import { useDictation, MAC_DICTATION_TIP } from '../ai/dictation.ts';
 import ClickSpark from '../bits/ClickSpark.jsx';
@@ -73,7 +75,7 @@ export function SuggestionRows({ limit }: { limit?: number }) {
 
 /* ================================================================ Assist: talk to CENTRA */
 
-type LogItem = { role: 'user' | 'assistant' | 'error'; text: string; at: string; actions?: Action[]; via?: 'claude' | 'local' };
+type LogItem = { role: 'user' | 'assistant' | 'error'; text: string; at: string; actions?: Action[]; via?: 'claude' | 'local'; model?: string; why?: string; usd?: number };
 type Chat = { id: string; at: string; title?: string; messages: Msg[]; log: LogItem[] };
 
 let queued: string | null = null;
@@ -140,7 +142,7 @@ export function Assist() {
     abort.current = new AbortController();
     try {
       const t = await ask(e, cur.messages ?? [], msg, { signal: abort.current.signal, onAction: (a) => setLive((l) => [...l, a]) });
-      e.set('chat', id, { messages: t.messages, log: [...nextLog, { role: 'assistant', text: t.reply, actions: t.actions, via: t.via, at: new Date().toISOString() }] });
+      e.set('chat', id, { messages: t.messages, log: [...nextLog, { role: 'assistant', text: t.reply, actions: t.actions, via: t.via, model: t.model, why: t.why, usd: t.usd, at: new Date().toISOString() }] });
     } catch (err) {
       if (!abort.current.signal.aborted) e.set('chat', id, { log: [...nextLog, { role: 'error', text: err instanceof AiError ? err.message : 'Assist kunne ikke svare: ' + (err as Error).message, at: new Date().toISOString() }] });
     } finally {
@@ -165,7 +167,7 @@ export function Assist() {
       <div className="titlerow" data-enter>
         <div><h1>Assist</h1><p>Skriv eller tal. Assist husker det vigtige, lægger aftaler i kalenderen, skriver noter og holder styr på dine mål. Alt kan fortrydes.</p></div>
         <div className="actions">
-          <span className="meta">{ai.provider === 'claude' ? (ai.claudeKey ? CLAUDE_MODELS.find(([m]) => m === ai.claudeModel)?.[1].split(' ·')[0] ?? 'Claude' : 'Ikke forbundet') : 'Lokal · ' + ai.localModel}</span>
+          <button className="tag modelpill" onClick={() => go({ screen: 'usage' })} title="Se forbrug">{ai.provider === 'claude' ? (ai.claudeKey ? (ai.modelMode === 'auto' ? 'Automatisk model' : MODEL_NAMES[ai.modelMode] ?? 'Claude') + ' · ' + kr(spentThisMonth(e) * (ai.usdDkk || 6.9)) + ' i ' + new Date().toLocaleDateString('da-DK', { month: 'long' }) : 'Ikke forbundet') : 'Lokal · ' + ai.localModel}</button>
           {log.length > 0 && <Btn size="sm" icon="plus" onClick={() => setSel(e.create('chat', { at: new Date().toISOString(), messages: [], log: [] }))}>Ny samtale</Btn>}
         </div>
       </div>
@@ -186,6 +188,7 @@ export function Assist() {
               <div key={i} className={`msg msg--${m.role}`}>
                 {m.text && <div className="msg__text">{m.text}</div>}
                 {m.actions && m.actions.length > 0 && <ActionList actions={m.actions} onUndo={(k) => undo(i, k)} onOpen={(a) => a.open && go(a.open)} />}
+                {m.role === 'assistant' && m.model && <span className="msg__meta" title={m.why ? 'Valgt fordi: ' + m.why : undefined}>{MODEL_NAMES[m.model] ?? m.model}{m.usd !== undefined ? ' · ' + (m.usd * (ai.usdDkk || 6.9) < 0.01 ? 'under 1 øre' : kr(m.usd * (ai.usdDkk || 6.9))) : ''}</span>}
               </div>
             ))}
             {busy && (

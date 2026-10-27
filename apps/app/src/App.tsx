@@ -16,9 +16,11 @@ import { Connections } from './screens/Connections.tsx';
 import { Contacts } from './screens/Contacts.tsx';
 import { Outlays } from './screens/Outlays.tsx';
 import { Expenses } from './screens/Expenses.tsx';
+import { UsageScreen } from './screens/Usage.tsx';
 import { syncAll } from './mail.ts';
 import { triageMails } from './ai/triage.ts';
 import { syncFeeds } from './feeds.ts';
+import { useAppMotion } from './motion.ts';
 
 const readRoute = (): Route => {
   const [screen, id] = location.hash.replace(/^#\/?/, '').split('/');
@@ -60,6 +62,8 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
   const e = useEngine();
   const toast = useToast();
   const opened = useRef(firstOpen);
+  const appRef = useRef<HTMLDivElement>(null);
+  useAppMotion(appRef);
   const go = useCallback((r: Route) => { opened.current = false; location.hash = `/${r.screen}${r.id ? '/' + r.id : ''}`; }, []);
 
   useEffect(() => { const f = () => setRoute(readRoute()); addEventListener('hashchange', f); return () => removeEventListener('hashchange', f); }, []);
@@ -114,12 +118,12 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
   const screen = {
     today: <Today firstOpen={opened.current} />, notes: <Notes />, inbox: <Inbox />, goals: <Goals />,
     calendar: <Calendar />, assist: <Assist />, settings: <Settings theme={theme} setTheme={setTheme} />, connections: <Connections />,
-    contacts: <Contacts />, outlays: <Outlays />, expenses: <Expenses />,
+    contacts: <Contacts />, outlays: <Outlays />, expenses: <Expenses />, usage: <UsageScreen />,
   }[route.screen] ?? <Today firstOpen={false} />;
 
   return (
     <RouteProvider value={{ route, go }}>
-      <div className="app">
+      <div className="app" ref={appRef}>
         <Sidebar onSearch={() => setPalette(true)} />
         <button className="pull" onClick={() => setPalette(true)}>Søg eller spørg</button>
         {screen}

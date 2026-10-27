@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
+import { Aura } from '../ui/Logo.tsx';
 import { useEngine, useList, useNow, useRoute, fmt, greeting } from '../state.tsx';
 import { Avatar, Btn, Panel, Pill } from '../ui/primitives.tsx';
 import { Icon } from '../ui/Icon.tsx';
@@ -41,7 +42,8 @@ export function Today({ firstOpen }: { firstOpen: boolean }) {
   const hello = `${greeting(now)}, Willads`;
 
   return (
-    <main className="canvas" ref={ref}>
+    <main className="canvas canvas--today" ref={ref}>
+      <Aura className="aura--today" />
       <div className="titlerow" data-enter>
         <div>
           <h1>{firstOpen ? <DecryptedText text={hello} animateOn="view" sequential revealDirection="start" speed={28} maxIterations={8} characters="ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅ" encryptedClassName="encrypted" /> : hello}</h1>

@@ -27,6 +27,8 @@ describe('udlæg', () => {
     expect(shares(o)).toEqual({ me: 33.34, p1: 33.33, p2: 33.33 });
     const o2 = { items: [{ id: 'a', name: 'Pizza', amount: 300, who: [] }, { id: 'b', name: 'Vin', amount: 120, who: ['p1'] }, { id: 'c', name: 'Cola', amount: 30, who: [ME, 'p2'] }], people: [ME, 'p1', 'p2'] };
     expect(shares(o2)).toEqual({ me: 115, p1: 220, p2: 115 });
+    // I paid it all for someone else: nothing is split with me
+    expect(shares({ items: [{ id: 'a', name: 'Billet', amount: 349, who: [] }], people: ['p1'] })).toEqual({ p1: 349 });
   });
 
   it('delvise betalinger på tværs af udlæg, ældste først', async () => {

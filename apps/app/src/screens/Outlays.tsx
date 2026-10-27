@@ -182,7 +182,13 @@ function OutlayDetail({ id }: { id: string }) {
             <datalist id="contacts-list">{contacts.filter((c) => !people.includes(c.id)).map((c) => <option key={c.id} value={c.name} />)}</datalist>
           </form>
         </div>
-        <label className="checkrow small pad-top"><input type="checkbox" checked={!people.includes(ME) ? false : true} onChange={(x) => set({ people: x.target.checked ? [ME, ...people] : people.filter((p) => p !== ME), items: items.map((it) => ({ ...it, who: (it.who ?? []).filter((w) => x.target.checked || w !== ME) })) })} />Jeg skal selv betale en del</label>
+        <div className="segmented pad-top" role="radiogroup" aria-label="Hvem betaler">
+          {([[true, 'Delt med mig'], [false, 'Jeg lagde ud, de betaler det hele']] as const).map(([mine, label]) => (
+            <button key={label} type="button" role="radio" aria-checked={people.includes(ME) === mine} className={people.includes(ME) === mine ? 'is-active' : ''}
+              onClick={() => { if (people.includes(ME) === mine) return; set({ people: mine ? [ME, ...people] : people.filter((p) => p !== ME), items: items.map((it) => ({ ...it, who: (it.who ?? []).filter((w) => mine || w !== ME) })) }); }}>{label}</button>
+          ))}
+        </div>
+        {!people.includes(ME) && <p className="meta small">Du er ikke med i delingen: {people.length ? 'de andre deler hele beløbet' : 'tilføj den eller dem, der skal betale'}.{people.length === 1 ? ` ${personName(e, people[0])} skylder dig ${kr(sum)}.` : ''}</p>}
       </section>
 
       <section className="panel">

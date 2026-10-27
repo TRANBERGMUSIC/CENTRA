@@ -3,7 +3,8 @@ import { Icon, type IconName } from './Icon.tsx';
 import { Wordmark } from './primitives.tsx';
 import { useEngine, useList, useRoute, useSession, useSyncStatus, fmt, type Route } from '../state.tsx';
 import { balances, ME } from '../money.ts';
-import { gsap, useGSAP, reduced, ease, dur } from '../motion.ts';
+import { gsap, useGSAP, reduced, ease, dur, useNavPill } from '../motion.ts';
+import { Logo } from './Logo.tsx';
 import { lock } from '../lock.ts';
 import { queueAssist } from '../screens/Assist.tsx';
 import { repeatLabel } from '../calendar.ts';
@@ -48,14 +49,17 @@ export function Sidebar({ onSearch }: { onSearch: () => void }) {
   const counts = useCounts();
   const pinned = useList('note').filter((n: any) => n.pinned);
   const { user } = useSession();
+  const navRef = useRef<HTMLElement>(null);
+  useNavPill(navRef, route.screen);
   return (
     <aside className="sidebar" aria-label="Navigation">
       <button className="brand" onClick={() => go({ screen: 'today' })} aria-label="CENTRA, I dag">
-        <img className="brand__icon" src="./app-icon-dark.png" alt="" />
+        <Logo className="brand__icon" size={30} />
         <Wordmark />
       </button>
       <button className="searchbtn" onClick={onSearch}><Icon name="search" /><span>Søg eller spørg</span><span className="kbd">⌘K</span></button>
-      <nav>
+      <nav ref={navRef}>
+        <span className="nav-pill" aria-hidden="true" />
         {NAV.map(([k, i, l]) => (
           <button key={k} className={`nav-item ${route.screen === k ? 'is-active' : ''}`} aria-current={route.screen === k ? 'page' : undefined} onClick={() => go({ screen: k })}>
             <Icon name={i} /><span>{l}</span>
@@ -114,6 +118,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       { kind: 'Kommando', icon: 'goals', title: 'Nyt mål', run: () => go({ screen: 'goals', id: engine.create('goal', { title: 'Nyt mål', kind: 'measure', unit: '', target: 10, area: 'Privat', order: 99 }) }) },
       { kind: 'Assist', icon: 'assist', title: q.trim() ? `Spørg Assist: ${q.trim()}` : 'Spørg Assist', run: () => { if (q.trim()) queueAssist(q.trim()); go({ screen: 'assist' }); } },
       { kind: 'Kommando', icon: 'settings', title: 'Skift tema', run: () => go({ screen: 'settings' }) },
+      { kind: 'Kommando', icon: 'assist', title: 'Claude-forbrug', run: () => go({ screen: 'usage' }) },
       { kind: 'Kommando', icon: 'link', title: 'Forbind mail eller kalender', run: () => go({ screen: 'connections' }) },
     ];
     const content: Hit[] = [

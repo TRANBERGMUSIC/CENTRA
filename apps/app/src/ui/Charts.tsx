@@ -40,7 +40,7 @@ export function Donut({ data, center, sub }: { data: Slice[]; center: string; su
       </svg>
       <ul className="legend">{data.map((d, i) => (
         <li key={d.label} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} className={hover === i ? 'is-hover' : ''}>
-          <i style={{ background: slotVar(d.slot) }} /><span className="ellipsis" title={d.label}>{d.label}</span><span className="num">{kr(d.value, { short: true })} <span className="meta">{Math.round((d.value / sum) * 100)}%</span></span>
+          <i style={{ background: slotVar(d.slot) }} /><span className="ellipsis" title={d.label}>{d.label}</span><span className="num">{kr(d.value, { short: d.value >= 100 })} <span className="meta">{Math.round((d.value / sum) * 100)}%</span></span>
         </li>
       ))}</ul>
     </div>
@@ -65,7 +65,7 @@ export function MonthBars({ bars, onPick }: { bars: Bar[]; onPick?: (i: number) 
   return (
     <div className="mbars">
       <svg ref={ref} viewBox={`-44 -16 ${W + 52} ${H + 40}`} role="img" aria-label={`Udgifter pr. måned: ${bars.map((b, i) => `${b.label} ${kr(totals[i], { short: true })}`).join(', ')}`}>
-        {ticks.map((t) => <g key={t}><line className="grid" x1={0} x2={W} y1={y(t)} y2={y(t)} /><text x={-8} y={y(t) + 4} textAnchor="end">{t >= 1000 ? `${Math.round(t / 100) / 10}k` : Math.round(t)}</text></g>)}
+        {ticks.map((t) => <g key={t}><line className="grid" x1={0} x2={W} y1={y(t)} y2={y(t)} /><text x={-8} y={y(t) + 4} textAnchor="end">{t >= 1000 ? `${Math.round(t / 100) / 10}k` : top < 10 ? t.toLocaleString('da-DK', { maximumFractionDigits: 2 }) : Math.round(t)}</text></g>)}
         {bars.map((b, i) => {
           let acc = 0;
           const x = i * slot + (slot - bw) / 2;

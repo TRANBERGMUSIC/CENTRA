@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { explain } from '../session.ts';
 import { lock } from '../lock.ts';
-import { useEngine, useSession, useSyncStatus, fmt } from '../state.tsx';
+import { useEngine, useRoute, useSession, useSyncStatus, fmt } from '../state.tsx';
 import { Btn, Panel } from '../ui/primitives.tsx';
 import { useToast } from '../ui/Shell.tsx';
 import { useScreenEnter } from '../motion.ts';
@@ -12,7 +12,7 @@ import { aiSettings, saveAiSettings, testAi, CLAUDE_MODELS, type AiSettings } fr
 export type Theme = 'dark' | 'oled' | 'light';
 export function applyTheme(t: Theme) {
   document.documentElement.dataset.theme = t;
-  document.querySelector('meta[name=theme-color]')?.setAttribute('content', t === 'light' ? '#F4F5F3' : t === 'oled' ? '#000000' : '#0B0F0E');
+  document.querySelector('meta[name=theme-color]')?.setAttribute('content', t === 'light' ? '#F4F1EC' : t === 'oled' ? '#000000' : '#0B0C0F');
 }
 
 export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Theme) => void }) {
@@ -155,6 +155,7 @@ function SecurityPanel() {
 /** Which brain Assist uses. The Claude key lives in the encrypted store and is never shown again. */
 function AiPanel() {
   const e = useEngine();
+  const { go } = useRoute();
   const toast = useToast();
   const [s, setS] = useState<AiSettings>(() => aiSettings(e));
   const [key, setKey] = useState('');
@@ -184,8 +185,8 @@ function AiPanel() {
           <Btn size="sm" type="submit" disabled={busy || key.trim().length < 20}>Gem</Btn>
           {s.claudeKey && <Btn size="sm" type="button" variant="text" onClick={() => { if (confirm('Fjern Claude-nøglen fra CENTRA?')) save({ claudeKey: '' }); }}>Fjern</Btn>}
         </form></div>
-      <div className="kv"><span>Claude-model</span>
-        <select className="kvinput" value={s.claudeModel} onChange={(ev) => save({ claudeModel: ev.target.value })} aria-label="Claude-model">
+      <div className="kv"><span>Claude-model<span className="meta block">Automatisk sparer tokens: Haiku til korte kommandoer, Opus til det svære, Sonnet til resten.</span></span>
+        <select className="kvinput" value={s.modelMode || 'auto'} onChange={(ev) => save({ modelMode: ev.target.value })} aria-label="Claude-model">
           {CLAUDE_MODELS.map(([m, l]) => <option key={m} value={m}>{l}</option>)}
         </select></div>
       <div className="kv"><span>Lokal model<span className="meta block">Navn i Ollama, fx qwen3:8b eller llama3.1. Hent med: ollama pull {s.localModel}</span></span>
@@ -194,6 +195,7 @@ function AiPanel() {
         <input type="checkbox" checked={s.fallbackLocal} onChange={(ev) => save({ fallbackLocal: ev.target.checked })} aria-label="Lokal model som reserve" /></div>
       <div className="kv"><span>Sortér nye mails med AI<span className="meta block">Claude (den hurtige model) læser afsender, emne og et kort uddrag af nye mails og flytter reklamer og nyhedsbreve til "Andet".</span></span>
         <input type="checkbox" checked={s.triage} onChange={(ev) => save({ triage: ev.target.checked })} aria-label="Sortér mails med AI" /></div>
+      <div className="kv"><span>Forbrug og budget<span className="meta block">Hvad Claude har kostet, pr. dag og model, og hvad automatisk modelvalg har sparet.</span></span><Btn size="sm" onClick={() => go({ screen: 'usage' })}>Se forbrug</Btn></div>
       <div className="kv"><span>Test forbindelsen</span><Btn size="sm" onClick={test} disabled={busy}>{busy ? 'Tester …' : 'Test'}</Btn></div>
     </Panel>
   );
