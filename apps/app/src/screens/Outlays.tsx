@@ -5,7 +5,7 @@ import { Icon } from '../ui/Icon.tsx';
 import { useToast } from '../ui/Shell.tsx';
 import { useScreenEnter } from '../motion.ts';
 import { Progress } from '../ui/DayStrip.tsx';
-import { ME, kr, parseKr, shares, owed, total, balances, isOpen, parseItemLines, findOrCreatePerson, personName, CATEGORIES, type Outlay, type Payment, type Person, type Item } from '../money.ts';
+import { ME, kr, parseKr, shares, owed, total, balances, isOpen, payBack, parseItemLines, findOrCreatePerson, personName, CATEGORIES, type Outlay, type Payment, type Person, type Item } from '../money.ts';
 import { readReceipt, shrinkImage } from '../ai/receipt.ts';
 import { aiReady, aiSettings } from '../ai/agent.ts';
 import { Avatar } from './Contacts.tsx';
@@ -25,10 +25,16 @@ export function Outlays() {
   useList('person');
   const bal = balances(e).filter((b) => b.left > 0);
   const owedTotal = bal.reduce((s, b) => s + b.left, 0);
-  const active = outlays.filter((o) => isOpen(o, pays));
-  const done = outlays.filter((o) => !isOpen(o, pays));
+  // An udlæg only counts as paid once it has an amount, someone besides you, and nothing left to pay.
+  // Until then (just created, no items or people yet) it stays under Aktive, so it never vanishes.
+  const settled = (o: Outlay) => total(o) > 0 && (o.people ?? []).some((p) => p !== ME) && !isOpen(o, pays);
+  const active = outlays.filter((o) => !settled(o));
+  const done = outlays.filter(settled);
   const [showDone, setShowDone] = useState(false);
-  const id = route.id ?? (matchMedia('(max-width: 640px)').matches ? undefined : active[0]?.id);
+  // The detail pane shows one udlæg (its own list of items), one person (everything they owe), or
+  // with nothing chosen, the overview of who owes you what.
+  const who = route.id?.startsWith('who:') ? route.id.slice(4) : null;
+  const id = who ? undefined : route.id;
   const create = () => go({ screen: 'outlays', id: e.create('outlay', { title: '', date: today(), people: [ME], items: [], countMine: true, createdAt: new Date().toISOString() }) });
   const max = Math.max(1, ...bal.map((b) => b.left));
 
@@ -54,7 +60,7 @@ export function Outlays() {
           {bal.length ? <ul className="owebars">{bal.map((b) => {
             const p = e.get(b.person) as unknown as Person | null;
             return (
-              <li key={b.person}><button onClick={() => go({ screen: 'contacts', id: b.person })}>
+              <li key={b.person}><button className={who === b.person ? 'is-selected' : ''} onClick={() => go({ screen: 'outlays', id: 'who:' + b.person })}>
                 {p && <Avatar p={p} />}<span className="ellipsis">{p?.name ?? 'Ukendt'}</span><span className="num">{kr(b.left)}</span>
                 <span className="owebars__bar" style={{ ['--w' as any]: b.left / max }} />
               </button></li>
@@ -67,7 +73,7 @@ export function Outlays() {
         {done.length > 0 && <button className="gsec gsec--btn" onClick={() => setShowDone((x) => !x)} aria-expanded={showDone}>Betalt <span className="num">{done.length}</span> <Icon name="chevron-down" size="sm" /></button>}
         {showDone && done.map(row)}
       </div>
-      {id ? <OutlayDetail key={id} id={id} /> : <div className="split__detail" />}
+      {id ? <OutlayDetail key={id} id={id} /> : who ? <PersonDebt key={who} person={who} /> : <Overview />}
     </main>
   );
 }
@@ -263,8 +269,107 @@ function OutlayDetail({ id }: { id: string }) {
         <label className="checkrow small"><input type="checkbox" checked={o.countMine !== false} onChange={(x) => set({ countMine: x.target.checked })} />Min andel tæller med i Udgifter</label>
         <span className="push-right" />
         <Btn size="sm" variant="text" icon="x" onClick={remove}>Slet udlæg</Btn>
+        <Btn variant="primary" icon="check" onClick={() => { go({ screen: 'outlays' }); toast({ text: `${o.title || 'Udlægget'} er gemt` }); }}>Færdig</Btn>
       </div>
     </div>
   );
 }
 
+
+/** Each person's part of each item in one udlæg (items split evenly among the people on them). */
+function partsOf(o: Outlay, person: string) {
+  const ppl = o.people ?? [];
+  return (o.items ?? []).flatMap((it) => {
+    const w = (it.who?.length ? it.who : ppl).filter((x) => ppl.includes(x));
+    return w.includes(person) ? [{ id: it.id, name: it.name, part: Math.round(((it.amount || 0) / w.length) * 100) / 100, split: w.length }] : [];
+  });
+}
+
+/** Nothing chosen: who owes you, each with the udlæg behind it. Click a person to see it all. */
+function Overview() {
+  const e = useEngine();
+  const { go } = useRoute();
+  useList('outlay'); useList('payment'); useList('person');
+  const bal = balances(e).filter((b) => b.left > 0);
+  return (
+    <div className="split__detail odetail" data-lenis-prevent>
+      <h2 className="otitle">Hvem skylder dig</h2>
+      {bal.length ? <div className="oppl">{bal.map((b) => {
+        const p = e.get(b.person) as unknown as Person | null;
+        const titles = b.open.map((oid) => (e.get(oid) as unknown as Outlay | null)?.title || 'Udlæg');
+        return (
+          <button key={b.person} className="panel operson" onClick={() => go({ screen: 'outlays', id: 'who:' + b.person })}>
+            {p && <Avatar p={p} />}
+            <span className="row__body"><span className="strong">{p?.name ?? 'Ukendt'}</span><span className="meta ellipsis">{titles.length} {titles.length === 1 ? 'udlæg' : 'udlæg'}: {titles.join(', ')}</span></span>
+            <span className="operson__sum num">{kr(b.left)}</span><Icon name="chevron-right" size="sm" />
+          </button>
+        );
+      })}</div> : <p className="muted">Ingen skylder dig noget lige nu. Tryk på Nyt udlæg, når du har lagt ud for nogen. Hvert udlæg får sin egen liste af varer.</p>}
+    </div>
+  );
+}
+
+/** One person: everything they owe, udlæg for udlæg and item for item, and ways to settle it. */
+function PersonDebt({ person }: { person: string }) {
+  const e = useEngine();
+  const { go } = useRoute();
+  const toast = useToast();
+  const outlays = useList('outlay', (a, b) => (b.date ?? '').localeCompare(a.date ?? '')) as unknown as Outlay[];
+  const pays = useList('payment') as unknown as Payment[];
+  useList('person');
+  const [part, setPart] = useState<string | null>(null);
+  const p = e.get(person) as unknown as Person | null;
+  const mine = outlays.map((o) => ({ o, w: owed(o, pays).find((x) => x.person === person) })).filter((x): x is { o: Outlay; w: NonNullable<typeof x.w> } => !!x.w && x.w.share > 0);
+  const open = mine.filter((x) => x.w.left > 0.004), paid = mine.filter((x) => x.w.left <= 0.004);
+  const left = Math.round(open.reduce((s, x) => s + x.w.left, 0) * 100) / 100;
+  const first = (p?.name ?? '').split(' ')[0];
+  const message = `Hej ${first}! Du mangler at betale ${kr(left)} for ${open.map((x) => `${x.o.title || 'udlæg'} (${kr(x.w.left)})`).join(', ')}. Tak 🙏`;
+  const settle = (amount: number) => {
+    if (!(amount > 0)) return;
+    const ids = payBack(e, person, amount);
+    toast({ person: { name: p?.name ?? 'Ukendt', photo: p?.photo }, text: `${p?.name ?? 'De'} har betalt ${kr(amount)}`, action: { label: 'Fortryd', run: () => ids.forEach((x) => e.remove('payment', x)) } });
+    setPart(null);
+  };
+  const card = ({ o, w }: { o: Outlay; w: { share: number; paid: number; left: number } }) => (
+    <section key={o.id} className="panel odebt">
+      <button className="odebt__head" onClick={() => go({ screen: 'outlays', id: o.id })}>
+        <span className="row__body"><span className="strong">{o.title || 'Udlæg'}</span><span className="meta">{fmt.shortDate(o.date)}{o.place ? ' · ' + o.place : ''} · i alt {kr(total(o))}</span></span>
+        {w.left > 0.004 ? <Pill tone="focus">Mangler {kr(w.left)}</Pill> : <span className="status">Betalt</span>}
+        <Icon name="chevron-right" size="sm" />
+      </button>
+      <ul className="odebt__items">{partsOf(o, person).map((it) => (
+        <li key={it.id}><span className="ellipsis">{it.name}</span><span className="meta">{it.split > 1 ? `delt på ${it.split}` : 'kun ' + first}</span><span className="num">{kr(it.part)}</span></li>
+      ))}</ul>
+      <div className="odebt__foot meta num"><span>Andel {kr(w.share)}</span>{w.paid > 0 && <span>betalt {kr(w.paid)}</span>}</div>
+      {w.share > 0 && <Progress ratio={w.paid / w.share} small />}
+    </section>
+  );
+  return (
+    <div className="split__detail odetail" data-lenis-prevent>
+      <button className="phone-back" onClick={() => go({ screen: 'outlays' })}><Icon name="chevron-left" size="sm" />Udlæg</button>
+      <div className="ophead">
+        {p && <Avatar p={p} large />}
+        <div><h2 className="otitle">{p?.name ?? 'Ukendt'}</h2><p className="meta">{left > 0 ? `Skylder dig ${kr(left)} for ${open.length} ${open.length === 1 ? 'udlæg' : 'udlæg'}` : 'Skylder dig ikke noget'}</p></div>
+        <Btn size="sm" variant="text" className="push-right" onClick={() => go({ screen: 'contacts', id: person })}>Kontakt</Btn>
+      </div>
+      {left > 0 && (part !== null ? (
+        <form className="askbar" onSubmit={(x) => { x.preventDefault(); settle(parseKr(part)); }}>
+          <input autoFocus inputMode="decimal" value={part} onChange={(x) => setPart(x.target.value)} placeholder={String(left).replace('.', ',')} aria-label="Beløb betalt" />
+          <Btn type="submit" variant="primary">Gem</Btn><Btn type="button" variant="text" onClick={() => setPart(null)}>Annullér</Btn>
+        </form>
+      ) : (
+        <div className="oweline__acts">
+          <Btn variant="primary" icon="check" onClick={() => settle(left)}>Betalt alt ({kr(left)})</Btn>
+          <Btn onClick={() => setPart('')}>Betalt en del</Btn>
+          {p?.phone && <a className="btn btn--text" href={`sms:${p.phone.replace(/\s/g, '')}?&body=${encodeURIComponent(message)}`}>Send sms</a>}
+          {p?.email && <a className="btn btn--text" href={`mailto:${p.email}?subject=${encodeURIComponent('Udlæg')}&body=${encodeURIComponent(message)}`}>Send mail</a>}
+          <Btn variant="text" onClick={() => { void navigator.clipboard?.writeText(message); toast({ text: 'Besked kopieret' }); }}>Kopiér besked</Btn>
+        </div>
+      ))}
+      {open.length > 0 && <div className="gsec">Mangler betaling <span className="num">{open.length}</span></div>}
+      {open.map(card)}
+      {paid.length > 0 && <div className="gsec">Betalt <span className="num">{paid.length}</span></div>}
+      {paid.map(card)}
+    </div>
+  );
+}

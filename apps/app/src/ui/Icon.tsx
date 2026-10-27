@@ -2,7 +2,7 @@ const raw = import.meta.glob('../../../../packages/design-system/assets/icons/*.
 const icons: Record<string, string> = Object.fromEntries(Object.entries(raw).map(([p, svg]) => [p.split('/').pop()!.replace('.svg', ''), svg]));
 
 export type IconName = 'today' | 'notes' | 'calendar' | 'inbox' | 'assist' | 'search' | 'settings' | 'plus' | 'check' | 'x' | 'archive' | 'reply'
-  | 'star' | 'pin' | 'link' | 'clock' | 'video' | 'location' | 'paperclip' | 'chevron-left' | 'chevron-down' | 'more' | 'send' | 'hash'
+  | 'star' | 'pin' | 'link' | 'clock' | 'video' | 'location' | 'paperclip' | 'chevron-left' | 'chevron-right' | 'chevron-down' | 'more' | 'send' | 'hash'
   | 'folder' | 'sun' | 'menu' | 'mic' | 'edit' | 'goals' | 'contacts' | 'receipt' | 'wallet' | 'camera' | 'phone';
 
 export function Icon({ name, size = 'nav', className = '' }: { name: IconName; size?: 'sm' | 'nav' | 'tab'; className?: string }) {
