@@ -15,8 +15,10 @@ export type AiSettings = {
   localUrl: string;
   localModel: string;
   fallbackLocal: boolean;
+  /** Sort new mail into important / noise with the fast model. */
+  triage: boolean;
 };
-export const DEFAULT_AI: AiSettings = { provider: 'claude', claudeModel: 'claude-sonnet-5-5', localUrl: 'http://localhost:11434', localModel: 'qwen3:8b', fallbackLocal: true };
+export const DEFAULT_AI: AiSettings = { provider: 'claude', claudeModel: 'claude-sonnet-5-5', localUrl: 'http://localhost:11434', localModel: 'qwen3:8b', fallbackLocal: true, triage: true };
 export const CLAUDE_MODELS: [string, string][] = [['claude-sonnet-5-5', 'Sonnet 5.5 · anbefalet'], ['claude-haiku-5-5', 'Haiku 5.5 · hurtigst'], ['claude-opus-5-5', 'Opus 5.5 · klogest']];
 
 export function aiSettings(e: SyncEngine): AiSettings {
@@ -47,6 +49,9 @@ Sådan arbejder du:
 - Faste skemaer (arbejde, træning, undervisning) lægger du også i kalenderen med create_event og repeat_days. Er tiderne forskellige på nogle dage, laver du en aftale pr. tidsrum. Eksempel: "Netto 06–16 tirsdag–fredag, men fri 15 om torsdagen" → én aftale tir/ons/fre 06:00–16:00 og én tor 06:00–15:00, plus remember.
 - Diktat eller tanker, brugeren vil gemme, bliver til en note med create_note. Ryd op i tegnsætning og afsnit, men behold brugerens ord.
 - Mål og fremskridt: create_goal og log_goal_progress.
+- Personer: når brugeren nævner nogen med telefon, mail, sociale medier, eller fortæller hvem de er/hvad de laver, så gem eller opdatér dem med save_contact (noter tilføjes). Brug find_contact for at finde den rette person ("hvem kunne hjælpe med …").
+- Udlæg: "jeg lagde X ud for …" → create_outlay med alle personer og varer (brug "mig" for brugeren, hvis de selv betaler en del). "Mads har betalt 100" → record_payment. "Hvem skylder mig?" → balances.
+- Udgifter: faste betalinger og abonnementer → add_expense (interval month/year …). Spørg kort, hvis beløb eller interval mangler. list_expenses giver overblikket.
 - Mail: find med search_mail, læs med read_mail, og lav svarudkast med draft_reply (de sendes aldrig automatisk; brugeren sender selv fra indbakken). "Hold øje med en mail …" → watch_mail med afsender og/eller ord fra emnet. Er der ingen mailkonti, så sig at de forbindes under Forbindelser.
 - Gør det, brugeren beder om, med det samme og bekræft kort, hvad du har gjort. Alt kan fortrydes med én knap, så du behøver ikke spørge om lov. Spørg kun, hvis en nødvendig oplysning mangler (fx hvilken dag).
 - Brug id'er fra konteksten herunder. Find aldrig på fakta om brugeren.
@@ -56,11 +61,11 @@ ${contextFor(e)}`;
 }
 
 /* ---------------------------------------------------------------- providers */
-async function claude(s: AiSettings, sys: string, messages: Msg[], signal?: AbortSignal): Promise<{ content: Block[]; stop: string }> {
+async function claude(s: AiSettings, sys: string, messages: Msg[], signal?: AbortSignal, o: { tools?: boolean; model?: string; maxTokens?: number } = {}): Promise<{ content: Block[]; stop: string }> {
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST', signal,
     headers: { 'content-type': 'application/json', 'x-api-key': s.claudeKey!, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-    body: JSON.stringify({ model: s.claudeModel, max_tokens: 2048, system: sys, tools: TOOLS, messages }),
+    body: JSON.stringify({ model: o.model ?? s.claudeModel, max_tokens: o.maxTokens ?? 2048, system: sys, ...(o.tools === false ? {} : { tools: TOOLS }), messages }),
   });
   if (!r.ok) {
     let msg = `Claude svarede ${r.status}`;
@@ -173,4 +178,30 @@ export async function testAi(s: AiSettings): Promise<string> {
     ? await claude(s, 'Svar kun med ordet: klar', [{ role: 'user', content: [{ type: 'text', text: 'Test' }] }])
     : await ollama(s, 'Svar kun med ordet: klar', [{ role: 'user', content: [{ type: 'text', text: 'Test' }] }]);
   return r.content.filter((b) => b.type === 'text').map((b: any) => b.text).join(' ').trim() || 'klar';
+}
+
+/**
+ * One question that must come back as JSON (reading a receipt, sorting mail). `images` are data
+ * URLs; Claude reads them directly, a local model only if it can see (e.g. qwen2.5vl, llava).
+ */
+export async function askJson<T>(e: SyncEngine, sys: string, text: string, opts: { images?: string[]; fast?: boolean; maxTokens?: number } = {}): Promise<T> {
+  const s = aiSettings(e);
+  const images = opts.images ?? [];
+  let raw = '';
+  if (s.provider === 'claude' && s.claudeKey) {
+    const content: any[] = images.map((d) => { const m = /^data:(image\/[a-z+]+);base64,(.*)$/.exec(d)!; return { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } }; });
+    content.push({ type: 'text', text });
+    const r = await claude(s, sys, [{ role: 'user', content }], undefined, { tools: false, model: opts.fast ? 'claude-haiku-5-5' : undefined, maxTokens: opts.maxTokens ?? 4096 });
+    raw = r.content.filter((b) => b.type === 'text').map((b: any) => b.text).join('');
+  } else {
+    let r: Response;
+    try {
+      r = await fetch(`${s.localUrl.replace(/\/$/, '')}/api/chat`, { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: s.localModel, stream: false, format: 'json', messages: [{ role: 'system', content: sys }, { role: 'user', content: text, images: images.map((d) => d.split(',')[1]) }] }) });
+    } catch { throw new AiError('Assist er ikke forbundet. Indsæt en Claude-nøgle under Indstillinger, eller start Ollama.', 0); }
+    if (!r.ok) throw new AiError(`Lokal model svarede ${r.status}`, r.status);
+    raw = String((await r.json()).message?.content ?? '').replace(/<think>[\s\S]*?<\/think>/g, '');
+  }
+  const json = raw.slice(raw.search(/[[{]/), Math.max(raw.lastIndexOf('}'), raw.lastIndexOf(']')) + 1);
+  try { return JSON.parse(json) as T; } catch { throw new AiError('Svaret kunne ikke læses. Prøv igen.', 0); }
 }

@@ -14,6 +14,8 @@ pub fn run() {
         // Auto-update from GitHub Releases (latest.json, minisign-verified) and relaunch after install.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // Links (opsig, guides, mailto:, tel:, sms:) open in the browser / Mail / Messages.
+        .plugin(tauri_plugin_opener::init())
         // Mail (IMAP/SMTP) and calendar feeds: the web layer can't open sockets, so Rust does it.
         .invoke_handler(tauri::generate_handler![mail::mail_test, mail::mail_fetch, mail::mail_update, mail::mail_send, mail::fetch_calendar])
         .run(tauri::generate_context!())

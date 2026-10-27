@@ -6,11 +6,13 @@ import type { SyncEngine } from '@centra/sync';
 import { occurrences, dayKey, repeatLabel, type CalEvent } from '../calendar.ts';
 import { goalStats, type Goal, type GoalUpdate } from '../goals.ts';
 import type { Route } from '../state.tsx';
+import { ME, findPerson, findOrCreatePerson, balances, owed, total, shares, payBack, perMonth, cancelLink, serviceFor, CATEGORIES, people, personName, kr, type Person, type Outlay, type Payment, type Expense } from '../money.ts';
 
 export type Undo =
   | { kind: 'remove'; type: string; id: string }
   | { kind: 'restore'; type: string; id: string; fields: Record<string, unknown> }
-  | { kind: 'noteText'; id: string; text: string };
+  | { kind: 'noteText'; id: string; text: string }
+  | { kind: 'removeMany'; type: string; ids: string[] };
 
 export type Action = { label: string; undo?: Undo; open?: Route; undone?: boolean };
 export type ToolResult = { result: unknown; action?: Action };
@@ -100,6 +102,55 @@ export const TOOLS: ToolDef[] = [
     name: 'search',
     description: 'Search notes (including their text), calendar, goals and what you remember about the user.',
     input_schema: obj({ query: str('search words') }, ['query']),
+  },
+  {
+    name: 'save_contact',
+    description: 'Create or update a contact (person the user knows). Matches an existing contact by name/e-mail/phone first. Put what they do, how the user knows them and what the contact is useful for in notes (it is appended, not replaced).',
+    input_schema: obj({
+      name: str('full name'), phone: str('optional'), email: str('optional'), relation: str('optional: Familie, Ven, Kæreste, Kollega, Arbejde, Kunde, Bekendt, Andet'),
+      company: str('optional work/company'), birthday: str('optional YYYY-MM-DD'), address: str('optional'),
+      socials: { type: 'array', items: { type: 'object', properties: { kind: { type: 'string', enum: ['instagram', 'facebook', 'tiktok', 'snapchat', 'linkedin', 'x', 'web'] }, value: { type: 'string' } } }, description: 'optional social profiles' },
+      notes: str('optional note to add about the person'),
+    }, ['name']),
+  },
+  {
+    name: 'find_contact',
+    description: 'Look up contacts by name, relation, company or anything in their notes (e.g. "hvem kan låne en trailer").',
+    input_schema: obj({ query: str('search words') }, ['query']),
+  },
+  {
+    name: 'create_outlay',
+    description: 'Register an udlæg: the user paid and others owe their part. List items with amounts; for each item "who" are the people sharing it ("mig" for the user); leave "who" empty to split it evenly among everyone in "people". People are created as contacts if new.',
+    input_schema: obj({
+      title: str('short title, e.g. "Pizza fredag"'), place: str('optional shop/place'), date: str('YYYY-MM-DD, default today'),
+      people: { type: 'array', items: { type: 'string' }, description: 'everyone who shares the cost, by name; include "mig" if the user pays a part too' },
+      items: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, amount: { type: 'number' }, who: { type: 'array', items: { type: 'string' } } }, required: ['name', 'amount'] } },
+    }, ['title', 'people', 'items']),
+  },
+  {
+    name: 'record_payment',
+    description: 'Someone paid the user back (all or part). Without outlay_id the money pays off their oldest open udlæg first.',
+    input_schema: obj({ person: str('name of who paid'), amount: num('kroner'), outlay_id: str('optional specific udlæg id') }, ['person', 'amount']),
+  },
+  {
+    name: 'balances',
+    description: 'Who owes the user money right now, per person and per udlæg.',
+    input_schema: obj({}),
+  },
+  {
+    name: 'add_expense',
+    description: 'Add a fixed or one-off expense to Udgifter (rent, subscriptions, insurance, phone, gym …). For known services a cancel link is added automatically.',
+    input_schema: obj({
+      name: str('e.g. "Netflix", "Husleje"'), amount: num('kroner per payment'),
+      interval: { type: 'string', enum: ['month', 'quarter', 'halfyear', 'year', 'week', 'once'] },
+      category: { type: 'string', enum: CATEGORIES }, date: str('first payment date YYYY-MM-DD (or the date for once)'),
+      cancel_url: str('optional link to cancel or change'), note: str('optional'),
+    }, ['name', 'amount', 'interval']),
+  },
+  {
+    name: 'list_expenses',
+    description: 'The user\'s expenses with monthly cost, category and cancel link.',
+    input_schema: obj({}),
   },
   {
     name: 'search_mail',
@@ -226,6 +277,65 @@ export function runTool(e: SyncEngine, name: string, input: any): ToolResult {
       const memory = e.list('memory').filter((m: any) => hit(m.statement)).map((m: any) => ({ id: m.id, statement: m.statement }));
       return { result: { notes, events, goals, memory } };
     }
+    case 'save_contact': {
+      const existing = findPerson(e, input.email || input.phone || input.name) ?? findPerson(e, input.name);
+      const f: Record<string, unknown> = {};
+      for (const k of ['phone', 'email', 'relation', 'company', 'birthday', 'address']) if (input[k]) f[k] = String(input[k]).trim();
+      if (existing) {
+        const { id: _i, type: _t, ...prev } = existing as any;
+        if (input.socials?.length) f.socials = [...(existing.socials ?? []), ...input.socials.filter((s: any) => !(existing.socials ?? []).some((x) => x.kind === s.kind && x.value === s.value))];
+        if (input.notes) f.notes = [existing.notes, input.notes].filter(Boolean).join('\n');
+        if (input.name && input.name.length > existing.name.length && input.name.toLowerCase().startsWith(existing.name.toLowerCase())) f.name = input.name;
+        e.set('person', existing.id, f);
+        return { result: { ok: true, id: existing.id, updated: Object.keys(f) }, action: { label: `Kontakt opdateret: ${existing.name}`, undo: { kind: 'restore', type: 'person', id: existing.id, fields: prev }, open: { screen: 'contacts', id: existing.id } } };
+      }
+      const id = e.create('person', { name: String(input.name).trim(), ...f, socials: input.socials ?? [], notes: input.notes ?? '', createdAt: nowIso() });
+      return { result: { ok: true, id }, action: { label: `Ny kontakt: ${input.name}`, undo: { kind: 'remove', type: 'person', id }, open: { screen: 'contacts', id } } };
+    }
+    case 'find_contact': {
+      const q = String(input.query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+      const hits = people(e).filter((p) => q.some((w) => `${p.name} ${p.relation ?? ''} ${p.company ?? ''} ${p.notes ?? ''} ${p.email ?? ''} ${p.phone ?? ''}`.toLowerCase().includes(w)))
+        .slice(0, 12).map((p) => ({ id: p.id, name: p.name, relation: p.relation, phone: p.phone, email: p.email, company: p.company, notes: p.notes?.slice(0, 400), socials: p.socials }));
+      return { result: hits.length ? hits : 'Ingen kontakter fundet.' };
+    }
+    case 'create_outlay': {
+      const created: string[] = [];
+      const ids = (input.people ?? []).map((n: string) => { const r = findOrCreatePerson(e, n); if (r.created) created.push(n); return r.id; });
+      const ppl = [...new Set<string>(ids)];
+      const items = (input.items ?? []).map((it: any, i: number) => ({ id: 'i' + i + Math.random().toString(36).slice(2, 7), name: String(it.name), amount: Number(it.amount),
+        who: (it.who ?? []).map((n: string) => findOrCreatePerson(e, n).id).filter((w: string) => ppl.includes(w)) }));
+      if (!ppl.length || !items.length) throw new Error('Mangler personer eller varer');
+      const id = e.create('outlay', { title: String(input.title), place: input.place ?? '', date: input.date && /^\d{4}-\d{2}-\d{2}$/.test(input.date) ? input.date : dayKey(new Date()), people: ppl, items, countMine: true, createdAt: nowIso(), by: 'Assist' });
+      const o = e.get(id) as unknown as Outlay;
+      const ow = owed(o, []).map((w) => ({ person: personName(e, w.person), owes: w.share }));
+      return { result: { ok: true, id, total: total(o), my_share: shares(o)[ME] ?? 0, owes: ow, new_contacts: created },
+        action: { label: `Udlæg: ${input.title}, ${kr(total(o))}${ow.length ? ' · ' + ow.map((w) => `${w.person.split(' ')[0]} ${kr(w.owes)}`).join(', ') : ''}`, undo: { kind: 'remove', type: 'outlay', id }, open: { screen: 'outlays', id } } };
+    }
+    case 'record_payment': {
+      const p = findPerson(e, input.person);
+      if (!p) throw new Error(`Kender ingen ved navn ${input.person}`);
+      const amount = Number(input.amount);
+      let ids: string[];
+      if (input.outlay_id) ids = [e.create('payment', { outlay: input.outlay_id, person: p.id, amount, at: nowIso() })];
+      else ids = payBack(e, p.id, amount);
+      if (!ids.length) throw new Error(`${p.name} skylder ikke noget lige nu`);
+      const left = balances(e).find((b) => b.person === p.id)?.left ?? 0;
+      return { result: { ok: true, still_owes: left }, action: { label: `${p.name} har betalt ${kr(amount)}${left > 0 ? ` · mangler ${kr(left)}` : ' · alt betalt'}`, undo: { kind: 'removeMany', type: 'payment', ids }, open: { screen: 'outlays' } } };
+    }
+    case 'balances': {
+      const outs = e.list('outlay') as unknown as Outlay[], pays = e.list('payment') as unknown as Payment[];
+      return { result: balances(e).filter((b) => b.left > 0).map((b) => ({ person: personName(e, b.person), owes: b.left, open: b.open.map((id) => { const o = outs.find((x) => x.id === id)!; return { id, title: o.title, date: o.date, left: owed(o, pays).find((w) => w.person === b.person)?.left }; }) })) };
+    }
+    case 'add_expense': {
+      const svc = serviceFor(String(input.name));
+      const id = e.create('expense', { name: String(input.name), amount: Number(input.amount), interval: input.interval ?? 'month', category: input.category ?? svc?.category ?? 'Andet',
+        date: input.date && /^\d{4}-\d{2}-\d{2}$/.test(input.date) ? input.date : dayKey(new Date()), cancelUrl: input.cancel_url ?? '', note: input.note ?? '', active: true });
+      return { result: { ok: true, id }, action: { label: `Udgift: ${input.name}, ${kr(Number(input.amount))}${input.interval === 'once' ? '' : input.interval === 'year' ? '/år' : '/md'}`, undo: { kind: 'remove', type: 'expense', id }, open: { screen: 'expenses' } } };
+    }
+    case 'list_expenses': {
+      const xs = e.list('expense') as unknown as Expense[];
+      return { result: { per_month_total: Math.round(xs.reduce((s, x) => s + perMonth(x), 0)), items: xs.map((x) => ({ id: x.id, name: x.name, amount: x.amount, interval: x.interval, category: x.category, per_month: Math.round(perMonth(x) * 100) / 100, active: x.active !== false, cancel: cancelLink(x) })) } };
+    }
     case 'search_mail': {
       const q = String(input.query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
       const since = input.days ? Date.now() - Number(input.days) * 86400000 : 0;
@@ -253,6 +363,7 @@ export function runTool(e: SyncEngine, name: string, input: any): ToolResult {
 export function applyUndo(e: SyncEngine, u: Undo) {
   if (u.kind === 'remove') e.remove(u.type, u.id);
   else if (u.kind === 'restore') e.set(u.type, u.id, u.fields);
+  else if (u.kind === 'removeMany') for (const id of u.ids) e.remove(u.type, id);
   else { const t = e.doc(u.id).getText('body'); t.delete(0, t.length); t.insert(0, u.text); }
 }
 
@@ -278,6 +389,10 @@ export function contextFor(e: SyncEngine): string {
   const mails = (e.list('mail') as any[]).filter((m) => !m.archived);
   const waiting = mails.filter((m) => m.needsReply).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8).map((m) => `- [${m.id}] ${m.fromName}: ${m.subject} (${String(m.at).slice(0, 10)})`);
   const mailInfo = accts.length ? [`Forbundne konti: ${accts.join(', ')}. ${mails.length} mails i indbakken, ${mails.filter((m) => m.unread).length} ulæste. Brug search_mail og read_mail til resten.`, ...(waiting.length ? ['Venter på svar:', ...waiting] : [])] : ['Ingen mailkonti forbundet endnu (det gøres under Forbindelser).'];
+  const contacts = (people(e) as Person[]).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 80).map((p) => `- [${p.id}] ${p.name}${p.relation ? ' (' + p.relation + ')' : ''}${p.company ? ', ' + p.company : ''}${p.notes ? ': ' + p.notes.replace(/\s+/g, ' ').slice(0, 140) : ''}`);
+  const owing = balances(e).filter((b) => b.left > 0).map((b) => `- ${personName(e, b.person)} skylder ${kr(b.left)}`);
+  const xs = (e.list('expense') as unknown as Expense[]).filter((x) => x.active !== false);
+  const money = xs.length ? [`Faste udgifter: ${kr(xs.reduce((s, x) => s + perMonth(x), 0), { short: true })} pr. måned fordelt på ${xs.length} poster (brug list_expenses).`] : [];
   const sec = (t: string, l: string[], empty: string) => `## ${t}\n${l.length ? l.join('\n') : empty}`;
   return [
     sec('Det ved du om brugeren', memory, '(intet endnu — brugeren er ny, så lær dem at kende)'),
@@ -285,6 +400,9 @@ export function contextFor(e: SyncEngine): string {
     sec('Enkeltaftaler de næste 8 dage', soon, '(ingen)'),
     sec('Mål', goals, '(ingen)'),
     sec('Seneste noter', notes, '(ingen)'),
+    sec('Kontakter (brug find_contact for detaljer)', contacts, '(ingen endnu)'),
+    sec('Udlæg: skylder brugeren penge', owing, '(ingen)'),
+    sec('Udgifter', money, '(ingen registreret)'),
     sec('Mail', mailInfo, ''),
     sec('Mail-overvågninger', watches, '(ingen)'),
   ].join('\n\n');

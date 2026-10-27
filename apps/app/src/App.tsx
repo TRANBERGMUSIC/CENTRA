@@ -13,7 +13,11 @@ import type { Session } from './session.ts';
 import { useAutoLock, lock } from './lock.ts';
 import { watchForUpdates } from './updater.ts';
 import { Connections } from './screens/Connections.tsx';
+import { Contacts } from './screens/Contacts.tsx';
+import { Outlays } from './screens/Outlays.tsx';
+import { Expenses } from './screens/Expenses.tsx';
 import { syncAll } from './mail.ts';
+import { triageMails } from './ai/triage.ts';
 import { syncFeeds } from './feeds.ts';
 
 const readRoute = (): Route => {
@@ -76,6 +80,18 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
     addEventListener('touchstart', start, { passive: true }); addEventListener('touchend', end);
     return () => { removeEventListener('touchstart', start); removeEventListener('touchend', end); };
   }, []);
+  // In the Mac app, web links, mailto:, tel: and sms: open in the right app instead of nowhere.
+  useEffect(() => {
+    if (!('__TAURI_INTERNALS__' in window)) return;
+    const click = (ev: MouseEvent) => {
+      const a = (ev.target as HTMLElement).closest?.('a[href]') as HTMLAnchorElement | null;
+      if (!a || !/^(https?|mailto|tel|sms):/i.test(a.href)) return;
+      ev.preventDefault();
+      void import('@tauri-apps/plugin-opener').then(({ openUrl }) => openUrl(a.href)).catch(() => toast({ text: 'Linket kunne ikke åbnes' }));
+    };
+    document.addEventListener('click', click);
+    return () => document.removeEventListener('click', click);
+  }, [toast]);
   // Mail every 5 minutes, calendars every 15, and both when the window comes back.
   useEffect(() => {
     let last = 0, lastFeeds = 0, alive = true;
@@ -83,7 +99,8 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
       if (!alive || (!force && Date.now() - last < 120_000)) return;
       last = Date.now();
       const r = await syncAll(e);
-      for (const h of r.hits) toast({ text: `Fundet: ${h.mail.subject} (fra ${h.mail.fromName}). Du bad Assist holde øje med "${h.watch.description}".`, sticky: true, action: { label: 'Åbn', run: () => go({ screen: 'inbox', id: h.mail.id }) } });
+      if (r.added.length) void triageMails(e, r.added);
+      for (const h of r.hits) toast({ person: { name: h.mail.fromName || h.mail.fromEmail }, title: `Mail fra ${h.mail.fromName || h.mail.fromEmail}`, text: `${h.mail.subject} · du bad Assist holde øje med "${h.watch.description}"`, sticky: true, action: { label: 'Åbn', run: () => go({ screen: 'inbox', id: h.mail.id }) } });
       if (Date.now() - lastFeeds > 14 * 60_000) { lastFeeds = Date.now(); await syncFeeds(e); }
     };
     void run(true);
@@ -97,6 +114,7 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
   const screen = {
     today: <Today firstOpen={opened.current} />, notes: <Notes />, inbox: <Inbox />, goals: <Goals />,
     calendar: <Calendar />, assist: <Assist />, settings: <Settings theme={theme} setTheme={setTheme} />, connections: <Connections />,
+    contacts: <Contacts />, outlays: <Outlays />, expenses: <Expenses />,
   }[route.screen] ?? <Today firstOpen={false} />;
 
   return (

@@ -1,57 +1,35 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon, type IconName } from './Icon.tsx';
 import { Wordmark } from './primitives.tsx';
-import { useList, useRoute, useSession, useSyncStatus, fmt, type Route } from '../state.tsx';
+import { useEngine, useList, useRoute, useSession, useSyncStatus, fmt, type Route } from '../state.tsx';
+import { balances, ME } from '../money.ts';
 import { gsap, useGSAP, reduced, ease, dur } from '../motion.ts';
 import { lock } from '../lock.ts';
 import { queueAssist } from '../screens/Assist.tsx';
 import { repeatLabel } from '../calendar.ts';
 
-/* ---------------------------------------------------------------- toasts */
-type Toast = { id: number; text: string; sticky?: boolean; action?: { label: string; run: () => void } };
-const ToastCtx = createContext<(t: Omit<Toast, 'id'>) => void>(() => {});
-export const useToast = () => useContext(ToastCtx);
-
-export function ToastHost({ children }: { children: ReactNode }) {
-  const [list, setList] = useState<Toast[]>([]);
-  const push = useCallback((t: Omit<Toast, 'id'>) => {
-    const id = Date.now() + Math.random();
-    setList((l) => [...l, { ...t, id }]);
-    if (!t.sticky) setTimeout(() => setList((l) => l.filter((x) => x.id !== id)), 5000);
-  }, []);
-  const ref = useRef<HTMLDivElement>(null);
-  useGSAP(() => {
-    const last = ref.current?.lastElementChild;
-    if (last && !reduced()) gsap.from(last, { y: 16, opacity: 0, duration: dur.base, ease: ease.enter });
-  }, { dependencies: [list.length], scope: ref });
-  return (
-    <ToastCtx.Provider value={push}>
-      {children}
-      <div className="toasts" ref={ref} role="status" aria-live="polite">
-        {list.map((t) => (
-          <div key={t.id} className="toast">
-            <span>{t.text}</span>
-            {t.action && <button className="btn btn--text btn--sm" onClick={() => { t.action!.run(); setList((l) => l.filter((x) => x.id !== t.id)); }}>{t.action.label}</button>}
-          </div>
-        ))}
-      </div>
-    </ToastCtx.Provider>
-  );
-}
+/* ---------------------------------------------------------------- notifications (see Notifications.tsx) */
+export { useToast, NotificationHost as ToastHost } from './Notifications.tsx';
 
 /* ---------------------------------------------------------------- navigation */
 const NAV: [Route['screen'], IconName, string][] = [
   ['today', 'today', 'I dag'], ['notes', 'notes', 'Noter'], ['calendar', 'calendar', 'Kalender'],
-  ['inbox', 'inbox', 'Indbakke'], ['goals', 'goals', 'Mål'], ['assist', 'assist', 'Assist'],
+  ['inbox', 'inbox', 'Indbakke'], ['goals', 'goals', 'Mål'], ['outlays', 'receipt', 'Udlæg'], ['expenses', 'wallet', 'Udgifter'],
+  ['contacts', 'contacts', 'Kontakter'], ['assist', 'assist', 'Assist'],
 ];
+const PHONE_TABS: Route['screen'][] = ['today', 'calendar', 'outlays', 'notes', 'assist'];
 
 function useCounts() {
   const mails = useList('mail');
   const sugg = useList('suggestion');
   const goals = useList('goal');
+  useList('outlay'); useList('payment');
+  const e = useEngine();
+  const owing = balances(e).filter((b) => b.left > 0).length;
   return {
     inbox: mails.filter((m: any) => m.needsReply && !m.archived).length,
     assist: sugg.filter((s: any) => s.status === 'pending').length,
+    outlays: owing,
     goals: goals.length,
   } as Record<string, number>;
 }
@@ -104,7 +82,7 @@ export function TabBar() {
   const counts = useCounts();
   return (
     <nav className="tabbar" aria-label="Faner">
-      {NAV.filter(([k]) => k !== 'inbox').map(([k, i, l]) => (
+      {NAV.filter(([k]) => PHONE_TABS.includes(k)).map(([k, i, l]) => (
         <button key={k} className={route.screen === k ? 'is-active' : ''} onClick={() => go({ screen: k })} aria-current={route.screen === k ? 'page' : undefined}>
           <Icon name={i} size="tab" />{l}
           {k === 'inbox' && counts.inbox ? <span className="badge num">{counts.inbox}</span> : null}
@@ -122,7 +100,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const { engine } = useSession();
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
-  const notes = useList('note'), mails = useList('mail'), events = useList('event'), goals = useList('goal');
+  const notes = useList('note'), mails = useList('mail'), events = useList('event'), goals = useList('goal'), persons = useList('person'), outlays = useList('outlay');
   const box = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
 
@@ -130,6 +108,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     const t = q.trim().toLowerCase();
     const commands: Hit[] = [
       { kind: 'Kommando', icon: 'plus', title: 'Ny note', sub: '⌘N', run: () => go({ screen: 'notes', id: engine.create('note', { title: '', folder: 'Indbakke', tags: [], editedAt: new Date().toISOString() }) }) },
+      { kind: 'Kommando', icon: 'receipt', title: 'Nyt udlæg', run: () => go({ screen: 'outlays', id: engine.create('outlay', { title: '', date: new Date().toISOString().slice(0, 10), people: [ME], items: [], countMine: true, createdAt: new Date().toISOString() }) }) },
+      { kind: 'Kommando', icon: 'contacts', title: 'Ny kontakt', run: () => go({ screen: 'contacts', id: engine.create('person', { name: '', createdAt: new Date().toISOString() }) }) },
+      { kind: 'Kommando', icon: 'wallet', title: 'Udgifter', run: () => go({ screen: 'expenses' }) },
       { kind: 'Kommando', icon: 'goals', title: 'Nyt mål', run: () => go({ screen: 'goals', id: engine.create('goal', { title: 'Nyt mål', kind: 'measure', unit: '', target: 10, area: 'Privat', order: 99 }) }) },
       { kind: 'Assist', icon: 'assist', title: q.trim() ? `Spørg Assist: ${q.trim()}` : 'Spørg Assist', run: () => { if (q.trim()) queueAssist(q.trim()); go({ screen: 'assist' }); } },
       { kind: 'Kommando', icon: 'settings', title: 'Skift tema', run: () => go({ screen: 'settings' }) },
@@ -139,12 +120,15 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       ...notes.map((n: any) => ({ kind: 'Note', icon: 'notes' as IconName, title: n.title || 'Uden titel', sub: n.folder, run: () => go({ screen: 'notes', id: n.id }), text: engine.doc(n.id).getText('body').toString() })),
       ...mails.map((m: any) => ({ kind: 'Mail', icon: 'inbox' as IconName, title: m.subject, sub: m.preview, run: () => go({ screen: 'inbox', id: m.id }) })),
       ...events.map((e: any) => ({ kind: 'Aftale', icon: 'calendar' as IconName, title: e.title, sub: `${e.repeat ? repeatLabel(e.repeat) : fmt.shortDate(e.start)} ${fmt.hm(e.start)}${e.place ? ' · ' + e.place : ''}`, run: () => go({ screen: 'calendar' }) })),
+      ...persons.map((p: any) => ({ kind: 'Kontakt', icon: 'contacts' as IconName, title: p.name || 'Uden navn', sub: [p.relation, p.phone, p.email].filter(Boolean).join(' · '), run: () => go({ screen: 'contacts', id: p.id }), text: `${p.notes ?? ''} ${p.company ?? ''}` })),
+      ...outlays.map((o: any) => ({ kind: 'Udlæg', icon: 'receipt' as IconName, title: o.title || 'Udlæg', sub: o.place, run: () => go({ screen: 'outlays', id: o.id }) })),
       ...goals.map((g: any) => ({ kind: 'Mål', icon: 'goals' as IconName, title: g.title, sub: g.area, run: () => go({ screen: 'goals', id: g.id }) })),
     ];
     if (!t) return [...commands, ...content.slice(0, 4)];
-    const found = [...commands.slice(0, 2), ...commands.slice(3), ...content].filter((h: any) => `${h.title} ${h.sub ?? ''} ${h.text ?? ''}`.toLowerCase().includes(t)).slice(0, 11);
-    return [...found, commands[2]];
-  }, [q, notes, mails, events, goals, engine, go]);
+    const ask = commands.find((c) => c.kind === 'Assist')!;
+    const found = [...commands.filter((c) => c !== ask), ...content].filter((h: any) => `${h.title} ${h.sub ?? ''} ${h.text ?? ''}`.toLowerCase().includes(t)).slice(0, 11);
+    return [...found, ask];
+  }, [q, notes, mails, events, goals, persons, outlays, engine, go]);
 
   useEffect(() => { setSel(0); }, [q]);
   useEffect(() => { if (open) { setQ(''); setTimeout(() => input.current?.focus(), 0); } }, [open]);

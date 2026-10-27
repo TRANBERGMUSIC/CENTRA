@@ -65,6 +65,7 @@ const MAILS = [
   res.archivedOnServer = calls.some((c) => c[0] === 'mail_update' && c[1].action === 'archive');
   res.sofieGone = (await p.locator('.mrow:has-text("Sofie")').count()) === 0;
   p.once('dialog', (dl) => dl.accept());
+  await p.click('.inbox .tab:has-text("Andet")'); await p.waitForTimeout(200);
   await p.click('.mrow:has-text("Zalando")'); await p.click('.reader__bar >> text=Slet'); await p.waitForTimeout(700);
   res.trashedOnServer = calls.some((c) => c[0] === 'mail_update' && c[1].action === 'trash');
 

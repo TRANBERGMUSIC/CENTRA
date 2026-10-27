@@ -192,6 +192,8 @@ function AiPanel() {
         <input className="kvinput" defaultValue={s.localModel} onBlur={(ev) => ev.target.value.trim() && save({ localModel: ev.target.value.trim() })} aria-label="Lokal model" /></div>
       <div className="kv"><span>Brug den lokale model, når Claude ikke kan nås</span>
         <input type="checkbox" checked={s.fallbackLocal} onChange={(ev) => save({ fallbackLocal: ev.target.checked })} aria-label="Lokal model som reserve" /></div>
+      <div className="kv"><span>Sortér nye mails med AI<span className="meta block">Claude (den hurtige model) læser afsender, emne og et kort uddrag af nye mails og flytter reklamer og nyhedsbreve til "Andet".</span></span>
+        <input type="checkbox" checked={s.triage} onChange={(ev) => save({ triage: ev.target.checked })} aria-label="Sortér mails med AI" /></div>
       <div className="kv"><span>Test forbindelsen</span><Btn size="sm" onClick={test} disabled={busy}>{busy ? 'Tester …' : 'Test'}</Btn></div>
     </Panel>
   );
