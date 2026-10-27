@@ -21,6 +21,8 @@ import { syncAll } from './mail.ts';
 import { triageMails } from './ai/triage.ts';
 import { syncFeeds } from './feeds.ts';
 import { useAppMotion } from './motion.ts';
+import { markReady, watchWebUpdates, justUpdated } from './webupdate.ts';
+import { resumeAfterUpdate } from './session.ts';
 
 const readRoute = (): Route => {
   const [screen, id] = location.hash.replace(/^#\/?/, '').split('/');
@@ -36,24 +38,47 @@ export function App() {
   useAutoLock(!!session);
   // On the lock screen nothing is open, so a new version installs right away.
   useEffect(() => (session ? undefined : watchForUpdates((u) => void u.install())), [session]);
+  // Fast interface updates: this interface started fine; look for a newer one every minute.
+  const sessionRef = useRef<Session | null>(null); sessionRef.current = session;
+  const [waiting, setWaiting] = useState<(() => void) | null>(null);
+  useEffect(() => { markReady(); return watchWebUpdates(() => sessionRef.current, (apply) => setWaiting(() => apply)); }, []);
+  // Right after such an update the vault opens again by itself (the Mac app held the key for the reload).
+  const [resuming, setResuming] = useState(() => '__TAURI_INTERNALS__' in window);
+  const [updated] = useState(justUpdated);
+  useEffect(() => {
+    if (!resuming) return;
+    void resumeAfterUpdate().then((s) => { if (s) open(s); setResuming(false); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const open = (s: Session) => {
+    s.relay.onClosedByServer = (code) => lock(code === 4001 ? 'Denne enhed er logget ud fra en anden enhed.' : 'Dit password er skiftet på en anden enhed. Log ind med det nye.');
+    if (s.recoveryCode) setShowCode(s.recoveryCode);
+    setSession(s);
+  };
 
+  if (resuming && !session) return <main className="unlock" aria-busy="true" />;
   if (!session) {
     const notice = sessionStorage.getItem('centra.lockReason') ?? undefined;
     sessionStorage.removeItem('centra.lockReason');
-    return <Unlock notice={notice} onReady={(s) => {
-      s.relay.onClosedByServer = (code) => lock(code === 4001 ? 'Denne enhed er logget ud fra en anden enhed.' : 'Dit password er skiftet på en anden enhed. Log ind med det nye.');
-      if (s.recoveryCode) setShowCode(s.recoveryCode);
-      setSession(s);
-    }} />;
+    return <Unlock notice={notice} onReady={open} />;
   }
   if (showCode) return <RecoveryCode code={showCode} onDone={() => { setShowCode(null); session.recoveryCode = undefined; }} />;
   return (
     <SessionProvider value={session}>
       <ToastHost>
-        <Shell theme={theme} setTheme={setTheme} firstOpen />
+        <Shell theme={theme} setTheme={setTheme} firstOpen={!updated} />
+        <UpdateNotes updated={updated} waiting={waiting} />
       </ToastHost>
     </SessionProvider>
   );
+}
+
+/** "CENTRA er opdateret" after a fast update, or "ny version klar" while you are busy. */
+function UpdateNotes({ updated, waiting }: { updated: boolean; waiting: (() => void) | null }) {
+  const toast = useToast();
+  useEffect(() => { if (updated) toast({ icon: 'sun', title: 'CENTRA er opdateret', text: 'Den nye version kører nu.' }); }, [updated, toast]);
+  useEffect(() => { if (waiting) toast({ icon: 'sun', title: 'Ny version klar', text: 'Den skifter ind, så snart du holder en kort pause.', sticky: true, action: { label: 'Skift nu', run: waiting } }); }, [waiting, toast]);
+  return null;
 }
 
 function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: Theme) => void; firstOpen: boolean }) {

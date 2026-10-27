@@ -1,4 +1,5 @@
-# Every push to main builds and publishes a new CENTRA. Nothing to run by hand.
+# A push that changes the native app builds and publishes a new CENTRA. Nothing to run by hand.
+# (Interface-only pushes go out as fast updates through web.yml; run this one by hand to force a full build.)
 #
 #   relay    Cloudflare Worker (only when the CLOUDFLARE_API_TOKEN secret exists)
 #   web      GitHub Pages: the installable phone/web app (only when Pages is switched on)
@@ -11,7 +12,14 @@ name: Release
 on:
   push:
     branches: [main]
-    paths-ignore: ['docs/**', '**/*.md', 'prototypes/**']
+    # Only changes to the native app (Rust, Tauri config, icons) need a full build. Interface-only
+    # changes reach installed apps in about a minute through web.yml instead.
+    paths:
+      - 'apps/desktop/**'
+      - 'services/**'
+      - 'scripts/**'
+      - 'installer/**'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
 
 permissions:
@@ -122,6 +130,8 @@ jobs:
         shell: bash
         env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
         run: |
+          # The built-in interface gets the same version number a fast update of this commit would.
+          echo "WEB_VERSION=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
           node scripts/set-version.mjs ${{ needs.version.outputs.version }}
           if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
             node scripts/updater-artifacts.mjs off

@@ -34,6 +34,8 @@ export function explainDictation(code: string): DictationProblem {
       return { code, title: 'Talegenkendelse kræver internet', text: `Apple laver talen om til tekst, så Mac'en skal være online. ${MAC_DICTATION_TIP}` };
     case 'language-not-supported':
       return { code, title: 'Dansk tale er ikke slået til', text: `Tilføj dansk under Systemindstillinger → Tastatur → Diktering → Sprog. ${MAC_DICTATION_TIP}`, settings: isMac ? PANES.keyboard : undefined };
+    case 'aborted':
+      return { code, title: 'macOS afbrød talegenkendelsen', text: `Det sker typisk, når CENTRA ikke har fået lov til talegenkendelse eller mikrofon. Tjek begge under Systemindstillinger → Anonymitet og sikkerhed. ${MAC_DICTATION_TIP}`, settings: isMac ? PANES.speech : undefined };
     case 'unsupported':
       return { code, title: 'Tale virker ikke her', text: MAC_DICTATION_TIP };
     default:
@@ -58,14 +60,16 @@ export function useDictation(onText: (text: string, final: boolean) => void, onP
   const [listening, setListening] = useState(false);
   const rec = useRef<any>(null);
   const starting = useRef(false);
+  const userStop = useRef(false);
   const cb = useRef(onText); cb.current = onText;
   const un = useRef(onProblem); un.current = onProblem;
 
-  const stop = useCallback(() => { rec.current?.stop(); }, []);
+  const stop = useCallback(() => { userStop.current = true; rec.current?.stop(); }, []);
   const start = useCallback(async (lang = 'da-DK', retried = false) => {
     if (!SR) return un.current(explainDictation('unsupported'));
     if (starting.current) return;
     starting.current = true;
+    userStop.current = false;
     setListening(true);
     const denied = await micCheck();
     if (denied) { starting.current = false; setListening(false); return un.current(explainDictation(denied)); }
@@ -88,7 +92,7 @@ export function useDictation(onText: (text: string, final: boolean) => void, onP
         rec.current = null;
         setListening(false);
         if (heard) return cb.current(finalText.trim(), true);
-        if (error === 'aborted') return; // stopped on purpose
+        if (userStop.current) return; // you pressed the button again
         // Danish not available on this Mac: try the system language once before giving up.
         if (error === 'language-not-supported' && !retried && lang !== navigator.language) return void start(navigator.language, true);
         // Some WebKit versions end a continuous session at once: retry once in single-phrase mode.
@@ -111,12 +115,12 @@ export function useDictation(onText: (text: string, final: boolean) => void, onP
         let text = '', err = '';
         r.onresult = (ev: any) => { text = Array.from(ev.results as ArrayLike<any>).map((x: any) => x[0].transcript).join(''); cb.current(text.trim(), false); };
         r.onerror = (ev: any) => { err = ev.error || 'unknown'; };
-        r.onend = () => { rec.current = null; setListening(false); if (text) cb.current(text.trim(), true); else if (err !== 'aborted') un.current(explainDictation(err || 'ended-at-once')); };
+        r.onend = () => { rec.current = null; setListening(false); if (text) cb.current(text.trim(), true); else if (!userStop.current) un.current(explainDictation(err || 'ended-at-once')); };
         r.start(); rec.current = r; setListening(true);
       } catch (e) { setListening(false); un.current(explainDictation((e as Error)?.name || 'start-failed')); }
     }
   }, []);
 
-  useEffect(() => () => rec.current?.abort?.(), []);
+  useEffect(() => () => { userStop.current = true; rec.current?.abort?.(); }, []);
   return { listening, start: () => void start(), stop, toggle: () => (rec.current ? stop() : void start()) };
 }

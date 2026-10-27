@@ -458,13 +458,17 @@ dependencies = [
 name = "centra"
 version = "0.2.0"
 dependencies = [
+ "base64 0.23.1",
+ "flate2",
  "imap",
  "lettre",
  "mail-parser",
+ "minisign-verify",
  "native-tls",
  "reqwest",
  "serde",
  "serde_json",
+ "tar",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",

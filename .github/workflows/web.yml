@@ -1,0 +1,55 @@
+# Fast interface update for the Mac app: about a minute from push to the app, no native build.
+#
+# Builds the web interface, packs it as web.tar.gz, signs it with the same key as the app updates
+# (TAURI_SIGNING_PRIVATE_KEY) and puts it on the GitHub release tagged "web" together with web.json.
+# Installed apps look for web.json every minute and switch to the new interface by themselves.
+# A change to the Rust side still goes through release.yml (a full app update).
+name: Web update
+on:
+  push:
+    branches: [main]
+    paths: ['apps/app/**', 'packages/**', 'package-lock.json', '.github/workflows/web.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency: { group: web, cancel-in-progress: true }
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --no-audit --no-fund
+      - name: Build
+        env: { VITE_RELAY_URL: '${{ vars.CENTRA_RELAY_URL }}' }
+        run: |
+          echo "WEB_VERSION=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+          export WEB_VERSION=$(git log -1 --format=%ct)
+          npm run build -w @centra/design-system
+          npm run build -w @centra/app
+          cat apps/app/dist/web-version.json
+      - name: Pack and sign
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then echo "Mangler TAURI_SIGNING_PRIVATE_KEY: kan ikke signere, springer over."; exit 0; fi
+          V=$WEB_VERSION
+          NEEDS=$(node -p "require('./apps/app/dist/web-version.json').needsNative")
+          tar -czf "web-$V.tar.gz" -C apps/app/dist .
+          npx tauri signer sign "web-$V.tar.gz"
+          SIG=$(cat "web-$V.tar.gz.sig")
+          URL="https://github.com/${{ github.repository }}/releases/download/web/web-$V.tar.gz"
+          node -e "require('fs').writeFileSync('web.json', JSON.stringify({ version: $V, needsNative: $NEEDS, url: '$URL', signature: process.argv[1] }, null, 2))" "$SIG"
+          # The "web" release is a pre-release, so it never becomes "latest" for the app updater.
+          gh release view web >/dev/null 2>&1 || gh release create web --prerelease --latest=false --title "Grænseflade (hurtige opdateringer)" --notes "Bruges af CENTRA-appen til at opdatere grænsefladen uden en ny app. Rør den ikke."
+          gh release upload web "web-$V.tar.gz" web.json --clobber
+          # Keep the five newest packages.
+          gh release view web --json assets --jq '.assets[].name' | grep -E '^web-[0-9]+\.tar\.gz$' | sort -t- -k2 -n -r | tail -n +6 | while read -r old; do gh release delete-asset web "$old" -y; done
+          echo "Grænseflade $V er ude."

@@ -11,7 +11,7 @@
 import { ready, wipe, subKey, type KeyRing } from '@centra/crypto';
 import {
   SyncEngine, WsRelay, NullRelay, IndexedDbStore, EncryptedStore, RelayError, createAccount, passwordSecrets, unlock, changePassword as rewrap,
-  recoverWithCode, newRecovery, rotateContentKey, absorbKeys, normalizeUser, type AccountPublic, type DeviceRecord, type Prelogin,
+  recoverWithCode, newRecovery, rotateContentKey, absorbKeys, normalizeUser, unlockWithAk, type AccountPublic, type DeviceRecord, type Prelogin,
 } from '@centra/sync';
 
 export const DEFAULT_USER = 'Tranberg';
@@ -36,6 +36,8 @@ export type Session = {
   changePassword: (current: string, next: string) => Promise<void>;
   newRecoveryCode: (current: string) => Promise<string>;
   logOutDevice: (id: string) => Promise<void>;
+  /** Hands the open account key to the Mac app for one reload (an update), so you stay logged in. */
+  stash: () => Promise<boolean>;
 };
 
 /** Relay address: baked in at build time (CI sets the Cloudflare relay), else the relay on this machine. */
@@ -144,6 +146,12 @@ export async function signIn({ relay, pre, user }: Lookup, password: string, onS
       wipe(s.enc);
     }
   }
+  onStep('Synkroniserer');
+  return openSession(relay, user, account, keys, ak, created, recoveryCode);
+}
+
+/** Everything after the keys are open: local store, sync engine and the session's actions. */
+async function openSession(relay: AnyRelay, user: string, account: AccountPublic, keys: KeyRing, ak: Uint8Array, created: boolean, recoveryCode?: string): Promise<Session> {
   const remember = () => {
     localStorage.setItem(cacheKey(user), JSON.stringify(account));
     localStorage.setItem(preKey(user), JSON.stringify({ exists: true, kdf: account.kdf, recovery: account.recovery, canRegister: false }));
@@ -156,7 +164,6 @@ export async function signIn({ relay, pre, user }: Lookup, password: string, onS
   relay.onOpen(() => { if (relay.account) relay.onAccount?.(relay.account); });
   const storeKey = subKey(ak, 'store/v1');
 
-  onStep('Synkroniserer');
   const device = deviceId();
   const engine = new SyncEngine({ device, keys, store: new EncryptedStore(new IndexedDbStore(`${user}:${device}`), storeKey), relay });
   await engine.start();
@@ -185,6 +192,12 @@ export async function signIn({ relay, pre, user }: Lookup, password: string, onS
       remember();
       return r.code;
     },
+    async stash() {
+      if (!('__TAURI_INTERNALS__' in window) || SYNC) return false;
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('session_stash', { user, key: Array.from(ak) });
+      return true;
+    },
     async logOutDevice(id) {
       if (!(relay instanceof WsRelay)) return;
       await relay.revoke(id);
@@ -192,6 +205,29 @@ export async function signIn({ relay, pre, user }: Lookup, password: string, onS
       await relay.addKeys(rotateContentKey(account, ak, keys));
     },
   };
+}
+
+/**
+ * After an update reloads the window: the Mac app hands back the account key it held for that one
+ * reload (in memory, for at most a minute), and the vault opens again without the password.
+ */
+export async function resumeAfterUpdate(): Promise<Session | null> {
+  if (!('__TAURI_INTERNALS__' in window) || SYNC) return null;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const got = await invoke<[string, number[]] | null>('session_take');
+    if (!got) return null;
+    const [userIn, raw] = got;
+    const ak = new Uint8Array(raw);
+    const look = await lookUp(userIn);
+    const cached = localStorage.getItem(cacheKey(look.user));
+    if (!cached) { wipe(ak); return null; }
+    const account = JSON.parse(cached) as AccountPublic;
+    const { keys } = unlockWithAk(account, ak); // throws if the key does not fit this account
+    return await openSession(look.relay, look.user, account, keys, ak, false);
+  } catch {
+    return null;
+  }
 }
 
 /** Forgot the password: the recovery code proves ownership and sets a new one. Works on any device. */

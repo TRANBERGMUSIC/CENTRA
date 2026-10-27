@@ -10,9 +10,12 @@
  */
 declare const __APP_VERSION__: string;
 declare const __GITHUB_REPOSITORY__: string;
+declare const __WEB_VERSION__: number;
 
 export const APP_VERSION = __APP_VERSION__;
 export const REPO = __GITHUB_REPOSITORY__;
+/** When this interface was built (the commit time): fast updates replace it without a new app. */
+export const WEB_VERSION = Number(__WEB_VERSION__);
 const latest = (file: string) => `https://github.com/${REPO}/releases/latest/download/${file}`;
 
 export type Platform = 'desktop' | 'mobile' | 'web';

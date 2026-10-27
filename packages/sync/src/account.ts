@@ -65,6 +65,11 @@ export function unlock(account: AccountPublic, enc: Bytes) {
   return { ak, keys: ringFrom(account.keys, ak) };
 }
 
+/** The same as unlock, from an account key that is already open (resuming after a reload). Throws on a wrong key. */
+export function unlockWithAk(account: AccountPublic, ak: Bytes) {
+  return { ak, keys: ringFrom(account.keys, ak) };
+}
+
 export function changePassword(ak: Bytes, newPassword: string, profile: Profile = 'moderate') {
   const kdf = newKdfParams(profile);
   const p = deriveKeys(newPassword, kdf);
