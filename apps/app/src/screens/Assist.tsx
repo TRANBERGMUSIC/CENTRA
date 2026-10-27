@@ -8,7 +8,8 @@ import { ask, aiSettings, aiReady, saveAiSettings, testAi, AiError, type Msg } f
 import { MODEL_NAMES, spentThisMonth } from '../ai/usage.ts';
 import { kr } from '../money.ts';
 import { applyUndo, type Action } from '../ai/tools.ts';
-import { useDictation, MAC_DICTATION_TIP } from '../ai/dictation.ts';
+import { useDictation } from '../ai/dictation.ts';
+import { openExternal } from '../open.ts';
 import ClickSpark from '../bits/ClickSpark.jsx';
 
 /**
@@ -112,7 +113,10 @@ export function Assist() {
   const dict = useDictation((t, final) => {
     setText((base.current ? base.current + ' ' : '') + t);
     if (final) box.current?.focus();
-  }, () => { toast({ text: MAC_DICTATION_TIP, sticky: true }); box.current?.focus(); });
+  }, (p) => {
+    toast({ title: p.title, text: p.text, kind: 'error', icon: 'mic', sticky: true, action: p.settings ? { label: 'Åbn Systemindstillinger', run: () => openExternal(p.settings!) } : undefined });
+    box.current?.focus();
+  });
 
   const log = chat?.log ?? [];
   useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: reduced() ? 'auto' : 'smooth' }); }, [log.length, busy, live.length]);

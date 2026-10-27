@@ -26,6 +26,9 @@
         },
         {
           "url": "sms:*"
+        },
+        {
+          "url": "x-apple.systempreferences:*"
         }
       ]
     }

@@ -18,7 +18,7 @@
         "height": 900,
         "minWidth": 960,
         "minHeight": 640,
-        "backgroundColor": "#0B0F0E",
+        "backgroundColor": "#0B0C0F",
         "titleBarStyle": "Overlay",
         "hiddenTitle": true
       }
@@ -32,14 +32,17 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "category": "Productivity",
-    "copyright": "\u00a9 2026 Willads Tranberg",
+    "copyright": "© 2026 Willads Tranberg",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "entitlements": "Entitlements.plist"
+    }
   },
   "plugins": {
     "updater": {
