@@ -407,3 +407,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { box-shadow: 
 .cimport__prog i { display: block; height: 100%; background: var(--brand-gradient); transition: width 200ms; }
 .spinner { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 2px solid var(--fill-strong); border-top-color: var(--c-primary); animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* LunchHub enquiries in the inbox */
+.lhstatus { margin-left: 8px; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--c-focus-wash); color: var(--c-focus-text); }
+.lhstatus--besvaret { background: color-mix(in oklab, var(--c-positive) 18%, transparent); color: var(--c-positive); }
+.lhstatus--arkiv { background: var(--fill); color: var(--c-muted); }
+.sendvia { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; }
+.sendvia select { max-width: 360px; }

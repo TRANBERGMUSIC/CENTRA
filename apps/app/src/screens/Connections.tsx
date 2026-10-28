@@ -7,6 +7,7 @@ import { useScreenEnter } from '../motion.ts';
 import { PRESETS, mailAvailable, testAccount, syncAccount, type MailAccount, type Preset, type Security } from '../mail.ts';
 import { FEED_GUIDES, syncFeed, removeFeed, type CalFeed } from '../feeds.ts';
 import { aiSettings } from '../ai/agent.ts';
+import { DEFAULT_URL, testLunchHub, syncLunchHub, removeLunchHub, type LhConn } from '../lunchhub.ts';
 
 /** Everything CENTRA pulls in from outside: mail accounts, calendars and the AI. */
 export function Connections() {
@@ -17,9 +18,10 @@ export function Connections() {
   useScreenEnter(ref, 'connections');
   const accts = useList('mailacct') as unknown as MailAccount[];
   const feeds = useList('calfeed') as unknown as CalFeed[];
+  const lh = useList('lhconn') as unknown as LhConn[];
   useList('setting');
   const ai = aiSettings(e);
-  const [adding, setAdding] = useState<null | 'mail' | 'cal'>(null);
+  const [adding, setAdding] = useState<null | 'mail' | 'cal' | 'lh'>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   async function refresh(a: MailAccount) {
@@ -68,6 +70,20 @@ export function Connections() {
           ) : <p className="muted">Ingen kalendere endnu. Tilføj din Google-, iCloud- eller Outlook-kalender med dens hemmelige iCal-adresse. Dine egne aftaler i CENTRA ligger der allerede.</p>}
         </Panel>
 
+        <Panel title="LunchHub" className="span-12" count={lh.length} aside={!lh.length ? <Btn size="sm" icon="plus" className="push-right" onClick={() => setAdding('lh')}>Forbind LunchHub</Btn> : undefined}>
+          {lh.length ? (
+            <ul className="rows">{lh.map((c) => (
+              <li key={c.id} className="memrow">
+                <span className={`dot ${c.lastError ? 'dot--err' : ''}`} />
+                <span className="row__body"><span className="row__line"><span className="strong">{c.name}</span><span className="meta">&nbsp;· {c.who ?? ''}{c.sites ? ` · ${c.sites}` : ''}</span></span>
+                  <span className={`meta ${c.lastError ? 'errtext' : ''}`}>{c.lastError || (c.lastSync ? `Hentet ${fmt.ago(c.lastSync)} · henvendelser lander i din indbakke` : 'Ikke hentet endnu')}</span></span>
+                <Btn size="sm" variant="text" disabled={busy === c.id || !mailAvailable()} onClick={async () => { setBusy(c.id); const r = await syncLunchHub(e, c); setBusy(null); toast({ text: r.error ? `LunchHub: ${r.error}` : r.added.length ? `${r.added.length} nye henvendelser fra LunchHub` : 'LunchHub er opdateret' }); }}>{busy === c.id ? 'Henter …' : 'Hent nu'}</Btn>
+                <Btn size="sm" variant="text" icon="x" aria-label={`Fjern ${c.name}`} onClick={() => { if (confirm('Fjern LunchHub fra CENTRA? Henvendelserne forsvinder her, men bliver i LunchHub.')) { removeLunchHub(e, c.id); toast({ text: 'LunchHub er fjernet' }); } }} />
+              </li>
+            ))}</ul>
+          ) : <p className="muted">Få henvendelserne fra frajorden.dk, smagssans.dk og bord.dk ind i din indbakke her. Svarer du, eller arkiverer du en, bliver den også markeret i LunchHub.</p>}
+        </Panel>
+
         <Panel title="Assist" className="span-12">
           <div className="kv"><span>{ai.provider === 'claude' ? (ai.claudeKey ? 'Claude er forbundet' : 'Claude er ikke forbundet') : `Lokal model: ${ai.localModel}`}<span className="meta block">Assist kan læse og søge i dine mails og kalendere, lave svarudkast og holde øje med bestemte mails. Den sender aldrig noget uden dig.</span></span>
             <Btn size="sm" onClick={() => go({ screen: 'settings' })}>Indstillinger</Btn></div>
@@ -83,6 +99,7 @@ export function Connections() {
       </div>
       {adding === 'mail' && <AddMail onClose={() => setAdding(null)} />}
       {adding === 'cal' && <AddCalendar onClose={() => setAdding(null)} />}
+      {adding === 'lh' && <AddLunchHub onClose={() => setAdding(null)} />}
     </main>
   );
 }
@@ -186,6 +203,46 @@ function AddCalendar({ onClose }: { onClose: () => void }) {
           <label className="ufield"><span>iCal-adresse</span><input required value={url} onChange={(x) => setUrl(x.target.value)} placeholder="https://… eller webcal://…" spellCheck={false} /></label>
           {err && <p className="unlock__error" role="alert">{err}</p>}
           <div className="sheet__foot"><span className="push-right" /><Btn type="button" variant="text" onClick={onClose}>Annullér</Btn><Btn type="submit" variant="primary" disabled={busy || !/^(https|webcal):\/\//.test(url.trim())}>{busy ? 'Henter …' : 'Tilføj'}</Btn></div>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/** LunchHub: its address and a personal app key, made in LunchHub under your profile. */
+function AddLunchHub({ onClose }: { onClose: () => void }) {
+  const e = useEngine();
+  const toast = useToast();
+  const [url, setUrl] = useState(DEFAULT_URL);
+  const [token, setToken] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function save(ev: React.FormEvent) {
+    ev.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      const me = await testLunchHub(url.trim(), token.trim());
+      const sites = (me.sites ?? []).map((x) => x.name).join(', ');
+      const id = e.create('lhconn', { name: 'LunchHub', url: url.trim().replace(/\/+$/, ''), token: token.trim(), who: me.name ?? me.username ?? '', sites, enabled: true });
+      const r = await syncLunchHub(e, e.get(id) as unknown as LhConn);
+      toast({ icon: 'inbox', title: 'LunchHub er forbundet', text: r.error ? r.error : `${r.added.length} henvendelser hentet${sites ? ` fra ${sites}` : ''}` });
+      onClose();
+    } catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
+  }
+  return (
+    <div>
+      <div className="scrim" onClick={onClose} />
+      <form className="sheet" role="dialog" aria-label="Forbind LunchHub" onSubmit={save}>
+        <div className="sheet__body">
+          <h2>Forbind LunchHub</h2>
+          <p className="muted small">Henvendelser fra hjemmesiderne kommer ind i din indbakke i CENTRA og hentes hvert 5. minut. Du ser kun de virksomheder, du har indbakke-adgang til i LunchHub.</p>
+          <details className="guides" open><summary>Sådan får du en app-nøgle</summary>
+            <p className="small">Log ind på LunchHub, åbn din profil og vælg <b>Forbind CENTRA</b> → <b>Lav app-nøgle</b>. Kopiér nøglen (den starter med <code>lh_app_</code>) og sæt den ind her. Den vises kun én gang, og du kan slette den i LunchHub når som helst.</p>
+          </details>
+          <label className="ufield"><span>LunchHub-adresse</span><input required value={url} onChange={(x) => setUrl(x.target.value)} spellCheck={false} /></label>
+          <label className="ufield"><span>App-nøgle</span><input required type="password" value={token} onChange={(x) => setToken(x.target.value)} placeholder="lh_app_…" autoComplete="off" spellCheck={false} /></label>
+          {err && <p className="unlock__error" role="alert">{err}</p>}
+          <div className="sheet__foot"><span className="push-right" /><Btn type="button" variant="text" onClick={onClose}>Annullér</Btn><Btn type="submit" variant="primary" disabled={busy || !token.trim() || !mailAvailable()}>{busy ? 'Forbinder …' : 'Forbind'}</Btn></div>
         </div>
       </form>
     </div>

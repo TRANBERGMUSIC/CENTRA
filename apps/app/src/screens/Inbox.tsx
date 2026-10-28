@@ -5,7 +5,8 @@ import { Icon } from '../ui/Icon.tsx';
 import { MailView } from '../ui/MailView.tsx';
 import { useToast } from '../ui/Shell.tsx';
 import { useScreenEnter, collapseOut } from '../motion.ts';
-import { moveMail, sendMail, setMailFlag, syncAll, mailAvailable, type MailAccount } from '../mail.ts';
+import { moveMail, sendMail, setMailFlag, syncAll, mailAvailable, sendAccounts, type MailAccount } from '../mail.ts';
+import { setLunchHubStatus, type LhConn } from '../lunchhub.ts';
 import { queueAssist } from './Assist.tsx';
 
 type Tab = 'important' | 'reply' | 'receipts' | 'other' | 'archive';
@@ -29,7 +30,10 @@ export function Inbox() {
   const [acct, setAcct] = useState<string>('all');
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
-  const accts = useList('mailacct') as unknown as MailAccount[];
+  const mailAccts = useList('mailacct') as unknown as MailAccount[];
+  const lhConns = useList('lhconn') as unknown as LhConn[];
+  // LunchHub shows up as one more "account" in the picker.
+  const accts = [...mailAccts, ...lhConns.map((c) => ({ id: c.id, name: c.name }))] as { id: string; name: string }[];
   const everything = useList('mail', (a, b) => (b.at ?? '').localeCompare(a.at ?? '')) as any[];
   const all = everything.filter((m) => !m.archived);
   const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -114,6 +118,8 @@ function Reader({ id, onMove }: { id: string; onMove: (m: any, a: 'archive' | 't
   const content = useRef<HTMLDivElement>(null);
   const [reply, setReply] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const senders = sendAccounts(e);
+  const [via, setVia] = useState<string>(() => senders[0]?.id ?? '');
   // Native scrolling here: the mail itself is a frame, and wheel events from it must reach this pane.
   if (!m) return <div className="reader" />;
   const p = who(m);
@@ -124,7 +130,8 @@ function Reader({ id, onMove }: { id: string; onMove: (m: any, a: 'archive' | 't
     if (!text.trim()) return;
     setSending(true);
     try {
-      await sendMail(e, m.acct, { to: [m.fromEmail], subject: /^(re|sv):/i.test(m.subject) ? m.subject : `Re: ${m.subject}`, body: `${text.trim()}\n\n${quote(m)}`, replyTo: m });
+      const subject = m.source === 'lunchhub' ? `Sv: ${m.subject.replace(/^(Kontakt|Smagning): /, '')}` : /^(re|sv):/i.test(m.subject) ? m.subject : `Re: ${m.subject}`;
+      await sendMail(e, m.acct, { to: [m.fromEmail], subject, body: `${text.trim()}\n\n${quote(m)}`, replyTo: m, via });
       setReply(null);
       toast({ person: { name: p.name }, text: `Sendt til ${p.name}` });
       if (archive) onMove(m, 'archive');
@@ -138,6 +145,9 @@ function Reader({ id, onMove }: { id: string; onMove: (m: any, a: 'archive' | 't
           <Btn size="sm" variant="text" icon="reply" onClick={() => setReply(text || '')}>Svar</Btn>
           <Btn size="sm" variant="text" icon="archive" onClick={() => onMove(m, 'archive')}>Arkivér</Btn>
           <Btn size="sm" variant="text" icon="x" onClick={() => { if (confirm('Slet mailen? Den lægges i papirkurven på din mailserver.')) onMove(m, 'trash'); }}>Slet</Btn>
+          {m.source === 'lunchhub' && (m.lhStatus === 'besvaret'
+            ? <Btn size="sm" variant="text" icon="reply" onClick={() => void setLunchHubStatus(e, m, 'ny').then(() => toast({ text: 'Markeret som ubesvaret i LunchHub' }), (x) => toast({ text: (x as Error).message }))}>Markér ubesvaret</Btn>
+            : <Btn size="sm" variant="text" icon="check" onClick={() => void setLunchHubStatus(e, m, 'besvaret').then(() => toast({ text: 'Markeret som besvaret i LunchHub' }), (x) => toast({ text: (x as Error).message }))}>Markér besvaret</Btn>)}
           <Btn size="sm" variant="text" onClick={() => setMailFlag(e, m, { unread: !m.unread })}>{m.unread ? 'Markér læst' : 'Markér ulæst'}</Btn>
           <Btn size="sm" variant="text" icon="star" aria-pressed={!!m.flagged} onClick={() => setMailFlag(e, m, { flagged: !m.flagged })}>{m.flagged ? 'Stjernet' : 'Stjerne'}</Btn>
           <Btn size="sm" variant="text" icon="assist" onClick={() => { queueAssist(`Lav et kort svarudkast i min tone til mailen [${m.id}] fra ${p.name} om "${m.subject}".`); go({ screen: 'assist' }); }}>Assist</Btn>
@@ -152,13 +162,19 @@ function Reader({ id, onMove }: { id: string; onMove: (m: any, a: 'archive' | 't
             <SaveSender m={m} />
           </header>
           <h2 className="mailsubject">{m.subject}</h2>
-          <div className="meta mailacct">{m.acctName}</div>
+          <div className="meta mailacct">{m.acctName}{m.source === 'lunchhub' && <span className={`lhstatus lhstatus--${m.lhStatus}`}>{m.lhStatus === 'besvaret' ? 'Besvaret' : m.lhStatus === 'arkiv' ? 'Arkiveret' : 'Ikke besvaret'}</span>}</div>
           <MailView e={e} m={m} />
         </article>
         {open && (
           <div className="replybox">
             {m.draft && reply === null && <div className="composer__ai"><Icon name="assist" size="sm" />Udkast fra Assist · ret frit, intet sendes uden dig</div>}
             <textarea className="composer__body" autoFocus value={text} placeholder={`Svar til ${p.name}`} onChange={(x) => setReply(x.target.value)} aria-label="Svar" />
+            {m.source === 'lunchhub' && (
+              <label className="sendvia"><span className="meta">Send fra</span>
+                {senders.length ? <select className="kvinput" value={via} onChange={(x) => setVia(x.target.value)}>{senders.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.email}</option>)}</select>
+                  : <span className="meta">Tilføj en mailkonto under Forbindelser for at kunne svare herfra.</span>}
+              </label>
+            )}
             <div className="composer__bar">
               <Btn variant="primary" icon="send" disabled={sending || !text.trim() || !mailAvailable()} onClick={() => send(false)}>{sending ? 'Sender …' : 'Send'}</Btn>
               <Btn disabled={sending || !text.trim() || !mailAvailable()} onClick={() => send(true)}>Send og arkivér</Btn>

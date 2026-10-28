@@ -6,6 +6,7 @@
  * records with a stable id per account + IMAP UID, so fetching twice never duplicates.
  */
 import type { SyncEngine } from '@centra/sync';
+import { syncAllLunchHub, setLunchHubStatus } from './lunchhub.ts';
 const isDesktop = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 export type Security = 'tls' | 'starttls' | 'none';
@@ -139,24 +140,32 @@ export async function openMailPart(e: SyncEngine, m: any, index: number, save: b
 /** Read / unread, star: changed here at once, then on the server in the background. */
 export function setMailFlag(e: SyncEngine, m: any, f: { unread?: boolean; flagged?: boolean }) {
   e.set('mail', m.id, f);
+  if (m.source === 'lunchhub') return; // read and star are yours alone; LunchHub keeps its own status
   const a = acctOf(e, m);
   if (a && mailAvailable()) void invoke('mail_update', { account: wire(a), uids: [m.uid], seen: f.unread === undefined ? null : !f.unread, flagged: f.flagged ?? null, action: null }).catch(() => {});
 }
 
 /** Archive or delete: moves the mail on the server too (to Archive / Trash), so it's gone everywhere. */
 export async function moveMail(e: SyncEngine, m: any, action: 'archive' | 'trash') {
+  // A LunchHub enquiry is archived in LunchHub (it can't be deleted there); "delete" also hides it here.
+  if (m.source === 'lunchhub') { await setLunchHubStatus(e, m, 'arkiv'); if (action === 'trash') e.remove('mail', m.id); return; }
   const a = acctOf(e, m);
   if (a && mailAvailable()) await invoke('mail_update', { account: wire(a), uids: [m.uid], seen: true, flagged: null, action });
   if (action === 'trash') e.remove('mail', m.id); else e.set('mail', m.id, { archived: true, unread: false });
 }
 
-export async function sendMail(e: SyncEngine, acctId: string, out: { to: string[]; cc?: string[]; subject: string; body: string; replyTo?: any }) {
-  const a = e.get(acctId) as unknown as MailAccount;
-  if (!a) throw new Error('Kontoen findes ikke længere');
+/** The mail accounts you can send from (a LunchHub enquiry is answered from one of these). */
+export const sendAccounts = (e: SyncEngine) => (e.list('mailacct') as unknown as MailAccount[]).filter((a) => a.enabled !== false);
+
+export async function sendMail(e: SyncEngine, acctId: string, out: { to: string[]; cc?: string[]; subject: string; body: string; replyTo?: any; via?: string }) {
+  const lh = out.replyTo?.source === 'lunchhub';
+  const a = (lh ? e.get(out.via ?? '') ?? sendAccounts(e)[0] : e.get(acctId)) as unknown as MailAccount;
+  if (!a) throw new Error(lh ? 'Tilføj en mailkonto under Forbindelser for at kunne svare.' : 'Kontoen findes ikke længere');
   const r = out.replyTo;
   await invoke('mail_send', { account: wire(a), mail: { to: out.to, cc: out.cc ?? [], subject: out.subject, body: out.body,
     in_reply_to: r?.messageId || null, references: r ? [r.references, r.messageId].filter(Boolean).join(' ') : null } });
   if (r) e.set('mail', r.id, { answered: true, needsReply: false, draft: '' });
+  if (lh) await setLunchHubStatus(e, r, 'besvaret').catch(() => {}); // the mail is sent either way
 }
 
 /** Checks new mail against the watches Assist was asked to keep ("hold øje med …"). */
@@ -191,6 +200,8 @@ export async function syncAll(e: SyncEngine) {
     const added: string[] = [], errors: string[] = [];
     for (const a of accts) { const r = await syncAccount(e, a); added.push(...r.added); if (r.error) errors.push(`${a.name}: ${r.error}`); }
     const firstRun = accts.some((a) => !a.lastUid);
-    return { added, hits: firstRun ? [] : matchWatches(e, added), errors };
+    const lh = await syncAllLunchHub(e);
+    errors.push(...lh.errors);
+    return { added: [...added, ...lh.added], hits: firstRun ? [] : matchWatches(e, added), errors };
   } finally { running = false; }
 }

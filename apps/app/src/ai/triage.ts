@@ -12,7 +12,7 @@ Svar KUN med JSON: {"mails": [{"id": string, "important": boolean, "summary": st
 export async function triageMails(e: SyncEngine, ids: string[]): Promise<number> {
   const s = aiSettings(e);
   if (s.triage === false || !(s.provider === 'claude' && s.claudeKey)) return 0;
-  const mails = ids.map((id) => e.get(id) as any).filter((m) => m && !m.ai).slice(0, 60);
+  const mails = ids.map((id) => e.get(id) as any).filter((m) => m && !m.ai && m.source !== 'lunchhub').slice(0, 60);
   let n = 0;
   for (let i = 0; i < mails.length; i += 20) {
     const batch = mails.slice(i, i + 20);
