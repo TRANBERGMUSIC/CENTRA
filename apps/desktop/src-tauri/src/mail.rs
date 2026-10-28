@@ -77,6 +77,8 @@ pub struct Body {
 
 #[derive(Serialize)]
 pub struct Fetched {
+    /// The folder actually read (the server's own name for "Sent" when asked for SENT).
+    pub folder: String,
     pub uid_validity: u32,
     pub messages: Vec<Msg>,
     pub exists: u32,
@@ -409,8 +411,12 @@ fn civil(z: i64) -> (i64, u32, u32) {
     (yoe + era * 400 + if m <= 2 { 1 } else { 0 }, m, d)
 }
 
+const SENT_NAMES: &[&str] = &["Sent", "Sent Messages", "Sendt", "Sendte elementer", "Sendte e-mails", "Sent Items", "[Gmail]/Sent Mail", "[Gmail]/Sendte e-mails", "INBOX.Sent", "INBOX.Sent Messages", "INBOX.Sendt"];
+
 fn fetch_blocking(a: Account, folder: String, since_uid: u32, uid_validity: u32, days: u32, max: u32) -> Result<Fetched, String> {
     let mut s = connect(&a)?;
+    // "SENT" means: whatever this server calls its Sent folder.
+    let folder = if folder == "SENT" { special(&mut s, "sent", SENT_NAMES).ok_or("Fandt ingen Sendt-mappe på serveren")? } else { folder };
     let mb = s.select(&folder).map_err(err("Mappe"))?;
     let validity = mb.uid_validity.unwrap_or(0);
     // A changed UIDVALIDITY means the server renumbered everything: start over.
@@ -433,7 +439,7 @@ fn fetch_blocking(a: Account, folder: String, since_uid: u32, uid_validity: u32,
         }
     }
     let _ = s.logout();
-    Ok(Fetched { uid_validity: validity, messages, exists: mb.exists })
+    Ok(Fetched { folder, uid_validity: validity, messages, exists: mb.exists })
 }
 
 /// Finds a folder by its special-use flag (\Archive, \Trash, \Sent), with common names as fallback.
@@ -510,8 +516,22 @@ pub struct Outgoing {
     pub references: Option<String>,
 }
 
+#[derive(Serialize, Debug)]
+pub struct Sent {
+    pub from: String,
+    pub message_id: String,
+    /// Where a copy was saved ("" when the server does it itself, like Gmail, or saving failed).
+    pub saved_in: String,
+}
+
+/// Gmail and iCloud put what you send through SMTP into Sent themselves; elsewhere CENTRA saves a copy.
+fn saves_sent_itself(a: &Account) -> bool {
+    let h = format!("{} {}", a.host, a.smtp_host).to_lowercase();
+    h.contains("gmail") || h.contains("googlemail") || h.contains("mail.me.com")
+}
+
 #[tauri::command]
-pub async fn mail_send(account: Account, mail: Outgoing) -> Result<String, String> {
+pub async fn mail_send(account: Account, mail: Outgoing) -> Result<Sent, String> {
     use lettre::message::{header::ContentType, Mailbox};
     use lettre::transport::smtp::authentication::Credentials;
     use lettre::transport::smtp::client::{Tls, TlsParameters};
@@ -535,7 +555,18 @@ pub async fn mail_send(account: Account, mail: Outgoing) -> Result<String, Strin
         };
         let t = SmtpTransport::builder_dangerous(&account.smtp_host).port(account.smtp_port).tls(tls).credentials(creds).timeout(Some(Duration::from_secs(30))).build();
         t.send(&msg).map_err(|e| friendly(format!("Afsendelse: {e}")))?;
-        Ok(from_email)
+        let message_id = msg.headers().get_raw("Message-ID").unwrap_or("").trim().trim_matches(|c| c == '<' || c == '>').to_string();
+        // A copy in Sent, so it shows up there in CENTRA and in every other mail app. Never fails the send.
+        let mut saved_in = String::new();
+        if !saves_sent_itself(&account) {
+            if let Ok(mut s) = connect(&account) {
+                if let Some(folder) = special(&mut s, "sent", SENT_NAMES) {
+                    if s.append_with_flags(&folder, msg.formatted(), &[imap::types::Flag::Seen]).is_ok() { saved_in = folder; }
+                }
+                let _ = s.logout();
+            }
+        }
+        Ok(Sent { from: from_email, message_id, saved_in })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -605,9 +636,15 @@ mod tests {
             mail_update(a.clone(), vec![first], Some(true), None, Some("archive".into())).await.unwrap();
             let after = mail_fetch(a.clone(), None, 0, 0, Some(30), Some(100)).await.unwrap();
             let sent = mail_send(a.clone(), Outgoing { to: vec!["sofie@example.dk".into()], cc: None, subject: "Re: Frokost på lørdag?".into(), body: "Ja, gerne! Ses kl. 12.".into(), in_reply_to: Some("s1@example.dk".into()), references: Some("<s1@example.dk>".into()) }).await;
-            (n, bad, f, again, after, sent)
+            let box_ = mail_fetch(a.clone(), Some("SENT".into()), 0, 0, Some(30), Some(100)).await.unwrap();
+            (n, bad, f, again, after, sent, box_)
         });
-        let (n, bad, f, again, after, sent) = rt;
+        let (n, bad, f, again, after, sent, box_) = rt;
+        println!("sent folder={} {:?}", box_.folder, box_.messages.iter().map(|m| (&m.subject, &m.message_id, &m.to)).collect::<Vec<_>>());
+        let s = sent.as_ref().unwrap();
+        assert_eq!(s.saved_in, "Sent");
+        assert_eq!(box_.folder, "Sent");
+        assert!(box_.messages.iter().any(|m| m.message_id == s.message_id && m.to == vec!["sofie@example.dk".to_string()] && m.seen));
         println!("exists={n} bad={bad}");
         for m in &f.messages { println!("{} | {} <{}> | {} | seen={} list={} | {:?}", m.uid, m.from_name, m.from_email, m.subject, m.seen, m.list, &m.text.chars().take(70).collect::<String>()); }
         println!("incremental={} after_archive={} sent={sent:?}", again.messages.len(), after.messages.len());

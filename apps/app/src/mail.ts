@@ -14,7 +14,7 @@ export type MailAccount = {
   id: string; name: string; provider: string; email: string; fromName?: string;
   host: string; port: number; security: Security; user: string; pass: string;
   smtpHost: string; smtpPort: number; smtpSecurity: Security;
-  uidValidity?: number; lastUid?: number; lastSync?: string; lastError?: string; enabled?: boolean;
+  uidValidity?: number; lastUid?: number; sentUidValidity?: number; sentLastUid?: number; sentFolder?: string; lastSync?: string; lastError?: string; enabled?: boolean;
 };
 
 export type Preset = { id: string; name: string; host: string; port: number; security: Security; smtpHost: string; smtpPort: number; smtpSecurity: Security; guide: string; link?: [string, string]; blocked?: string };
@@ -93,12 +93,51 @@ export async function syncAccount(e: SyncEngine, a: MailAccount): Promise<SyncRe
       added.push(id);
     }
     e.set('mailacct', a.id, { uidValidity: r.uid_validity, lastUid: last, lastSync: new Date().toISOString(), lastError: '' });
+    await syncSent(e, { ...a, ...(e.get(a.id) as any) }).catch(() => {}); // a missing Sent folder never stops the inbox
     return { added };
   } catch (err) {
     const msg = (err as Error).message;
     e.set('mailacct', a.id, { lastError: msg, lastSync: new Date().toISOString() });
     return { added: [], error: msg };
   }
+}
+
+/* ---------------------------------------------------------------- Sendt */
+const sentId = (acct: string, uid: number) => `m-${acct}-s-${uid}`;
+const norm = (id?: string) => (id ?? '').trim().replace(/^<|>$/g, '');
+/** "Sofie Lund, mads@holm.dk": the names of contacts you have, the address for the rest. */
+const toLine = (e: SyncEngine, to: string[]) => {
+  if (!to.length) return '(ingen modtager)';
+  const known = new Map((e.list('person') as any[]).filter((p) => p.email).map((p) => [String(p.email).toLowerCase(), p.name as string]));
+  return to.map((t) => known.get(t.toLowerCase()) ?? t).join(', ');
+};
+
+/** What you sent, from the server's own Sent folder (so mails sent from your phone show up too). */
+export async function syncSent(e: SyncEngine, a: MailAccount): Promise<string[]> {
+  const r = await invoke<{ folder: string; uid_validity: number; messages: Wire[] }>('mail_fetch', { account: wire(a), folder: 'SENT', sinceUid: a.sentLastUid ?? 0, uidValidity: a.sentUidValidity ?? 0, days: 30, max: 200 });
+  if (a.sentUidValidity && r.uid_validity !== a.sentUidValidity) for (const m of e.list('mail')) if ((m as any).acct === a.id && (m as any).sent && (m as any).uid) e.remove('mail', m.id);
+  const added: string[] = [];
+  let last = r.uid_validity === a.sentUidValidity ? a.sentLastUid ?? 0 : 0;
+  // Mails sent from CENTRA are already here (made when sent); the server's copy takes their place.
+  const local = new Map((e.list('mail') as any[]).filter((m) => m.acct === a.id && m.sent && !m.uid && m.messageId).map((m) => [norm(m.messageId), m]));
+  for (const m of r.messages) {
+    last = Math.max(last, m.uid);
+    const id = sentId(a.id, m.uid);
+    if (e.get(id) || e.fieldClock(id, '_deleted')) continue;
+    const mine = local.get(norm(m.message_id));
+    if (mine) e.remove('mail', mine.id);
+    e.set('mail', id, {
+      acct: a.id, acctName: a.name, uid: m.uid, folder: r.folder, sent: true,
+      fromName: toLine(e, m.to), fromEmail: m.to[0] ?? '', to: m.to, cc: m.cc,
+      subject: m.subject || '(intet emne)', at: m.date || new Date().toISOString(), preview: preview(m.text), body: m.text,
+      unread: false, flagged: m.flagged, answered: false, attachments: m.attachments, attachment: m.attachments[0] ?? '',
+      list: false, messageId: m.message_id, inReplyTo: m.in_reply_to, references: m.references, cat: 'Sendt', needsReply: false, archived: false,
+      html: (m.html?.length ?? 0) <= HTML_KEEP ? m.html ?? '' : '', parts: m.parts ?? [], full: true,
+    });
+    added.push(id);
+  }
+  e.set('mailacct', a.id, { sentUidValidity: r.uid_validity, sentLastUid: last, sentFolder: r.folder });
+  return added;
 }
 
 const acctOf = (e: SyncEngine, m: any) => e.get(m.acct) as unknown as MailAccount | null;
@@ -111,7 +150,7 @@ export async function mailBody(e: SyncEngine, m: any): Promise<Body> {
   if (m.full && !m.htmlTooBig) return { text: m.body ?? '', html: m.html ?? '', parts: m.parts ?? [] };
   const a = acctOf(e, m);
   if (!a || !mailAvailable()) return { text: m.body ?? '', html: '', parts: [] };
-  const b = await invoke<Body>('mail_body', { account: wire(a), uid: m.uid, folder: null });
+  const b = await invoke<Body>('mail_body', { account: wire(a), uid: m.uid, folder: m.folder ?? null });
   e.set('mail', m.id, { full: true, parts: b.parts, htmlTooBig: b.html.length > HTML_KEEP, ...(b.html.length <= HTML_KEEP ? { html: b.html } : {}) });
   return b;
 }
@@ -123,7 +162,7 @@ export function mailPart(e: SyncEngine, m: any, index: number): Promise<string> 
   let p = partCache.get(key);
   if (!p) {
     const a = acctOf(e, m);
-    p = !a ? Promise.reject(new Error('Kontoen findes ikke længere')) : invoke<{ mime: string; data: string }>('mail_part', { account: wire(a), uid: m.uid, index, folder: null }).then((r) => `data:${r.mime};base64,${r.data}`);
+    p = !a ? Promise.reject(new Error('Kontoen findes ikke længere')) : invoke<{ mime: string; data: string }>('mail_part', { account: wire(a), uid: m.uid, index, folder: m.folder ?? null }).then((r) => `data:${r.mime};base64,${r.data}`);
     p.catch(() => partCache.delete(key));
     partCache.set(key, p);
   }
@@ -134,13 +173,13 @@ export function mailPart(e: SyncEngine, m: any, index: number): Promise<string> 
 export async function openMailPart(e: SyncEngine, m: any, index: number, save: boolean): Promise<string> {
   const a = acctOf(e, m);
   if (!a) throw new Error('Kontoen findes ikke længere');
-  return invoke<string>('mail_save_part', { account: wire(a), uid: m.uid, index, save, folder: null });
+  return invoke<string>('mail_save_part', { account: wire(a), uid: m.uid, index, save, folder: m.folder ?? null });
 }
 
 /** Read / unread, star: changed here at once, then on the server in the background. */
 export function setMailFlag(e: SyncEngine, m: any, f: { unread?: boolean; flagged?: boolean }) {
   e.set('mail', m.id, f);
-  if (m.source === 'lunchhub') return; // read and star are yours alone; LunchHub keeps its own status
+  if (m.source === 'lunchhub' || m.sent) return; // read and star are yours alone; LunchHub keeps its own status
   const a = acctOf(e, m);
   if (a && mailAvailable()) void invoke('mail_update', { account: wire(a), uids: [m.uid], seen: f.unread === undefined ? null : !f.unread, flagged: f.flagged ?? null, action: null }).catch(() => {});
 }
@@ -149,6 +188,8 @@ export function setMailFlag(e: SyncEngine, m: any, f: { unread?: boolean; flagge
 export async function moveMail(e: SyncEngine, m: any, action: 'archive' | 'trash') {
   // A LunchHub enquiry is archived in LunchHub (it can't be deleted there); "delete" also hides it here.
   if (m.source === 'lunchhub') { await setLunchHubStatus(e, m, 'arkiv'); if (action === 'trash') e.remove('mail', m.id); return; }
+  // What you sent is only tidied away here; the copy in Sent on the server stays.
+  if (m.sent) { if (action === 'trash') e.remove('mail', m.id); else e.set('mail', m.id, { archived: true }); return; }
   const a = acctOf(e, m);
   if (a && mailAvailable()) await invoke('mail_update', { account: wire(a), uids: [m.uid], seen: true, flagged: null, action });
   if (action === 'trash') e.remove('mail', m.id); else e.set('mail', m.id, { archived: true, unread: false });
@@ -162,8 +203,16 @@ export async function sendMail(e: SyncEngine, acctId: string, out: { to: string[
   const a = (lh ? e.get(out.via ?? '') ?? sendAccounts(e)[0] : e.get(acctId)) as unknown as MailAccount;
   if (!a) throw new Error(lh ? 'Tilføj en mailkonto under Forbindelser for at kunne svare.' : 'Kontoen findes ikke længere');
   const r = out.replyTo;
-  await invoke('mail_send', { account: wire(a), mail: { to: out.to, cc: out.cc ?? [], subject: out.subject, body: out.body,
-    in_reply_to: r?.messageId || null, references: r ? [r.references, r.messageId].filter(Boolean).join(' ') : null } });
+  const references = r ? [r.references, r.messageId].filter(Boolean).join(' ') : null;
+  const sent = await invoke<{ from: string; message_id: string; saved_in: string }>('mail_send', { account: wire(a), mail: { to: out.to, cc: out.cc ?? [], subject: out.subject, body: out.body,
+    in_reply_to: r?.messageId || null, references } });
+  // In Sendt at once; the server's copy replaces it at the next fetch.
+  e.set('mail', `m-${a.id}-out-${norm(sent?.message_id) || Date.now()}`, {
+    acct: a.id, acctName: a.name, sent: true, fromName: toLine(e, out.to), fromEmail: out.to[0] ?? '', to: out.to, cc: out.cc ?? [],
+    subject: out.subject, at: new Date().toISOString(), preview: preview(out.body), body: out.body, unread: false, flagged: false,
+    answered: false, attachments: [], attachment: '', list: false, messageId: sent?.message_id ?? '', inReplyTo: r?.messageId ?? '', references: references ?? '',
+    cat: 'Sendt', needsReply: false, archived: false, html: '', parts: [], full: true,
+  });
   if (r) e.set('mail', r.id, { answered: true, needsReply: false, draft: '' });
   if (lh) await setLunchHubStatus(e, r, 'besvaret').catch(() => {}); // the mail is sent either way
 }
@@ -193,15 +242,16 @@ export function matchWatches(e: SyncEngine, ids: string[]): { watch: any; mail: 
 let running = false;
 /** Fetches all enabled accounts; returns new mail ids and watch hits. */
 export async function syncAll(e: SyncEngine) {
-  if (running || !mailAvailable()) return { added: [] as string[], hits: [] as ReturnType<typeof matchWatches>, errors: [] as string[] };
+  if (running || !mailAvailable()) return { added: [] as string[], hits: [] as ReturnType<typeof matchWatches>, errors: [] as string[], firstLh: true };
   running = true;
   try {
     const accts = e.list('mailacct').filter((a: any) => a.enabled !== false) as unknown as MailAccount[];
     const added: string[] = [], errors: string[] = [];
     for (const a of accts) { const r = await syncAccount(e, a); added.push(...r.added); if (r.error) errors.push(`${a.name}: ${r.error}`); }
     const firstRun = accts.some((a) => !a.lastUid);
+    const firstLh = (e.list('lhconn') as any[]).some((c) => c.enabled !== false && !c.since);
     const lh = await syncAllLunchHub(e);
     errors.push(...lh.errors);
-    return { added: [...added, ...lh.added], hits: firstRun ? [] : matchWatches(e, added), errors };
+    return { added: [...added, ...lh.added], hits: firstRun ? [] : matchWatches(e, added), errors, firstLh };
   } finally { running = false; }
 }

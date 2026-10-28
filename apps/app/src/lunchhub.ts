@@ -88,11 +88,17 @@ export async function syncLunchHub(e: SyncEngine, c: LhConn): Promise<{ added: s
   }
 }
 
-export async function syncAllLunchHub(e: SyncEngine) {
-  const conns = (e.list('lhconn') as unknown as LhConn[]).filter((c) => c.enabled !== false);
-  const added: string[] = [], errors: string[] = [];
-  for (const c of conns) { const r = await syncLunchHub(e, c); added.push(...r.added); if (r.error) errors.push(`${c.name}: ${r.error}`); }
-  return { added, errors };
+let running: Promise<{ added: string[]; errors: string[] }> | null = null;
+/** Every enabled LunchHub connection. Called every minute and when you come back to the window; never twice at once. */
+export function syncAllLunchHub(e: SyncEngine) {
+  if (running) return running.then(() => ({ added: [] as string[], errors: [] as string[] }));
+  running = (async () => {
+    const conns = (e.list('lhconn') as unknown as LhConn[]).filter((c) => c.enabled !== false);
+    const added: string[] = [], errors: string[] = [];
+    for (const c of conns) { const r = await syncLunchHub(e, { ...c, ...(e.get(c.id) as any) }); added.push(...r.added); if (r.error) errors.push(`${c.name}: ${r.error}`); }
+    return { added, errors };
+  })().finally(() => { running = null; });
+  return running;
 }
 
 /** Answered / archived / back to new — in LunchHub too, so the team sees it there. */

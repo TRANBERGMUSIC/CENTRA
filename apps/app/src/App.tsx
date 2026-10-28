@@ -18,6 +18,7 @@ import { Outlays } from './screens/Outlays.tsx';
 import { Expenses } from './screens/Expenses.tsx';
 import { UsageScreen } from './screens/Usage.tsx';
 import { syncAll } from './mail.ts';
+import { syncAllLunchHub } from './lunchhub.ts';
 import { triageMails } from './ai/triage.ts';
 import { syncFeeds } from './feeds.ts';
 import { useAppMotion } from './motion.ts';
@@ -121,22 +122,42 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
     document.addEventListener('click', click);
     return () => document.removeEventListener('click', click);
   }, [toast]);
-  // Mail every 5 minutes, calendars every 15, and both when the window comes back.
+  // Mail every 2 minutes, LunchHub every minute, calendars every 15 — and all of it when the window comes back.
   useEffect(() => {
-    let last = 0, lastFeeds = 0, alive = true;
+    let last = 0, lastFeeds = 0, lastLh = 0, alive = true;
+    const announce = (ids: string[]) => {
+      for (const id of ids.slice(0, 3)) {
+        const m = e.get(id) as any;
+        if (!m || m.source !== 'lunchhub' || m.lhStatus !== 'ny') continue;
+        toast({ person: { name: m.fromName }, title: `Ny henvendelse · ${m.acctName.replace(/^LunchHub · /, '')}`, text: `${m.fromName} · ${m.subject}`, action: { label: 'Åbn', run: () => go({ screen: 'inbox', id }) } });
+      }
+      if (ids.length > 3) toast({ text: `${ids.length - 3} henvendelser mere fra LunchHub`, action: { label: 'Se dem', run: () => go({ screen: 'inbox' }) } });
+    };
     const run = async (force = false) => {
-      if (!alive || (!force && Date.now() - last < 120_000)) return;
-      last = Date.now();
+      if (!alive || (!force && Date.now() - last < 60_000)) return;
+      last = lastLh = Date.now();
       const r = await syncAll(e);
-      if (r.added.length) void triageMails(e, r.added);
+      if (!alive) return;
+      const lh = r.added.filter((id) => id.startsWith('lh-'));
+      if (r.added.length > lh.length) void triageMails(e, r.added.filter((id) => !id.startsWith('lh-')));
+      if (lh.length && r.firstLh === false) announce(lh);
       for (const h of r.hits) toast({ person: { name: h.mail.fromName || h.mail.fromEmail }, title: `Mail fra ${h.mail.fromName || h.mail.fromEmail}`, text: `${h.mail.subject} · du bad Assist holde øje med "${h.watch.description}"`, sticky: true, action: { label: 'Åbn', run: () => go({ screen: 'inbox', id: h.mail.id }) } });
       if (Date.now() - lastFeeds > 14 * 60_000) { lastFeeds = Date.now(); await syncFeeds(e); }
     };
+    const runLh = async () => {
+      if (!alive || Date.now() - lastLh < 50_000 || !e.list('lhconn').length) return;
+      lastLh = Date.now();
+      const first = (e.list('lhconn') as any[]).some((c) => !c.since);
+      const r = await syncAllLunchHub(e);
+      if (alive && !first) announce(r.added);
+    };
     void run(true);
-    const t = setInterval(() => void run(true), 5 * 60_000);
-    const vis = () => { if (!document.hidden) void run(); };
+    const t = setInterval(() => void run(true), 2 * 60_000);
+    const tl = setInterval(() => void runLh(), 60_000);
+    const vis = () => { if (!document.hidden) { void run(); void runLh(); } };
     document.addEventListener('visibilitychange', vis);
-    return () => { alive = false; clearInterval(t); document.removeEventListener('visibilitychange', vis); };
+    window.addEventListener('focus', vis);
+    return () => { alive = false; clearInterval(t); clearInterval(tl); document.removeEventListener('visibilitychange', vis); window.removeEventListener('focus', vis); };
   }, [e, toast, go]);
   useEffect(() => watchForUpdates((u) => toast({ text: `CENTRA ${u.version} er hentet og klar`, sticky: true, action: { label: 'Genstart nu', run: () => void u.install() } })), [toast]);
 

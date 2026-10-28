@@ -366,13 +366,13 @@ export function runTool(e: SyncEngine, name: string, input: any): ToolResult {
       const hits = (e.list('mail') as any[]).filter((m) => !m.archived && (!input.only_needs_reply || m.needsReply) && (!since || new Date(m.at).getTime() >= since)
         && q.every((w) => `${m.fromName} ${m.fromEmail} ${m.subject} ${m.body ?? m.preview}`.toLowerCase().includes(w)))
         .sort((a, b) => b.at.localeCompare(a.at)).slice(0, 15)
-        .map((m) => ({ id: m.id, from: `${m.fromName} <${m.fromEmail}>`, subject: m.subject, at: m.at, account: m.acctName, unread: !!m.unread, needsReply: !!m.needsReply, preview: m.preview }));
+        .map((m) => ({ id: m.id, ...(m.sent ? { sent_by_you_to: m.to } : { from: `${m.fromName} <${m.fromEmail}>` }), subject: m.subject, at: m.at, account: m.acctName, unread: !!m.unread, needsReply: !!m.needsReply, preview: m.preview }));
       return { result: hits.length ? hits : 'Ingen mails fundet.' };
     }
     case 'read_mail': {
       const m = e.get(input.mail_id) as any;
       if (!m || m.type !== 'mail') throw new Error('Ukendt mail');
-      return { result: { from: `${m.fromName} <${m.fromEmail}>`, to: m.to, subject: m.subject, at: m.at, account: m.acctName, attachments: m.attachments, text: String(m.body ?? m.preview ?? '').slice(0, 12000) } };
+      return { result: { from: m.sent ? 'dig (sendt)' : `${m.fromName} <${m.fromEmail}>`, to: m.to, subject: m.subject, at: m.at, account: m.acctName, attachments: m.attachments, text: String(m.body ?? m.preview ?? '').slice(0, 12000) } };
     }
     case 'draft_reply': {
       const m = e.get(input.mail_id) as any;
@@ -410,7 +410,7 @@ export function contextFor(e: SyncEngine): string {
   const soon = occurrences(all.filter((x) => !x.repeat), now, end).map((x) => { const l = evLine(x); return `- [${l.id}] ${l.day} ${l.time} ${l.title}${l.place ? ' · ' + l.place : ''}`; });
   const watches = e.list('watch').filter((w: any) => w.active).map((w: any) => `- [${w.id}] ${w.description}`);
   const accts = e.list('mailacct').map((a: any) => `${a.name} (${a.email})`);
-  const mails = (e.list('mail') as any[]).filter((m) => !m.archived);
+  const mails = (e.list('mail') as any[]).filter((m) => !m.archived && !m.sent);
   const waiting = mails.filter((m) => m.needsReply).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8).map((m) => `- [${m.id}] ${m.fromName}: ${m.subject} (${String(m.at).slice(0, 10)})`);
   const mailInfo = accts.length ? [`Forbundne konti: ${accts.join(', ')}. ${mails.length} mails i indbakken, ${mails.filter((m) => m.unread).length} ulæste. Brug search_mail og read_mail til resten.`, ...(waiting.length ? ['Venter på svar:', ...waiting] : [])] : ['Ingen mailkonti forbundet endnu (det gøres under Forbindelser).'];
   const contacts = (people(e) as Person[]).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 80).map((p) => `- [${p.id}] ${p.name}${p.relation ? ' (' + p.relation + ')' : ''}${p.company ? ', ' + p.company : ''}${p.notes ? ': ' + p.notes.replace(/\s+/g, ' ').slice(0, 140) : ''}`);

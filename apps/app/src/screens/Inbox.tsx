@@ -9,14 +9,18 @@ import { moveMail, sendMail, setMailFlag, syncAll, mailAvailable, sendAccounts, 
 import { setLunchHubStatus, type LhConn } from '../lunchhub.ts';
 import { queueAssist } from './Assist.tsx';
 
-type Tab = 'important' | 'reply' | 'receipts' | 'other' | 'archive';
-const TABS: [Tab, string][] = [['important', 'Vigtigt'], ['reply', 'Venter på svar'], ['receipts', 'Kvitteringer'], ['other', 'Andet'], ['archive', 'Arkiv']];
+type Box = 'inbox' | 'sent' | 'archive';
+type Filter = 'all' | 'important' | 'reply' | 'receipts' | 'other';
+const BOXES: [Box, string][] = [['inbox', 'Indbakke'], ['sent', 'Sendt'], ['archive', 'Arkiv']];
+const FILTERS: [Filter, string][] = [['all', 'Alle'], ['important', 'Vigtigt'], ['reply', 'Venter på svar'], ['receipts', 'Kvitteringer'], ['other', 'Reklamer og notifikationer']];
 /** Noise: newsletters, automatic notices, or what the AI sorted out. Watched and starred mail is never noise. */
 const noise = (m: any) => !m.watch && !m.flagged && (m.ai ? !m.ai.important : m.cat === 'Nyhedsbreve' || m.cat === 'Notifikationer');
-const inTab = (m: any, t: Tab) => t === 'archive' ? m.archived : !m.archived && (t === 'important' ? !noise(m) : t === 'reply' ? m.needsReply && !noise(m) : t === 'receipts' ? m.cat === 'Kvitteringer' : noise(m));
+const inBox = (m: any, b: Box) => b === 'archive' ? m.archived : !m.archived && (b === 'sent' ? !!m.sent : !m.sent);
+const inFilter = (m: any, f: Filter) => f === 'all' ? true : f === 'important' ? !noise(m) : f === 'reply' ? m.needsReply && !noise(m) : f === 'receipts' ? m.cat === 'Kvitteringer' : noise(m);
 const hue = (s: string) => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
 const initials = (n: string) => n.replace(/["<>]/g, '').split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((x) => x[0]?.toUpperCase()).join('') || '?';
-const who = (m: any) => ({ name: m.fromName || m.fromEmail || 'Ukendt', email: m.fromEmail ?? '', hue: hue(m.fromEmail ?? m.fromName ?? ''), initials: initials(m.fromName || m.fromEmail || '?') });
+const who = (m: any) => ({ name: (m.sent ? 'Til ' : '') + (m.fromName || m.fromEmail || 'Ukendt'), email: m.fromEmail ?? '', hue: hue(m.fromEmail ?? m.fromName ?? ''), initials: initials(m.fromName || m.fromEmail || '?') });
+const ago = (iso: string | undefined, now: Date) => { if (!iso) return ''; const s = Math.round((now.getTime() - new Date(iso).getTime()) / 1000); return s < 60 ? 'lige nu' : s < 3600 ? `for ${Math.round(s / 60)} min siden` : `kl. ${new Date(iso).toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' })}`; };
 
 /** All your mail accounts in one inbox. Archive and delete happen on the server too. */
 export function Inbox() {
@@ -26,7 +30,8 @@ export function Inbox() {
   const now = useNow();
   const ref = useRef<HTMLElement>(null);
   useScreenEnter(ref, 'inbox');
-  const [tab, setTab] = useState<Tab>('important');
+  const [box, setBox] = useState<Box>('inbox');
+  const [filter, setFilter] = useState<Filter>('all');
   const [acct, setAcct] = useState<string>('all');
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
@@ -39,9 +44,15 @@ export function Inbox() {
   const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
   // A search looks through every account and the archive, in sender, subject and the whole text.
   const rows = useMemo(() => everything.filter((m) => (acct === 'all' || m.acct === acct)
-    && (words.length ? words.every((w) => `${m.fromName} ${m.fromEmail} ${m.subject} ${m.body ?? m.preview} ${(m.attachments ?? []).join(' ')} ${m.acctName}`.toLowerCase().includes(w)) : inTab(m, tab))), [everything, acct, tab, q]);
+    && (words.length ? words.every((w) => `${m.fromName} ${m.fromEmail} ${(m.to ?? []).join(' ')} ${m.subject} ${m.body ?? m.preview} ${(m.attachments ?? []).join(' ')} ${m.acctName}`.toLowerCase().includes(w))
+      : inBox(m, box) && (box !== 'inbox' || inFilter(m, filter)))), [everything, acct, box, filter, q]);
   const id = route.id ?? rows[0]?.id;
-  const count = (t: Tab) => everything.filter((m) => (acct === 'all' || m.acct === acct) && inTab(m, t)).length;
+  const mine = everything.filter((m) => acct === 'all' || m.acct === acct);
+  const unread = mine.filter((m) => inBox(m, 'inbox') && m.unread).length;
+  const count = (f: Filter) => mine.filter((m) => inBox(m, 'inbox') && inFilter(m, f)).length;
+  // When everything was last fetched (mail and LunchHub fetch on their own; "Hent nu" is only for the impatient).
+  const synced = [...mailAccts, ...lhConns].map((a: any) => a.lastSync as string | undefined).filter(Boolean).sort().pop();
+  const syncErr = [...mailAccts, ...lhConns].map((a: any) => a.lastError ? `${a.name}: ${a.lastError}` : '').filter(Boolean)[0];
 
   async function move(m: any, action: 'archive' | 'trash', el: HTMLElement | null) {
     const next = rows.find((r) => r.id !== m.id && rows.indexOf(r) >= rows.indexOf(m)) ?? rows.find((r) => r.id !== m.id);
@@ -66,23 +77,28 @@ export function Inbox() {
     <main className="inbox" ref={ref}>
       <div className="mlist" data-lenis-prevent>
         <div className="mlist__head" data-enter>
-          <div className="mlist__title"><h1>Indbakke</h1>
-            {accts.length > 0 && mailAvailable() && <Btn size="sm" variant="text" disabled={busy} onClick={refresh} className="push-right">{busy ? 'Henter …' : 'Hent nu'}</Btn>}
+          <div className="mlist__title"><h1>Mail</h1>
+            {accts.length > 0 && mailAvailable() && <span className="meta mlist__sync" title={syncErr || undefined}>{busy ? 'Henter …' : syncErr ? 'Kunne ikke hente alt' : synced ? `Hentet ${ago(synced, now)}` : ''}</span>}
+            {accts.length > 0 && mailAvailable() && <Btn size="sm" variant="text" icon="refresh" disabled={busy} onClick={refresh} aria-label="Hent nu" title="Hent nu" />}
+            {accts.length > 1 && (
+              <select className="mselect" value={acct} onChange={(x) => setAcct(x.target.value)} aria-label="Konto">
+                <option value="all">Alle konti</option>
+                {accts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            )}
           </div>
-          {accts.length > 1 && (
-            <div className="acctpick" role="radiogroup" aria-label="Konto">
-              {[['all', 'Alle konti'] as const, ...accts.map((a) => [a.id, a.name] as const)].map(([k, l]) => <button key={k} role="radio" aria-checked={acct === k} className={acct === k ? 'is-active' : ''} onClick={() => setAcct(k)}>{l}</button>)}
-            </div>
-          )}
-          {everything.length > 0 && <input className="msearch" type="search" value={q} onChange={(x) => setQ(x.target.value)} placeholder="Søg i alle mails og arkivet" aria-label="Søg i mails" />}
+          <div className="segmented mbox" role="tablist" aria-label="Mappe">
+            {BOXES.map(([k, l]) => <button key={k} role="tab" aria-selected={box === k && !words.length} className={box === k && !words.length ? 'is-active' : ''} onClick={() => { setBox(k); setQ(''); }}>{l}{k === 'inbox' && unread > 0 && <span className="mbox__n num">{unread}</span>}</button>)}
+          </div>
+          {everything.length > 0 && <input className="msearch" type="search" value={q} onChange={(x) => setQ(x.target.value)} placeholder="Søg i alle mails, også sendte og arkiverede" aria-label="Søg i mails" />}
           {words.length > 0 ? (
             <div className="msearch__ask"><span className="meta">{rows.length} fundet i alle konti</span>
               <Btn size="sm" variant="text" icon="assist" onClick={() => { queueAssist(`Find i mine mails: ${q.trim()}. Fortæl hvad du fandt, og hvad jeg skal bruge det til.`); go({ screen: 'assist' }); }}>Spørg Assist</Btn></div>
-          ) : (
-            <div className="tabs" role="tablist">
-              {TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={`tab ${tab === k ? 'is-active' : ''}`} onClick={() => setTab(k)}>{l} <span className="meta num">{count(k)}</span></button>)}
+          ) : box === 'inbox' ? (
+            <div className="mfilter" role="radiogroup" aria-label="Vis">
+              {FILTERS.map(([k, l]) => <button key={k} role="radio" aria-checked={filter === k} className={filter === k ? 'is-active' : ''} onClick={() => setFilter(k)}>{l} <span className="num">{count(k)}</span></button>)}
             </div>
-          )}
+          ) : null}
         </div>
         <div className="mrows">
           {rows.map((m) => {
@@ -95,12 +111,12 @@ export function Inbox() {
                   <span className="mrow__who"><b className="ellipsis">{p.name}</b><span className="meta num mrow__time">{fmt.clock(m.at, now)}</span></span>
                   <span className="mrow__subj ellipsis">{m.subject}</span>
                   {m.ai?.summary && <span className="mrow__ai meta ellipsis">{m.ai.summary}</span>}
-                  <span className="mrow__mark meta"><span>{m.acctName ?? m.acct}{m.archived ? ' · arkiveret' : ''}</span>{m.watch ? <Pill tone="focus" icon="assist">Du bad om denne</Pill> : m.needsReply ? <Pill tone="focus">Venter på svar</Pill> : m.attachment ? <><Icon name="paperclip" size="sm" /><span>{m.cat === 'Kvitteringer' ? 'Kvittering' : 'Vedhæftning'}</span></> : null}{m.draft && <Pill tone="calm">Udkast</Pill>}</span>
+                  <span className="mrow__mark meta"><span>{m.acctName ?? m.acct}{m.sent && box !== 'sent' ? ' · sendt' : ''}{m.archived ? ' · arkiveret' : ''}</span>{m.watch ? <Pill tone="focus" icon="assist">Du bad om denne</Pill> : m.needsReply ? <Pill tone="focus">Venter på svar</Pill> : m.attachment ? <><Icon name="paperclip" size="sm" /><span>{m.cat === 'Kvitteringer' ? 'Kvittering' : 'Vedhæftning'}</span></> : null}{m.draft && <Pill tone="calm">Udkast</Pill>}</span>
                 </span>
               </button>
             );
           })}
-          {!rows.length && <p className="meta pad">{!accts.length ? <>Ingen mailkonti endnu. <button className="tag" onClick={() => go({ screen: 'connections' })}>Tilføj Gmail, iCloud, one.com eller Simply</button></> : words.length ? 'Intet fundet. Prøv andre ord, eller spørg Assist.' : tab === 'other' ? 'Ingen reklamer eller nyhedsbreve. Dejligt.' : all.length ? 'Intet her.' : 'Henter dine mails …'}</p>}
+          {!rows.length && <p className="meta pad">{!accts.length ? <>Ingen mailkonti endnu. <button className="tag" onClick={() => go({ screen: 'connections' })}>Tilføj Gmail, iCloud, one.com eller Simply</button></> : words.length ? 'Intet fundet. Prøv andre ord, eller spørg Assist.' : box === 'sent' ? 'Ingen sendte mails endnu. De hentes fra Sendt-mappen på din mailserver.' : box === 'archive' ? 'Intet i arkivet.' : filter === 'other' ? 'Ingen reklamer eller notifikationer. Dejligt.' : all.length ? 'Intet her.' : 'Henter dine mails …'}</p>}
         </div>
       </div>
       {id ? <Reader key={id} id={id} onMove={(m, a) => move(m, a, document.getElementById(`mrow-${m.id}`))} /> : <div className="reader" />}
@@ -142,13 +158,13 @@ function Reader({ id, onMove }: { id: string; onMove: (m: any, a: 'archive' | 't
     <div className="reader" ref={wrap}>
       <div ref={content}>
         <div className="reader__bar">
-          <Btn size="sm" variant="text" icon="reply" onClick={() => setReply(text || '')}>Svar</Btn>
+          <Btn size="sm" variant="text" icon="reply" onClick={() => setReply(text || '')}>{m.sent ? 'Skriv igen' : 'Svar'}</Btn>
           <Btn size="sm" variant="text" icon="archive" onClick={() => onMove(m, 'archive')}>Arkivér</Btn>
-          <Btn size="sm" variant="text" icon="x" onClick={() => { if (confirm('Slet mailen? Den lægges i papirkurven på din mailserver.')) onMove(m, 'trash'); }}>Slet</Btn>
+          <Btn size="sm" variant="text" icon="x" onClick={() => { if (confirm(m.sent ? 'Fjern mailen fra CENTRA? Kopien i Sendt på din mailserver bliver liggende.' : 'Slet mailen? Den lægges i papirkurven på din mailserver.')) onMove(m, 'trash'); }}>{m.sent ? 'Fjern' : 'Slet'}</Btn>
           {m.source === 'lunchhub' && (m.lhStatus === 'besvaret'
             ? <Btn size="sm" variant="text" icon="reply" onClick={() => void setLunchHubStatus(e, m, 'ny').then(() => toast({ text: 'Markeret som ubesvaret i LunchHub' }), (x) => toast({ text: (x as Error).message }))}>Markér ubesvaret</Btn>
             : <Btn size="sm" variant="text" icon="check" onClick={() => void setLunchHubStatus(e, m, 'besvaret').then(() => toast({ text: 'Markeret som besvaret i LunchHub' }), (x) => toast({ text: (x as Error).message }))}>Markér besvaret</Btn>)}
-          <Btn size="sm" variant="text" onClick={() => setMailFlag(e, m, { unread: !m.unread })}>{m.unread ? 'Markér læst' : 'Markér ulæst'}</Btn>
+          {!m.sent && <Btn size="sm" variant="text" onClick={() => setMailFlag(e, m, { unread: !m.unread })}>{m.unread ? 'Markér læst' : 'Markér ulæst'}</Btn>}
           <Btn size="sm" variant="text" icon="star" aria-pressed={!!m.flagged} onClick={() => setMailFlag(e, m, { flagged: !m.flagged })}>{m.flagged ? 'Stjernet' : 'Stjerne'}</Btn>
           <Btn size="sm" variant="text" icon="assist" onClick={() => { queueAssist(`Lav et kort svarudkast i min tone til mailen [${m.id}] fra ${p.name} om "${m.subject}".`); go({ screen: 'assist' }); }}>Assist</Btn>
         </div>
@@ -157,7 +173,7 @@ function Reader({ id, onMove }: { id: string; onMove: (m: any, a: 'archive' | 't
             <span className="avatar avatar--lg" style={vars({ '--h': p.hue })}>{p.initials}</span>
             <div className="mailhead__who">
               <div className="mailhead__line"><span className="strong ellipsis">{p.name}</span><time className="meta num">{new Date(m.at).toLocaleString('da-DK', { day: 'numeric', month: 'short', year: new Date(m.at).getFullYear() === new Date().getFullYear() ? undefined : 'numeric', hour: '2-digit', minute: '2-digit' })}</time></div>
-              <div className="meta ellipsis">{p.email}{m.to?.length ? ` · til ${m.to.join(', ')}` : ''}{m.cc?.length ? ` · cc ${m.cc.join(', ')}` : ''}</div>
+              <div className="meta ellipsis">{m.sent ? `Fra dig${m.to?.length ? ` til ${m.to.join(', ')}` : ''}` : <>{p.email}{m.to?.length ? ` · til ${m.to.join(', ')}` : ''}</>}{m.cc?.length ? ` · cc ${m.cc.join(', ')}` : ''}</div>
             </div>
             <SaveSender m={m} />
           </header>

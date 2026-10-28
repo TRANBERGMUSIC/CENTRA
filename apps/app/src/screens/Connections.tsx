@@ -48,7 +48,7 @@ export function Connections() {
               <li key={a.id} className="memrow">
                 <span className={`dot ${a.lastError ? 'dot--err' : ''}`} />
                 <span className="row__body"><span className="row__line"><span className="strong">{a.name}</span><span className="meta">&nbsp;· {a.email}</span></span>
-                  <span className={`meta ${a.lastError ? 'errtext' : ''}`}>{a.lastError ? a.lastError : a.lastSync ? `Hentet ${fmt.ago(a.lastSync)} · henter selv hvert 5. minut` : 'Ikke hentet endnu'}</span></span>
+                  <span className={`meta ${a.lastError ? 'errtext' : ''}`}>{a.lastError ? a.lastError : a.lastSync ? `Hentet ${fmt.ago(a.lastSync)} · henter selv hvert 2. minut` : 'Ikke hentet endnu'}</span></span>
                 <Btn size="sm" variant="text" disabled={busy === a.id || !mailAvailable()} onClick={() => refresh(a)}>{busy === a.id ? 'Henter …' : 'Hent nu'}</Btn>
                 <Btn size="sm" variant="text" icon="x" aria-label={`Fjern ${a.name}`} onClick={() => removeAcct(a)} />
               </li>
@@ -235,7 +235,7 @@ function AddLunchHub({ onClose }: { onClose: () => void }) {
       <form className="sheet" role="dialog" aria-label="Forbind LunchHub" onSubmit={save}>
         <div className="sheet__body">
           <h2>Forbind LunchHub</h2>
-          <p className="muted small">Henvendelser fra hjemmesiderne kommer ind i din indbakke i CENTRA og hentes hvert 5. minut. Du ser kun de virksomheder, du har indbakke-adgang til i LunchHub.</p>
+          <p className="muted small">Henvendelser fra hjemmesiderne kommer ind i din indbakke i CENTRA og hentes automatisk hvert minut. Du ser kun de virksomheder, du har indbakke-adgang til i LunchHub.</p>
           <details className="guides" open><summary>Sådan får du en app-nøgle</summary>
             <p className="small">Log ind på LunchHub, åbn din profil og vælg <b>Forbind CENTRA</b> → <b>Lav app-nøgle</b>. Kopiér nøglen (den starter med <code>lh_app_</code>) og sæt den ind her. Den vises kun én gang, og du kan slette den i LunchHub når som helst.</p>
           </details>

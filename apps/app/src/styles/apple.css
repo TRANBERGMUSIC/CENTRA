@@ -414,3 +414,33 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { box-shadow: 
 .lhstatus--arkiv { background: var(--fill); color: var(--c-muted); }
 .sendvia { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; }
 .sendvia select { max-width: 360px; }
+
+/* ---------------------------------------------------------------- mail: Indbakke / Sendt / Arkiv, filters */
+.mlist__title { align-items: center; }
+.mlist__sync { margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.mlist__title .btn { flex: none; }
+.mselect { flex: none; max-width: 140px; height: 28px; padding: 0 22px 0 10px; border-radius: 8px; border: 0; background: var(--fill); color: var(--c-text); font: inherit; font-size: var(--fs-meta);
+  appearance: none; background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 11px) 12px, calc(100% - 7px) 12px; background-size: 4px 4px; background-repeat: no-repeat; cursor: pointer; text-overflow: ellipsis; }
+.mselect:focus-visible { outline: 2px solid var(--c-focus); outline-offset: 1px; }
+.segmented.mbox { display: flex; width: 100%; margin-top: var(--s-3); flex-wrap: nowrap; }
+.segmented.mbox button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.mbox__n { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--c-focus); color: #fff; font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.mfilter { display: flex; gap: 6px; margin-top: var(--s-3); overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.mfilter::-webkit-scrollbar { display: none; }
+.mfilter button { flex: none; height: 28px; padding: 0 11px; border-radius: 14px; border: 1px solid var(--c-hairline, rgba(127,127,127,.22)); background: none; color: var(--c-muted); font: inherit; font-size: var(--fs-meta); cursor: pointer; transition: background .18s, color .18s, border-color .18s; }
+.mfilter button .num { opacity: .6; margin-left: 2px; }
+.mfilter button:hover { color: var(--c-text); }
+.mfilter button.is-active { background: var(--c-text); border-color: var(--c-text); color: var(--c-ground); }
+.mfilter button.is-active .num { opacity: .7; }
+.mfilter button:focus-visible { outline: 2px solid var(--c-focus); outline-offset: 1px; }
+
+/* ---------------------------------------------------------------- udlæg: skriv det i stedet for at scanne */
+.owrite { display: flex; flex-direction: column; gap: 10px; }
+.owrite__box { position: relative; display: flex; }
+.owrite__box .otext { width: 100%; min-height: 84px; padding: 12px 52px 12px 14px; line-height: 1.45; resize: vertical; }
+.owrite__box .iconbtn { position: absolute; right: 8px; bottom: 8px; width: 34px; height: 34px; border-radius: 17px; border: 0; background: var(--fill); }
+.owrite__bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.owrite__or { padding: 0 2px; }
+.owrite__hint { flex-basis: 100%; }
+@media (min-width: 900px) { .owrite__hint { flex-basis: auto; margin-left: auto; } }

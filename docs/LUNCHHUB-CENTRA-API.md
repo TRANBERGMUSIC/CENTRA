@@ -114,5 +114,5 @@ curl -s -o /dev/null -w "%{http_code}\n" https://lunchhub.dk/api/ext/me -H "Auth
 ## 5. I CENTRA
 
 **Forbindelser → LunchHub → Forbind LunchHub**: adresse (`https://lunchhub.dk`) og app-nøglen.
-Nøglen gemmes krypteret i CENTRA. Henvendelserne hentes hvert 5. minut sammen med mailen og vises i
+Nøglen gemmes krypteret i CENTRA. Henvendelserne hentes automatisk hvert minut (og når CENTRA-vinduet kommer frem) og vises i
 indbakken som "LunchHub · Fra Jorden". De svares fra en af Willads' mailkonti.

@@ -8,6 +8,9 @@ import { Progress } from '../ui/DayStrip.tsx';
 import { ME, kr, parseKr, shares, owed, iOwe, iPaid, payerOf, debts, payDebt, total, balances, isOpen, payBack, parseItemLines, findOrCreatePerson, personName, CATEGORIES, type Outlay, type Payment, type Person, type Item } from '../money.ts';
 import { readReceipt, shrinkImage } from '../ai/receipt.ts';
 import { aiReady, aiSettings } from '../ai/agent.ts';
+import { readOutlayText, applyDraft } from '../ai/outlayText.ts';
+import { useDictation } from '../ai/dictation.ts';
+import { openExternal } from '../open.ts';
 import { Avatar } from './Contacts.tsx';
 import CountUp from '../bits/CountUp.jsx';
 
@@ -86,7 +89,7 @@ export function Outlays() {
         </section>
         <div className="gsec">Aktive <span className="num">{active.length}</span></div>
         {active.map(row)}
-        {!outlays.length && <p className="muted pad">Lagde du ud for nogen? Tag et billede af kvitteringen eller skriv, hvad der blev købt. Så regner CENTRA ud, hvem der skylder hvad.</p>}
+        {!outlays.length && <p className="muted pad">Lagde du ud for nogen? Tryk Nyt udlæg og skriv bare, hvad der blev købt, og hvem der var med. Eller tag et billede af kvitteringen. Så regner CENTRA ud, hvem der skylder hvad.</p>}
         {done.length > 0 && <button className="gsec gsec--btn" onClick={() => setShowDone((x) => !x)} aria-expanded={showDone}>Betalt <span className="num">{done.length}</span> <Icon name="chevron-down" size="sm" /></button>}
         {showDone && done.map(row)}
       </div>
@@ -112,6 +115,10 @@ function OutlayDetail({ id }: { id: string }) {
   const [payAmt, setPayAmt] = useState('');
   const [assign, setAssign] = useState<string | null>(null);
   const [payer, setPayer] = useState('');
+  const writeBox = useRef<HTMLTextAreaElement>(null);
+  const spoken = useRef('');
+  const dict = useDictation((t, final) => { setText((spoken.current ? spoken.current + ' ' : '') + t); if (final) writeBox.current?.focus(); },
+    (p) => toast({ title: p.title, text: p.text, kind: 'error', icon: 'mic', sticky: true, action: p.settings ? { label: 'Åbn Systemindstillinger', run: () => openExternal(p.settings!) } : undefined }));
   if (!o) return <div className="split__detail" />;
   const mineToPay = !iPaid(o);
   const set = (f: Partial<Outlay>) => e.set('outlay', id, f as Record<string, unknown>);
@@ -145,6 +152,31 @@ function OutlayDetail({ id }: { id: string }) {
       const got = add.reduce((s, i) => s + i.amount, 0);
       toast({ text: `${add.length} ${add.length === 1 ? 'vare' : 'varer'} sat ind · ${kr(got)}${r.total && Math.abs(r.total - got) > 0.5 ? ` (kvitteringen siger ${kr(r.total)}, tjek linjerne)` : ''}` });
       setText('');
+    } catch (x) { toast({ text: (x as Error).message }); } finally { setReading(false); }
+  }
+  /** What you wrote, in your own words: items, who was there, who paid, corrections. The AI updates the udlæg. */
+  async function fromText() {
+    const t = text.trim();
+    if (!t || reading) return;
+    if (dict.listening) dict.stop();
+    if (!ai) {
+      if (parseItemLines(t).length) return void fromReceipt({ text: t });
+      return void toast({ text: 'Forbind Assist under Indstillinger, så forstår CENTRA, hvad du skriver. Indtil da: én vare pr. linje med beløb, fx "Pizza 240".' });
+    }
+    setReading(true);
+    try {
+      const before = { title: o!.title, place: o!.place ?? '', date: o!.date, category: o!.category, paidBy: o!.paidBy, people: o!.people, items: o!.items };
+      const { fields, created } = applyDraft(e, o!, await readOutlayText(e, o!, t), rid);
+      if (!fields.items?.length && !items.length) throw new Error('Kunne ikke se, hvad der er købt. Skriv fx "Pizza 240, Sofie og Mads var med".');
+      set(fields);
+      setText(''); spoken.current = '';
+      const n = fields.items?.length ?? 0;
+      const newPeople = (fields.people ?? []).filter((p) => !people.includes(p) && p !== ME).map((p) => personName(e, p).split(' ')[0]);
+      toast({
+        title: 'Udlægget er opdateret',
+        text: [`${n} ${n === 1 ? 'vare' : 'varer'} · ${kr(total({ items: fields.items ?? [] }))}`, newPeople.length ? `${newPeople.join(' og ')} er med` : '', created.length ? `${created.map((c) => c.name).join(', ')} gemt som ${created.length === 1 ? 'ny kontakt' : 'nye kontakter'}` : ''].filter(Boolean).join(' · '),
+        action: { label: 'Fortryd', run: () => { set(before as Partial<Outlay>); for (const c of created) e.remove('person', c.id); } },
+      });
     } catch (x) { toast({ text: (x as Error).message }); } finally { setReading(false); }
   }
   async function onFile(f?: File | null) {
@@ -193,7 +225,7 @@ function OutlayDetail({ id }: { id: string }) {
       onPaste={(x) => { const f = [...x.clipboardData.files].find((y) => y.type.startsWith('image/')); if (f) { x.preventDefault(); void onFile(f); } }}>
       <button className="phone-back" onClick={() => go({ screen: 'outlays' })}><Icon name="chevron-left" size="sm" />Udlæg</button>
       <div className="otitlerow">
-        <input className="gtitle" defaultValue={o.title} placeholder="Hvad var det? (fx Pizza fredag)" aria-label="Titel" autoFocus={!o.title && !items.length} onBlur={(x) => x.target.value.trim() !== o.title && set({ title: x.target.value.trim() })} />
+        <input className="gtitle" defaultValue={o.title} placeholder="Navn på udlægget" aria-label="Titel" onBlur={(x) => x.target.value.trim() !== o.title && set({ title: x.target.value.trim() })} />
         <Btn size="sm" variant="text" icon="x" onClick={remove}>Slet udlæg</Btn>
       </div>
       <div className="ometa">
@@ -204,14 +236,24 @@ function OutlayDetail({ id }: { id: string }) {
       </div>
 
       <section className="panel ofill">
-        <div className="ofill__row">
-          <Btn icon="camera" variant="primary" disabled={reading} onClick={() => file.current?.click()}>{reading ? 'Læser …' : 'Scan kvittering'}</Btn>
-          <input ref={file} type="file" accept="image/*" capture="environment" hidden onChange={(x) => { void onFile(x.target.files?.[0]); x.target.value = ''; }} />
-          <span className="meta">eller træk et billede herind, eller indsæt et skærmbillede (⌘V)</span>
-        </div>
-        <form className="askbar" onSubmit={(x) => { x.preventDefault(); if (text.trim()) void fromReceipt({ text }); }}>
-          <textarea rows={2} className="otext" value={text} onChange={(x) => setText(x.target.value)} placeholder={'Eller skriv hvad der er købt, fx:\nPizza 240\n2 cola 40'} aria-label="Hvad er købt" />
-          <Btn type="submit" disabled={reading || !text.trim()}>Sæt ind</Btn>
+        <div className="panel__head"><h2 className="panel__title">{items.length ? 'Ret eller tilføj' : 'Hvad blev der købt?'}</h2></div>
+        <form className="owrite" onSubmit={(x) => { x.preventDefault(); void fromText(); }}>
+          <div className="owrite__box">
+            <textarea ref={writeBox} rows={3} className="otext" value={text} autoFocus={!o.title && !items.length} onChange={(x) => setText(x.target.value)}
+              onKeyDown={(x) => { if (x.key === 'Enter' && (x.metaKey || x.ctrlKey)) { x.preventDefault(); void fromText(); } }}
+              placeholder={dict.listening ? 'Lytter … fortæl hvad der blev købt, og hvem der var med'
+                : items.length ? 'Skriv en rettelse, fx "Mads var ikke med", "colaen kostede 30" eller "Sofie lagde ud"'
+                : 'Skriv det som du ville sige det, fx: Pizza 240 og 2 cola 40. Sofie og Mads var med, Mads betaler sin cola selv.'}
+              aria-label="Hvad blev der købt" />
+            <button type="button" className={`iconbtn ${dict.listening ? 'is-live' : ''}`} aria-pressed={dict.listening} aria-label={dict.listening ? 'Stop med at lytte' : 'Indtal det'} title="Indtal det" onClick={() => { spoken.current = text.trim(); dict.toggle(); }}><Icon name="mic" /></button>
+          </div>
+          <div className="owrite__bar">
+            <Btn type="submit" variant="primary" icon="send" disabled={reading || !text.trim()}>{reading ? 'Læser …' : items.length ? 'Opdatér' : 'Lav udlægget'}</Btn>
+            <span className="meta owrite__or">eller</span>
+            <Btn icon="camera" disabled={reading} onClick={() => file.current?.click()}>Scan kvittering</Btn>
+            <input ref={file} type="file" accept="image/*" capture="environment" hidden onChange={(x) => { void onFile(x.target.files?.[0]); x.target.value = ''; }} />
+            <span className="meta owrite__hint">Træk et billede herind, eller indsæt med ⌘V</span>
+          </div>
         </form>
         {o.receipt && <details className="oreceipt"><summary className="meta">Kvitteringen</summary><img src={o.receipt} alt="Kvittering" /><Btn size="sm" variant="text" onClick={() => set({ receipt: '' })}>Fjern billede</Btn></details>}
       </section>
