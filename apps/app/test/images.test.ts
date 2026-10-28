@@ -13,7 +13,7 @@ async function engine() {
 const PNG = 'data:image/png;base64,iVBORw0KGgo=';
 
 describe('billeder til Assist', () => {
-  it('sender billedet til Claude før teksten, og et billede vælger mindst Sonnet', async () => {
+  it('sender billedet til Claude før teksten (Haiku kan se), og Svar grundigere bruger Sonnet', async () => {
     const e = await engine();
     saveAiSettings(e, { provider: 'claude', claudeKey: 'sk-ant-test-0000000000000000', modelMode: 'auto' });
     const sent: any[] = [];
@@ -22,9 +22,11 @@ describe('billeder til Assist', () => {
     const user = sent[0].messages.at(-1).content;
     expect(user.filter((b: any) => b.type === 'image')).toEqual([{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } }]);
     expect(user.at(-1).text).toBe('Gem det');
-    expect(sent[0].model).toBe('claude-sonnet-5-5');
-    expect(t.why).toBe('der er et billede med');
+    expect(sent[0].model).toBe('claude-haiku-5-5');
     expect(t.messages[0].content[0].type).toBe('image'); // kept for follow-up questions
+    const again = await ask(e, [], 'Gem det', { images: [PNG], model: 'claude-sonnet-5-5' });
+    expect(sent[1].model).toBe('claude-sonnet-5-5');
+    expect(again.why).toBe('du bad om et grundigere svar');
   });
 
   it('kun de to nyeste billed-spørgsmål beholder billedet', () => {
@@ -36,6 +38,27 @@ describe('billeder til Assist', () => {
     expect(out[2].content[0].type).toBe('image');
     expect(out[4].content[0].type).toBe('image');
     expect(imageBlock('data:image/svg+xml;base64,PHN2Zz4=')).toBeNull();
+  });
+
+  it('gamle værktøjssvar sendes forkortet med, og samtalen sendes kun med de seneste beskeder', async () => {
+    const e = await engine();
+    saveAiSettings(e, { provider: 'claude', claudeKey: 'sk-ant-test-0000000000000000' });
+    let body: any;
+    vi.stubGlobal('fetch', vi.fn(async (_u: string, init: any) => { body = JSON.parse(init.body); return new Response(JSON.stringify({ content: [{ type: 'text', text: 'Ok' }], stop_reason: 'end_turn' })); }));
+    const turn = (n: number): Msg[] => [
+      { role: 'user', content: [{ type: 'text', text: `spm ${n}` }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: `t${n}`, name: 'read_mail', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: `t${n}`, content: 'x'.repeat(5000) }] },
+      { role: 'assistant', content: [{ type: 'text', text: `svar ${n}` }] },
+    ];
+    const history = Array.from({ length: 12 }, (_, n) => turn(n)).flat(); // 48 messages
+    await ask(e, history, 'og så?');
+    const msgs = body.messages;
+    expect(msgs.length).toBeLessThanOrEqual(25);
+    expect(msgs[0].role).toBe('user'); expect(msgs[0].content.some((b: any) => b.type === 'text')).toBe(true);
+    const results = msgs.flatMap((m: any) => m.content).filter((b: any) => b.type === 'tool_result');
+    expect(results.every((b: any) => b.content.length < 600)).toBe(true);
+    expect(JSON.stringify(body).length).toBeLessThan(40_000);
   });
 
   it('en lokal model får billedet med på den sidste tekst', async () => {

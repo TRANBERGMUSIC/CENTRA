@@ -372,7 +372,7 @@ export function runTool(e: SyncEngine, name: string, input: any): ToolResult {
     case 'read_mail': {
       const m = e.get(input.mail_id) as any;
       if (!m || m.type !== 'mail') throw new Error('Ukendt mail');
-      return { result: { from: m.sent ? 'dig (sendt)' : `${m.fromName} <${m.fromEmail}>`, to: m.to, subject: m.subject, at: m.at, account: m.acctName, attachments: m.attachments, text: String(m.body ?? m.preview ?? '').slice(0, 12000) } };
+      return { result: { from: m.sent ? 'dig (sendt)' : `${m.fromName} <${m.fromEmail}>`, to: m.to, subject: m.subject, at: m.at, account: m.acctName, attachments: m.attachments, text: String(m.body ?? m.preview ?? '').slice(0, 6000) } };
     }
     case 'draft_reply': {
       const m = e.get(input.mail_id) as any;
@@ -403,7 +403,7 @@ export function contextFor(e: SyncEngine): string {
     const s = goalStats(g, e.list('goalUpdate') as unknown as GoalUpdate[], now);
     return `- [${g.id}] ${g.title} (${g.kind}${g.kind === 'milestones' ? ': ' + (g.steps ?? []).map(([n, d]) => (d ? '✓' : '○') + n).join(', ') : ''}) · ${s.label}${g.due ? ' · frist ' + g.due : ''}`;
   });
-  const notes = e.list('note').sort((a: any, b: any) => (b.editedAt ?? '').localeCompare(a.editedAt ?? '')).slice(0, 40).map((n: any) => `- [${n.id}] ${n.title || 'Uden titel'} (${n.folder ?? ''})`);
+  const notes = e.list('note').sort((a: any, b: any) => (b.editedAt ?? '').localeCompare(a.editedAt ?? '')).slice(0, 15).map((n: any) => `- [${n.id}] ${n.title || 'Uden titel'} (${n.folder ?? ''})`);
   const all = e.list('event') as unknown as CalEvent[];
   const fixed = all.filter((x) => x.repeat).map((x) => { const d = evDef(x); return `- [${d.id}] ${d.title}: ${d.when}${x.repeat?.skip?.length ? ' (aflyst: ' + x.repeat.skip.join(', ') + ')' : ''}`; });
   const end = new Date(now); end.setDate(end.getDate() + 8);
@@ -413,7 +413,10 @@ export function contextFor(e: SyncEngine): string {
   const mails = (e.list('mail') as any[]).filter((m) => !m.archived && !m.sent);
   const waiting = mails.filter((m) => m.needsReply).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8).map((m) => `- [${m.id}] ${m.fromName}: ${m.subject} (${String(m.at).slice(0, 10)})`);
   const mailInfo = accts.length ? [`Forbundne konti: ${accts.join(', ')}. ${mails.length} mails i indbakken, ${mails.filter((m) => m.unread).length} ulæste. Brug search_mail og read_mail til resten.`, ...(waiting.length ? ['Venter på svar:', ...waiting] : [])] : ['Ingen mailkonti forbundet endnu (det gøres under Forbindelser).'];
-  const contacts = (people(e) as Person[]).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 80).map((p) => `- [${p.id}] ${p.name}${p.relation ? ' (' + p.relation + ')' : ''}${p.company ? ', ' + p.company : ''}${p.notes ? ': ' + p.notes.replace(/\s+/g, ' ').slice(0, 140) : ''}`);
+  // Only the people closest to you by name and relation; the rest (and all details) via find_contact. Keeps every question cheap.
+  const everyone = people(e) as Person[];
+  const close = everyone.filter((p) => p.relation && !['Bekendt', 'Andet'].includes(p.relation)).sort((a, b) => a.name.localeCompare(b.name, 'da')).slice(0, 30);
+  const contacts = [...close.map((p) => `- [${p.id}] ${p.name} (${p.relation})`), ...(everyone.length > close.length ? [`(${everyone.length} kontakter i alt. Brug find_contact for at finde andre og for detaljer som telefon, mail og noter.)`] : [])];
   const owing = [
     ...balances(e).filter((b) => b.left > 0).map((b) => `- ${personName(e, b.person)} skylder brugeren ${kr(b.left)}`),
     ...debts(e).filter((b) => b.left > 0).map((b) => `- Brugeren skylder ${personName(e, b.person)} ${kr(b.left)}`),

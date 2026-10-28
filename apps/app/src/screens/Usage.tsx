@@ -64,7 +64,7 @@ export function UsageScreen() {
 
       <div className="grid12">
         <Panel title="Model og budget" className="span-12">
-          <div className="kv"><span>Model<span className="meta block">Automatisk vælger Haiku til korte kommandoer, Opus til planlægning og analyse, og Sonnet til resten. Mailsortering bruger altid Haiku.</span></span>
+          <div className="kv"><span>Model<span className="meta block">Automatisk bruger Haiku til næsten alt og Sonnet kun til planlægning, analyse og lange tekster. Opus vælges aldrig af sig selv. Mailsortering bruger altid Haiku.</span></span>
             <select className="kvinput" value={s.modelMode || 'auto'} onChange={(x) => saveAiSettings(e, { modelMode: x.target.value })} aria-label="Model">{CLAUDE_MODELS.map(([m, l]) => <option key={m} value={m}>{l}</option>)}</select></div>
           <div className="kv"><span>Månedligt budget (kr)<span className="meta block">Når det er brugt, svarer Assist kun med Haiku resten af måneden. 0 = intet loft.</span></span>
             <input className="kvinput num" inputMode="numeric" defaultValue={budget || ''} placeholder="0" onBlur={(x) => saveAiSettings(e, { budgetDkk: Math.max(0, Number(x.target.value.replace(',', '.')) || 0) })} aria-label="Budget i kroner" /></div>

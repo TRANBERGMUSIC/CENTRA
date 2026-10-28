@@ -476,3 +476,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { box-shadow: 
 .msg__pics img { display: block; max-width: 240px; max-height: 200px; object-fit: cover; }
 .msg__pics button:focus-visible { outline: 2px solid var(--c-focus); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .composer__pic { animation: none; } }
+.msg__deeper { margin-left: 8px; padding: 0; border: 0; background: none; color: var(--c-primary-text, var(--c-focus)); font: inherit; cursor: pointer; }
+.msg__deeper:hover { text-decoration: underline; }
+.msg__deeper:focus-visible { outline: 2px solid var(--c-focus); outline-offset: 2px; border-radius: 4px; }

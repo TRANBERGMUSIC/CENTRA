@@ -104,7 +104,7 @@ describe('Assist-løkken', () => {
     // today's context rides along in the newest question, and is not stored in the history
     expect(body.messages[0].content[0].text).toMatch(/^<kontekst>/);
     expect(JSON.stringify(t.messages)).not.toContain('<kontekst>');
-    expect(t.model).toBe('claude-sonnet-5-5');
+    expect(t.model).toBe('claude-haiku-5-5');
     expect(t.messages).toHaveLength(4);
   });
 
@@ -149,8 +149,11 @@ describe('modelvalg og forbrug', () => {
     expect(r('Mads har betalt 100')).toBe('claude-haiku-5-5');
     expect(r('husk at jeg løber om tirsdagen')).toBe('claude-haiku-5-5');
     expect(r('ja')).toBe('claude-haiku-5-5');
-    expect(r('Hvad har jeg i kalenderen på fredag, og hvem skal jeg møde?')).toBe('claude-sonnet-5-5');
-    expect(r('Planlæg min uge med træning, arbejde og tid til SmartLink')).toBe('claude-opus-5-5');
+    expect(r('Hvad har jeg i kalenderen på fredag, og hvem skal jeg møde?')).toBe('claude-haiku-5-5');
+    expect(r('Hvorfor skylder Mads mig penge? Hvad er mit budget?')).toBe('claude-haiku-5-5'); // everyday words
+    expect(r('Planlæg min uge med træning, arbejde og tid til SmartLink')).toBe('claude-sonnet-5-5');
+    expect(r('x'.repeat(1600))).toBe('claude-sonnet-5-5');
+    expect(['claude-haiku-5-5', 'claude-sonnet-5-5']).toContain(r('Lav en strategi og analysér hele året grundigt '.repeat(30))); // never Opus by itself
     expect(r('Planlæg min uge', { budgetUsd: 1, spentUsd: 1.2 })).toBe('claude-haiku-5-5');
     expect(routeModel('Planlæg', { mode: 'claude-sonnet-5-5' }).model).toBe('claude-sonnet-5-5');
   });

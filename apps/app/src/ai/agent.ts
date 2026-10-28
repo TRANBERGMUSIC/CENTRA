@@ -26,7 +26,7 @@ export type AiSettings = {
   usdDkk: number;
 };
 export const DEFAULT_AI: AiSettings = { provider: 'claude', claudeModel: 'claude-sonnet-5-5', localUrl: 'http://localhost:11434', localModel: 'qwen3:8b', fallbackLocal: true, triage: true, modelMode: 'auto', budgetDkk: 0, usdDkk: 6.9 };
-export const CLAUDE_MODELS: [string, string][] = [['auto', 'Automatisk · billigste der kan klare opgaven'], ['claude-haiku-5-5', 'Haiku 5.5 · hurtigst og billigst'], ['claude-sonnet-5-5', 'Sonnet 5.5 · alsidig'], ['claude-opus-5-5', 'Opus 5.5 · klogest']];
+export const CLAUDE_MODELS: [string, string][] = [['auto', 'Automatisk · Haiku, Sonnet til det svære'], ['claude-haiku-5-5', 'Haiku 5.5 · hurtigst og billigst'], ['claude-sonnet-5-5', 'Sonnet 5.5 · alsidig'], ['claude-opus-5-5', 'Opus 5.5 · klogest']];
 
 export function aiSettings(e: SyncEngine): AiSettings {
   const r = (e.get('setting-ai') ?? {}) as Partial<AiSettings>;
@@ -150,13 +150,13 @@ export type Turn = { messages: Msg[]; reply: string; actions: Action[]; via: 'cl
  * Sends the conversation, runs the tools Assist asks for, and repeats until it answers.
  * `history` is the stored conversation; the returned `messages` replace it.
  */
-export async function ask(e: SyncEngine, history: Msg[], text: string, opts: { signal?: AbortSignal; onAction?: (a: Action) => void; images?: string[] } = {}): Promise<Turn> {
+export async function ask(e: SyncEngine, history: Msg[], text: string, opts: { signal?: AbortSignal; onAction?: (a: Action) => void; images?: string[]; model?: string } = {}): Promise<Turn> {
   const s = aiSettings(e);
   let via: 'claude' | 'local' = s.provider === 'claude' && s.claudeKey ? 'claude' : 'local';
   const pics = (opts.images ?? []).map(imageBlock).filter((b): b is Block => !!b);
-  // One model for the whole question (thinking is tied to the model that made it). Pictures need at least Sonnet's eyes.
-  let route = routeModel(text, { mode: s.modelMode || 'auto', budgetUsd: s.budgetDkk ? s.budgetDkk / (s.usdDkk || 6.9) : 0, spentUsd: spentThisMonth(e), turns: history.length });
-  if (pics.length && route.model === 'claude-haiku-5-5' && (s.modelMode || 'auto') === 'auto' && route.why !== 'månedens budget er brugt') route = { model: 'claude-sonnet-5-5', why: 'der er et billede med' };
+  // One model for the whole question (thinking is tied to the model that made it). "Svar grundigere" asks for one.
+  const route = opts.model ? { model: opts.model, why: 'du bad om et grundigere svar' }
+    : routeModel(text, { mode: s.modelMode || 'auto', budgetUsd: s.budgetDkk ? s.budgetDkk / (s.usdDkk || 6.9) : 0, spentUsd: spentThisMonth(e), turns: history.length });
   let usd = 0;
   const call = async (sys: string, msgs: Msg[]) => {
     if (via === 'claude') {
@@ -200,7 +200,7 @@ export async function ask(e: SyncEngine, history: Msg[], text: string, opts: { s
   }
   const last = messages[messages.length - 1];
   const reply = last.role === 'assistant' ? last.content.filter((b) => b.type === 'text').map((b: any) => b.text).join('\n').trim() : '';
-  return { messages: keepRecentImages(messages), reply: reply || (actions.length ? 'Klaret.' : ''), actions, via, model: via === 'claude' ? route.model : s.localModel, why: route.why, usd };
+  return { messages: keepRecentImages(messages.slice(-60)), reply: reply || (actions.length ? 'Klaret.' : ''), actions, via, model: via === 'claude' ? route.model : s.localModel, why: route.why, usd };
 }
 
 /** data:image/…;base64,… → an image block Claude (and a local model that can see) understands. */
@@ -227,14 +227,27 @@ export function keepRecentImages(msgs: Msg[], keep = 2): Msg[] {
   return out;
 }
 
-/** Keeps the last ~40 messages, cut at a plain user message so tool calls and results stay paired. */
 const withoutThinking = (m: Msg): Msg => (m.role === 'assistant' ? { ...m, content: m.content.filter((b) => b.type !== 'thinking' && b.type !== 'redacted_thinking') } : m);
 
+/** What tools answered in earlier questions (a whole mail, 80 contacts) is shortened: it was used then. */
+const OLD_RESULT = 500;
+export const shortenOld = (m: Msg): Msg => (m.role === 'user' && m.content.some((b) => b.type === 'tool_result' && b.content.length > OLD_RESULT)
+  ? { ...m, content: m.content.map((b) => (b.type === 'tool_result' && b.content.length > OLD_RESULT ? { ...b, content: b.content.slice(0, OLD_RESULT) + ' … (forkortet)' } : b)) }
+  : m);
+
+/**
+ * The conversation sent along: the last ~24 messages, cut at a plain user message so tool calls and
+ * results stay paired. Every message is paid for again with each new question, so less is cheaper.
+ */
 function trim(h: Msg[]): Msg[] {
-  if (h.length <= 40) return h;
-  let i = h.length - 40;
-  while (i < h.length && !(h[i].role === 'user' && h[i].content.some((b) => b.type === 'text'))) i++;
-  return h.slice(i);
+  const MAX = 24;
+  let out = h;
+  if (h.length > MAX) {
+    let i = h.length - MAX;
+    while (i < h.length && !(h[i].role === 'user' && h[i].content.some((b) => b.type === 'text'))) i++;
+    out = h.slice(i);
+  }
+  return out.map(shortenOld);
 }
 
 /** A quick round-trip to check the key or the local model from Settings. */

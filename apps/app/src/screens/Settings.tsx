@@ -267,7 +267,7 @@ function AiPanel() {
           <Btn size="sm" type="submit" disabled={busy || key.trim().length < 20}>Gem</Btn>
           {s.claudeKey && <Btn size="sm" type="button" variant="text" onClick={async () => { if (await ask({ title: 'Fjern Claude-nøglen?', text: 'Assist virker ikke, før du sætter en ny ind.', ok: 'Fjern', danger: true })) save({ claudeKey: '' }); }}>Fjern</Btn>}
         </form></div>
-      <div className="kv"><span>Claude-model<span className="meta block">Automatisk sparer tokens: Haiku til korte kommandoer, Opus til det svære, Sonnet til resten.</span></span>
+      <div className="kv"><span>Claude-model<span className="meta block">Automatisk bruger Haiku til næsten alt (omkring en tyvendedel af Sonnets pris) og Sonnet kun til planlægning, analyse og lange tekster. Under et svar kan du altid trykke Svar grundigere.</span></span>
         <select className="kvinput" value={s.modelMode || 'auto'} onChange={(ev) => save({ modelMode: ev.target.value })} aria-label="Claude-model">
           {CLAUDE_MODELS.map(([m, l]) => <option key={m} value={m}>{l}</option>)}
         </select></div>

@@ -50,7 +50,7 @@ export function describe(e: SyncEngine, o: Outlay) {
 export async function readOutlayText(e: SyncEngine, o: Outlay, text: string): Promise<OutlayDraft> {
   const names = contacts(e).map((p) => p.name).filter(Boolean).slice(0, 300);
   const msg = `I dag er ${new Date().toISOString().slice(0, 10)}.\nKontakter: ${names.join(', ') || '(ingen)'}\n\nUdlægget nu:\n${JSON.stringify(describe(e, o))}\n\nBrugeren skriver:\n${text.trim()}`;
-  return askJson<OutlayDraft>(e, SYS, msg, { feature: 'kvittering', maxTokens: 6000 });
+  return askJson<OutlayDraft>(e, SYS, msg, { fast: true, feature: 'kvittering', maxTokens: 6000 });
 }
 
 export type Applied = { fields: Partial<Outlay>; created: { id: string; name: string }[] };

@@ -184,6 +184,30 @@ export function Assist() {
     }
   }
 
+  /** Ask the same question again with Sonnet (only when the quick answer did nothing that would happen twice). */
+  async function deeper() {
+    if (!chat || busy) return;
+    const cur = e.get(chat.id) as unknown as Chat;
+    const msgs = cur.messages ?? [];
+    let i = msgs.length - 1;
+    while (i >= 0 && !(msgs[i].role === 'user' && msgs[i].content.some((b) => b.type === 'text'))) i--;
+    const lastUser = cur.log.map((l) => l.role).lastIndexOf('user');
+    if (i < 0 || lastUser < 0) return;
+    const q = msgs[i].content;
+    const text = q.filter((b) => b.type === 'text').map((b: any) => b.text).join('\n');
+    const images = q.filter((b) => b.type === 'image').map((b: any) => `data:${b.source.media_type};base64,${b.source.data}`);
+    const keepLog = cur.log.slice(0, lastUser + 1);
+    e.set('chat', chat.id, { log: keepLog });
+    setBusy(true); setLive([]);
+    abort.current = new AbortController();
+    try {
+      const t = await ask(e, msgs.slice(0, i), text, { signal: abort.current.signal, images, model: 'claude-sonnet-5-5', onAction: (a) => setLive((l) => [...l, a]) });
+      e.set('chat', chat.id, { messages: t.messages, log: [...keepLog, { role: 'assistant', text: t.reply, actions: t.actions, via: t.via, model: t.model, why: t.why, usd: t.usd, at: new Date().toISOString() }] });
+    } catch (err) {
+      if (!abort.current.signal.aborted) e.set('chat', chat.id, { log: [...keepLog, { role: 'error', text: err instanceof AiError ? err.message : 'Assist kunne ikke svare: ' + (err as Error).message, at: new Date().toISOString() }] });
+    } finally { setBusy(false); setLive([]); abort.current = null; }
+  }
+
   function undo(item: number, k: number) {
     const cur = e.get(chat.id) as unknown as Chat;
     const a = cur.log[item].actions?.[k];
@@ -226,7 +250,8 @@ export function Assist() {
                 {m.images && m.images.length > 0 && <div className="msg__pics">{m.images.map((u, k) => <button key={k} type="button" onClick={() => setView(u)} aria-label="Vis billedet større"><img src={u} alt="" /></button>)}</div>}
                 {m.text && <div className="msg__text">{m.text}</div>}
                 {m.actions && m.actions.length > 0 && <ActionList actions={m.actions} onUndo={(k) => undo(i, k)} onOpen={(a) => a.open && go(a.open)} />}
-                {m.role === 'assistant' && m.model && <span className="msg__meta" title={m.why ? 'Valgt fordi: ' + m.why : undefined}>{MODEL_NAMES[m.model] ?? m.model}{m.usd !== undefined ? ' · ' + (m.usd * (ai.usdDkk || 6.9) < 0.01 ? 'under 1 øre' : kr(m.usd * (ai.usdDkk || 6.9))) : ''}</span>}
+                {m.role === 'assistant' && m.model && <span className="msg__meta" title={m.why ? 'Valgt fordi: ' + m.why : undefined}>{MODEL_NAMES[m.model] ?? m.model}{m.usd !== undefined ? ' · ' + (m.usd * (ai.usdDkk || 6.9) < 0.01 ? 'under 1 øre' : kr(m.usd * (ai.usdDkk || 6.9))) : ''}
+                  {i === log.length - 1 && !busy && m.via === 'claude' && m.model === 'claude-haiku-5-5' && !(m.actions ?? []).some((a) => !a.undone) && <button type="button" className="msg__deeper" onClick={() => void deeper()} title="Samme spørgsmål til Sonnet 5.5. Koster mere.">Svar grundigere</button>}</span>}
               </div>
             ))}
             {busy && (

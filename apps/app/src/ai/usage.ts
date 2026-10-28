@@ -63,22 +63,19 @@ export function spentThisMonth(e: SyncEngine, now = new Date()) {
 
 /* ---------------------------------------------------------------- choosing the model */
 export type Route = { model: string; why: string };
-const SIMPLE = /^(husk|log|logg|gem|tilføj|slet|fjern|betalt|hvem skylder|hvad skylder|lav en note|note:|ny note|ny aftale|sæt|marker|markér|ja|nej|ok|okay|tak|super|perfekt|godt|fint|det er rigtigt|præcis)\b/i;
-const HARD = /planlæg|plan for|strategi|analys|sammenlign|vurdér|vurder|gennemgå alle|gennemgå mine|budget|økonomi|prioritér|prioriter|hvorfor|forklar grundigt|tænk grundigt|skriv en lang|udkast til en|ansøgning|opsummér alle|find alle|hele måneden|hele året/i;
+/** Work that needs real thinking: plans, analysis, long writing. Everyday words ("hvorfor", "budget") don't count. */
+const DEEP = /\bplanlæg|lav en plan|strategi|analysér|analyser|analyse af|sammenlign|gennemgå alle|gennemgå mine|prioritér mine|prioriter mine|tænk grundigt|forklar grundigt|skriv en lang|skriv et langt|ansøgning|opsummér alle|opsummer alle|hele måneden|hele året/i;
 
 /**
- * Automatic choice, cheapest that will do the job:
- *  - Haiku 5.5 for quick commands and short replies (log, husk, betalt, ja/nej …)
- *  - Opus 5.5 for planning, analysis and long, many-step requests
- *  - Sonnet 5.5 for everything in between
+ * Automatic choice. Haiku 5.5 does almost everything in CENTRA (commands, questions, mail, udlæg,
+ * pictures) at about a twentieth of Sonnet's price. Sonnet 5.5 only for planning, analysis and long
+ * texts. Opus is never chosen automatically; pick it in Indstillinger if you want it.
  * Over the monthly budget everything goes to Haiku.
  */
 export function routeModel(text: string, opts: { mode: string; budgetUsd?: number; spentUsd?: number; turns?: number }): Route {
   if (opts.mode !== 'auto') return { model: opts.mode, why: 'valgt fast i Indstillinger' };
   if (opts.budgetUsd && (opts.spentUsd ?? 0) >= opts.budgetUsd) return { model: 'claude-haiku-5-5', why: 'månedens budget er brugt' };
   const t = text.trim();
-  const words = t.split(/\s+/).length;
-  if (HARD.test(t) || t.length > 900 || (words > 60 && /\?.*\?/s.test(t))) return { model: 'claude-opus-5-5', why: 'kræver planlægning eller analyse' };
-  if ((SIMPLE.test(t) && t.length < 160) || (words <= 6 && !/\?/.test(t))) return { model: 'claude-haiku-5-5', why: 'kort kommando' };
-  return { model: 'claude-sonnet-5-5', why: 'almindelig opgave' };
+  if (DEEP.test(t) || t.length > 1500) return { model: 'claude-sonnet-5-5', why: 'kræver planlægning eller analyse' };
+  return { model: 'claude-haiku-5-5', why: 'almindelig opgave' };
 }
