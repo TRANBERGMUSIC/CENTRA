@@ -11,6 +11,14 @@ import { applyUndo, type Action } from '../ai/tools.ts';
 import { useDictation } from '../ai/dictation.ts';
 import { openExternal } from '../open.ts';
 import ClickSpark from '../bits/ClickSpark.jsx';
+import { shrinkImage } from '../ai/receipt.ts';
+
+const MAX_PICS = 6;
+const dataUrlBlob = (url: string) => { const [h, d] = url.split(','); const bin = atob(d); return new Blob([Uint8Array.from(bin, (c) => c.charCodeAt(0))], { type: /data:([^;]+)/.exec(h)?.[1] ?? 'image/jpeg' }); };
+/** Screenshots keep their small text readable: up to 1568 px (what Claude looks at) and good JPEG quality. */
+const forAssist = (f: Blob) => shrinkImage(f, 1568, 0.86);
+/** What the conversation shows afterwards (the full picture is only kept for the newest questions). */
+const forLog = (url: string) => shrinkImage(dataUrlBlob(url), 720, 0.75);
 
 /**
  * Assist never acts on its own: every suggestion waits for Godkend / Afvis.
@@ -76,7 +84,7 @@ export function SuggestionRows({ limit }: { limit?: number }) {
 
 /* ================================================================ Assist: talk to CENTRA */
 
-type LogItem = { role: 'user' | 'assistant' | 'error'; text: string; at: string; actions?: Action[]; via?: 'claude' | 'local'; model?: string; why?: string; usd?: number };
+type LogItem = { role: 'user' | 'assistant' | 'error'; text: string; at: string; images?: string[]; actions?: Action[]; via?: 'claude' | 'local'; model?: string; why?: string; usd?: number };
 type Chat = { id: string; at: string; title?: string; messages: Msg[]; log: LogItem[] };
 
 let queued: string | null = null;
@@ -105,6 +113,22 @@ export function Assist() {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState<Action[]>([]);
+  const [pics, setPics] = useState<string[]>([]);
+  const [drag, setDrag] = useState(false);
+  const [view, setView] = useState<string | null>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  async function addPics(files: Iterable<File> | ArrayLike<File>) {
+    const imgs = Array.from(files).filter((f) => f.type.startsWith('image/') || /\.(heic|heif)$/i.test(f.name));
+    if (!imgs.length) return void toast({ text: 'Kun billeder for nu: skærmbilleder, fotos (JPG, PNG, HEIC) og lignende.' });
+    const room = MAX_PICS - pics.length;
+    if (room <= 0) return void toast({ text: `Højst ${MAX_PICS} billeder pr. besked.` });
+    try {
+      const urls = await Promise.all(imgs.slice(0, room).map(forAssist));
+      setPics((p) => [...p, ...urls].slice(0, MAX_PICS));
+      if (imgs.length > room) toast({ text: `Højst ${MAX_PICS} billeder pr. besked. De første er sat ind.` });
+      box.current?.focus();
+    } catch (x) { toast({ text: (x as Error).message }); }
+  }
   const abort = useRef<AbortController | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -135,20 +159,25 @@ export function Assist() {
 
   async function send(raw = text) {
     const msg = raw.trim();
-    if (!msg || busy) return;
+    const imgs = pics;
+    if ((!msg && !imgs.length) || busy) return;
     if (dict.listening) dict.stop();
     const id = chat?.id ?? e.create('chat', { at: new Date().toISOString(), messages: [], log: [] });
     const cur = (e.get(id) as unknown as Chat) ?? { messages: [], log: [] };
-    const userItem: LogItem = { role: 'user', text: msg, at: new Date().toISOString() };
+    const thumbs = imgs.length ? await Promise.all(imgs.map((u) => forLog(u).catch(() => ''))) : [];
+    const userItem: LogItem = { role: 'user', text: msg, at: new Date().toISOString(), ...(thumbs.length ? { images: thumbs.filter(Boolean) } : {}) };
     const nextLog = [...(cur.log ?? []), userItem];
-    e.set('chat', id, { log: nextLog, at: userItem.at, title: cur.title ?? msg.slice(0, 60) });
-    setText(''); base.current = ''; setBusy(true); setLive([]);
+    e.set('chat', id, { log: nextLog, at: userItem.at, title: cur.title ?? (msg.slice(0, 60) || (imgs.length > 1 ? `${imgs.length} billeder` : 'Billede')) });
+    setText(''); base.current = ''; setPics([]); setBusy(true); setLive([]);
     abort.current = new AbortController();
     try {
-      const t = await ask(e, cur.messages ?? [], msg, { signal: abort.current.signal, onAction: (a) => setLive((l) => [...l, a]) });
+      const t = await ask(e, cur.messages ?? [], msg || (imgs.length > 1 ? 'Se på billederne.' : 'Se på billedet.'), { signal: abort.current.signal, images: imgs, onAction: (a) => setLive((l) => [...l, a]) });
       e.set('chat', id, { messages: t.messages, log: [...nextLog, { role: 'assistant', text: t.reply, actions: t.actions, via: t.via, model: t.model, why: t.why, usd: t.usd, at: new Date().toISOString() }] });
     } catch (err) {
-      if (!abort.current.signal.aborted) e.set('chat', id, { log: [...nextLog, { role: 'error', text: err instanceof AiError ? err.message : 'Assist kunne ikke svare: ' + (err as Error).message, at: new Date().toISOString() }] });
+      if (!abort.current.signal.aborted) {
+        e.set('chat', id, { log: [...nextLog, { role: 'error', text: err instanceof AiError ? err.message : 'Assist kunne ikke svare: ' + (err as Error).message, at: new Date().toISOString() }] });
+        if (imgs.length) setPics((p) => (p.length ? p : imgs)); // so you can try again without adding them anew
+      }
     } finally {
       setBusy(false); setLive([]); abort.current = null;
       setTimeout(() => box.current?.focus(), 0);
@@ -176,7 +205,11 @@ export function Assist() {
         </div>
       </div>
       <div className="assist__grid">
-        <section className="panel chat" data-enter aria-label="Samtale med Assist">
+        <section className={`panel chat ${drag ? 'is-drag' : ''}`} data-enter aria-label="Samtale med Assist"
+          onDragOver={(ev) => { if (ready && [...ev.dataTransfer.types].includes('Files')) { ev.preventDefault(); setDrag(true); } }}
+          onDragLeave={(ev) => { if (!ev.currentTarget.contains(ev.relatedTarget as Node)) setDrag(false); }}
+          onDrop={(ev) => { if (!ready) return; ev.preventDefault(); setDrag(false); void addPics(ev.dataTransfer.files); }}>
+          {drag && <div className="chat__drop" aria-hidden="true"><Icon name="camera" /><span>Slip billedet, så kigger Assist på det</span></div>}
           <div className="chat__log" ref={scroller} aria-live="polite">
             {!ready ? <ConnectAi /> : log.length === 0 && !busy ? (
               <div className="chat__hello">
@@ -190,6 +223,7 @@ export function Assist() {
               </div>
             ) : log.map((m, i) => (
               <div key={i} className={`msg msg--${m.role}`}>
+                {m.images && m.images.length > 0 && <div className="msg__pics">{m.images.map((u, k) => <button key={k} type="button" onClick={() => setView(u)} aria-label="Vis billedet større"><img src={u} alt="" /></button>)}</div>}
                 {m.text && <div className="msg__text">{m.text}</div>}
                 {m.actions && m.actions.length > 0 && <ActionList actions={m.actions} onUndo={(k) => undo(i, k)} onOpen={(a) => a.open && go(a.open)} />}
                 {m.role === 'assistant' && m.model && <span className="msg__meta" title={m.why ? 'Valgt fordi: ' + m.why : undefined}>{MODEL_NAMES[m.model] ?? m.model}{m.usd !== undefined ? ' · ' + (m.usd * (ai.usdDkk || 6.9) < 0.01 ? 'under 1 øre' : kr(m.usd * (ai.usdDkk || 6.9))) : ''}</span>}
@@ -202,16 +236,33 @@ export function Assist() {
               </div>
             )}
           </div>
+          {pics.length > 0 && (
+            <div className="composer__pics" aria-label="Billeder til Assist">
+              {pics.map((u, k) => (
+                <span key={k} className="composer__pic"><img src={u} alt={`Billede ${k + 1}`} />
+                  <button type="button" aria-label="Fjern billedet" onClick={() => setPics((p) => p.filter((_, j) => j !== k))}><Icon name="x" size="sm" /></button></span>
+              ))}
+            </div>
+          )}
           <form className="composer" onSubmit={(ev) => { ev.preventDefault(); void send(); }}>
-            <textarea ref={box} rows={1} value={text} disabled={!ready} placeholder={dict.listening ? 'Lytter … tal bare' : 'Skriv til Assist, eller tryk på mikrofonen'}
+            <button type="button" className="iconbtn" disabled={!ready || pics.length >= MAX_PICS} aria-label="Tilføj billede" title="Tilføj billede eller skærmbillede (eller indsæt med ⌘V)" onClick={() => picker.current?.click()}><Icon name="paperclip" /></button>
+            <input ref={picker} type="file" accept="image/*,.heic,.heif" multiple hidden onChange={(ev) => { if (ev.target.files) void addPics(ev.target.files); ev.target.value = ''; }} />
+            <textarea ref={box} rows={1} value={text} disabled={!ready} placeholder={dict.listening ? 'Lytter … tal bare' : pics.length ? 'Spørg om billedet, eller send det bare' : 'Skriv til Assist, tal, eller sæt et billede ind'}
               onChange={(ev) => { setText(ev.target.value); base.current = ev.target.value.trim(); }}
+              onPaste={(ev) => { const files = [...ev.clipboardData.files].filter((f) => f.type.startsWith('image/')); if (files.length) { ev.preventDefault(); void addPics(files); } }}
               onInput={(ev) => { const t = ev.currentTarget; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 200) + 'px'; }}
               onKeyDown={(ev) => { if (ev.key === 'Enter' && !ev.shiftKey && !ev.nativeEvent.isComposing) { ev.preventDefault(); void send(); } }} />
             <button type="button" className={`iconbtn ${dict.listening ? 'is-live' : ''}`} disabled={!ready} aria-pressed={dict.listening} aria-label={dict.listening ? 'Stop med at lytte' : 'Tal til Assist'} title="Tal til Assist" onClick={() => { base.current = text.trim(); dict.toggle(); }}><Icon name="mic" /></button>
             {busy
               ? <Btn type="button" variant="text" onClick={() => abort.current?.abort()}>Stop</Btn>
-              : <Btn type="submit" variant="primary" icon="send" disabled={!text.trim() || !ready} aria-label="Send" />}
+              : <Btn type="submit" variant="primary" icon="send" disabled={(!text.trim() && !pics.length) || !ready} aria-label="Send" />}
           </form>
+          {view && (
+            <div className="lightbox" role="dialog" aria-label="Billede" onClick={() => setView(null)} onKeyDown={(ev) => ev.key === 'Escape' && setView(null)} tabIndex={-1} ref={(el) => el?.focus()}>
+              <div className="lightbox__bar" onClick={(x) => x.stopPropagation()}><span className="push-right" /><Btn size="sm" variant="text" icon="x" onClick={() => setView(null)}>Luk</Btn></div>
+              <img className="lightbox__img" src={view} alt="" onClick={(x) => x.stopPropagation()} />
+            </div>
+          )}
         </section>
         <aside className="assist__side">
           <Memory />

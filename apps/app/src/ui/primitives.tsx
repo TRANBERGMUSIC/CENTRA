@@ -4,7 +4,7 @@ import { Icon, type IconName } from './Icon.tsx';
 /** CSS custom properties are the only style values components pass inline (positions, ratios, hues). */
 export const vars = (v: Record<string, string | number>) => v as CSSProperties;
 
-type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'text'; size?: 'sm' | 'md'; icon?: IconName; kbd?: string };
+type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & { ref?: React.Ref<HTMLButtonElement>; variant?: 'primary' | 'secondary' | 'text'; size?: 'sm' | 'md'; icon?: IconName; kbd?: string };
 export function Btn({ variant = 'secondary', size = 'md', icon, kbd, children, className = '', ...rest }: BtnProps) {
   return (
     <button className={`btn btn--${variant} ${size === 'sm' ? 'btn--sm' : ''} ${className}`} {...rest}>

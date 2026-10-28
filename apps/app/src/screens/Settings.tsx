@@ -3,6 +3,7 @@ import { explain } from '../session.ts';
 import { lock } from '../lock.ts';
 import { useEngine, useList, useRoute, useSession, useSyncStatus, fmt } from '../state.tsx';
 import { Btn, Panel } from '../ui/primitives.tsx';
+import { ask } from '../ui/Confirm.tsx';
 import { useToast } from '../ui/Shell.tsx';
 import { useScreenEnter } from '../motion.ts';
 import { APP_VERSION, WEB_VERSION, REPO, checkForUpdate, platform, type Update } from '../updater.ts';
@@ -72,7 +73,7 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
                 <span className={`dot ${d.online ? '' : 'dot--off'}`} />
                 <span className="row__body"><span className="row__line"><span>{d.name}</span>{d.id === device && <span className="meta">denne enhed</span>}</span><span className="row__line meta">{d.online ? 'Online nu' : 'Sidst set ' + fmt.ago(new Date(d.lastSeen).toISOString())}</span></span>
                 {d.id !== device && <Btn size="sm" variant="text" onClick={async () => {
-                  if (!confirm(`Log ${d.name} ud? Enheden mister adgang med det samme, og nye data krypteres med en ny nøgle.`)) return;
+                  if (!(await ask({ title: `Log ${d.name} ud?`, text: 'Enheden mister adgang med det samme, og nye data krypteres med en ny nøgle.', ok: 'Log ud', danger: true }))) return;
                   try { await session.logOutDevice(d.id); toast({ text: `${d.name} er logget ud. Skift også dit password, hvis enheden er mistet.` }); } catch (e) { toast({ text: explain(e) }); }
                 }}>Log ud</Btn>}
               </li>
@@ -264,7 +265,7 @@ function AiPanel() {
         <form className="connect" onSubmit={saveKey}>
           <input className="kvinput" type="password" autoComplete="off" spellCheck={false} placeholder={s.claudeKey ? 'Ny nøgle' : 'sk-ant-…'} value={key} onChange={(ev) => setKey(ev.target.value)} aria-label="Claude API-nøgle" />
           <Btn size="sm" type="submit" disabled={busy || key.trim().length < 20}>Gem</Btn>
-          {s.claudeKey && <Btn size="sm" type="button" variant="text" onClick={() => { if (confirm('Fjern Claude-nøglen fra CENTRA?')) save({ claudeKey: '' }); }}>Fjern</Btn>}
+          {s.claudeKey && <Btn size="sm" type="button" variant="text" onClick={async () => { if (await ask({ title: 'Fjern Claude-nøglen?', text: 'Assist virker ikke, før du sætter en ny ind.', ok: 'Fjern', danger: true })) save({ claudeKey: '' }); }}>Fjern</Btn>}
         </form></div>
       <div className="kv"><span>Claude-model<span className="meta block">Automatisk sparer tokens: Haiku til korte kommandoer, Opus til det svære, Sonnet til resten.</span></span>
         <select className="kvinput" value={s.modelMode || 'auto'} onChange={(ev) => save({ modelMode: ev.target.value })} aria-label="Claude-model">

@@ -442,6 +442,21 @@ fn fetch_blocking(a: Account, folder: String, since_uid: u32, uid_validity: u32,
     Ok(Fetched { folder, uid_validity: validity, messages, exists: mb.exists })
 }
 
+const TRASH_NAMES: &[&str] = &["Trash", "Papirkurv", "Deleted Messages", "Deleted Items", "Deleted", "Slettet post", "Slettede elementer", "[Gmail]/Trash", "[Gmail]/Papirkurv",
+    "INBOX.Trash", "INBOX.Papirkurv", "INBOX.Deleted Messages", "INBOX.Deleted Items"];
+
+/// Like `special`, but makes the folder when the server has none (some small hosts start without Trash/Archive).
+/// The new folder follows the server's own naming (INBOX.Trash where folders live under INBOX).
+fn special_or_create(s: &mut Session, flag: &str, names: &[&str], make: &str) -> Option<String> {
+    if let Some(f) = special(s, flag, names) { return Some(f); }
+    let under_inbox = s.list(Some(""), Some("*")).ok().map(|l| l.iter().any(|n| n.name().starts_with("INBOX.") || n.name().starts_with("INBOX/"))).unwrap_or(false);
+    let sep = s.list(Some(""), Some("INBOX")).ok().and_then(|l| l.iter().next().and_then(|n| n.delimiter().map(|d| d.to_string()))).unwrap_or_else(|| ".".into());
+    let name = if under_inbox { format!("INBOX{sep}{make}") } else { make.to_string() };
+    s.create(&name).ok()?;
+    let _ = s.subscribe(&name);
+    Some(name)
+}
+
 /// Finds a folder by its special-use flag (\Archive, \Trash, \Sent), with common names as fallback.
 fn special(s: &mut Session, flag: &str, names: &[&str]) -> Option<String> {
     let list = s.list(Some(""), Some("*")).ok()?;
@@ -490,11 +505,11 @@ pub async fn mail_update(account: Account, uids: Vec<u32>, seen: Option<bool>, f
         if let Some(v) = flagged { s.uid_store(&set, if v { "+FLAGS (\\Flagged)" } else { "-FLAGS (\\Flagged)" }).map_err(err("Flag"))?; }
         match action.as_deref() {
             Some("archive") => {
-                let to = special(&mut s, "archive", &["Archive", "Arkiv", "[Gmail]/All Mail", "[Gmail]/Alle e-mails", "Archived"]).ok_or("Fandt ingen arkiv-mappe på serveren")?;
+                let to = special_or_create(&mut s, "archive", &["Archive", "Arkiv", "[Gmail]/All Mail", "[Gmail]/Alle e-mails", "Archived", "INBOX.Archive", "INBOX.Arkiv"], "Archive").ok_or("Fandt ingen arkiv-mappe på serveren, og kunne ikke lave en")?;
                 s.uid_mv(&set, &to).or_else(|_| s.uid_copy(&set, &to).and_then(|_| s.uid_store(&set, "+FLAGS (\\Deleted)")).and_then(|_| s.expunge().map(|_| ()))).map_err(err("Arkivér"))?;
             }
             Some("trash") => {
-                let to = special(&mut s, "trash", &["Trash", "Papirkurv", "Deleted Messages", "Slettet post", "[Gmail]/Trash", "[Gmail]/Papirkurv", "INBOX.Trash"]).ok_or("Fandt ingen papirkurv på serveren")?;
+                let to = special_or_create(&mut s, "trash", TRASH_NAMES, "Trash").ok_or("Fandt ingen papirkurv på serveren, og kunne ikke lave en")?;
                 s.uid_mv(&set, &to).or_else(|_| s.uid_copy(&set, &to).and_then(|_| s.uid_store(&set, "+FLAGS (\\Deleted)")).and_then(|_| s.expunge().map(|_| ()))).map_err(err("Slet"))?;
             }
             _ => {}
@@ -637,6 +652,14 @@ mod tests {
             let after = mail_fetch(a.clone(), None, 0, 0, Some(30), Some(100)).await.unwrap();
             let sent = mail_send(a.clone(), Outgoing { to: vec!["sofie@example.dk".into()], cc: None, subject: "Re: Frokost på lørdag?".into(), body: "Ja, gerne! Ses kl. 12.".into(), in_reply_to: Some("s1@example.dk".into()), references: Some("<s1@example.dk>".into()) }).await;
             let box_ = mail_fetch(a.clone(), Some("SENT".into()), 0, 0, Some(30), Some(100)).await.unwrap();
+            // Delete, also on a server that has no Trash folder yet (it gets made).
+            let last = after.messages.iter().map(|m| m.uid).max().unwrap();
+            mail_update(a.clone(), vec![last], Some(true), None, Some("trash".into())).await.unwrap();
+            let left = mail_fetch(a.clone(), None, 0, 0, Some(30), Some(100)).await.unwrap();
+            let trash = mail_fetch(a.clone(), Some("Trash".into()), 0, 0, Some(30), Some(100)).await.unwrap();
+            assert_eq!(left.messages.len(), after.messages.len() - 1);
+            assert!(!left.messages.iter().any(|m| m.uid == last));
+            assert_eq!(trash.messages.len(), 1);
             (n, bad, f, again, after, sent, box_)
         });
         let (n, bad, f, again, after, sent, box_) = rt;

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEngine, useList, useRecord, useRoute, useNow, fmt } from '../state.tsx';
 import { Btn, Pill, vars } from '../ui/primitives.tsx';
 import { Icon } from '../ui/Icon.tsx';
@@ -8,6 +8,7 @@ import { useScreenEnter, collapseOut } from '../motion.ts';
 import { moveMail, sendMail, setMailFlag, syncAll, mailAvailable, sendAccounts, type MailAccount } from '../mail.ts';
 import { setLunchHubStatus, type LhConn } from '../lunchhub.ts';
 import { queueAssist } from './Assist.tsx';
+import { ask } from '../ui/Confirm.tsx';
 
 type Box = 'inbox' | 'sent' | 'archive';
 type Filter = 'all' | 'important' | 'reply' | 'receipts' | 'other';
@@ -17,6 +18,11 @@ const FILTERS: [Filter, string][] = [['all', 'Alle'], ['important', 'Vigtigt'], 
 const noise = (m: any) => !m.watch && !m.flagged && (m.ai ? !m.ai.important : m.cat === 'Nyhedsbreve' || m.cat === 'Notifikationer');
 const inBox = (m: any, b: Box) => b === 'archive' ? m.archived : !m.archived && (b === 'sent' ? !!m.sent : !m.sent);
 const inFilter = (m: any, f: Filter) => f === 'all' ? true : f === 'important' ? !noise(m) : f === 'reply' ? m.needsReply && !noise(m) : f === 'receipts' ? m.cat === 'Kvitteringer' : noise(m);
+/** Delete asks first (the mail goes to the server's papirkurv, so it is gone from every mail app). */
+const askDelete = (m: any) => m.source === 'lunchhub'
+  ? ask({ title: 'Fjern henvendelsen?', text: 'Den arkiveres i LunchHub og forsvinder herfra.', ok: 'Fjern', danger: true })
+  : m.sent ? ask({ title: 'Fjern mailen fra CENTRA?', text: 'Kopien i Sendt på din mailserver bliver liggende.', ok: 'Fjern', danger: true })
+  : ask({ title: 'Slet mailen?', text: `"${m.subject}" lægges i papirkurven på din mailserver.`, ok: 'Slet', danger: true });
 const hue = (s: string) => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
 const initials = (n: string) => n.replace(/["<>]/g, '').split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((x) => x[0]?.toUpperCase()).join('') || '?';
 const who = (m: any) => ({ name: (m.sent ? 'Til ' : '') + (m.fromName || m.fromEmail || 'Ukendt'), email: m.fromEmail ?? '', hue: hue(m.fromEmail ?? m.fromName ?? ''), initials: initials(m.fromName || m.fromEmail || '?') });
@@ -66,6 +72,18 @@ export function Inbox() {
     };
     el ? collapseOut(el, () => void done()) : await done();
   }
+  // ⌫ / Delete deletes the open mail, like in Mail (when you are not typing somewhere).
+  const keyRef = useRef<(ev: KeyboardEvent) => void>(() => {});
+  keyRef.current = (ev) => {
+    if (ev.key !== 'Backspace' && ev.key !== 'Delete') return;
+    const t = ev.target as HTMLElement | null;
+    if (t?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="alertdialog"]')) return;
+    const m = everything.find((x) => x.id === id);
+    if (!m) return;
+    ev.preventDefault();
+    void askDelete(m).then((yes) => { if (yes) void move(m, 'trash', document.getElementById(`mrow-${m.id}`)); });
+  };
+  useEffect(() => { const k = (ev: KeyboardEvent) => keyRef.current(ev); document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k); }, []);
   async function refresh() {
     setBusy(true);
     const r = await syncAll(e);
@@ -160,7 +178,7 @@ function Reader({ id, onMove }: { id: string; onMove: (m: any, a: 'archive' | 't
         <div className="reader__bar">
           <Btn size="sm" variant="text" icon="reply" onClick={() => setReply(text || '')}>{m.sent ? 'Skriv igen' : 'Svar'}</Btn>
           <Btn size="sm" variant="text" icon="archive" onClick={() => onMove(m, 'archive')}>Arkivér</Btn>
-          <Btn size="sm" variant="text" icon="x" onClick={() => { if (confirm(m.sent ? 'Fjern mailen fra CENTRA? Kopien i Sendt på din mailserver bliver liggende.' : 'Slet mailen? Den lægges i papirkurven på din mailserver.')) onMove(m, 'trash'); }}>{m.sent ? 'Fjern' : 'Slet'}</Btn>
+          <Btn size="sm" variant="text" icon="x" onClick={() => void askDelete(m).then((yes) => { if (yes) onMove(m, 'trash'); })}>{m.sent ? 'Fjern' : 'Slet'}</Btn>
           {m.source === 'lunchhub' && (m.lhStatus === 'besvaret'
             ? <Btn size="sm" variant="text" icon="reply" onClick={() => void setLunchHubStatus(e, m, 'ny').then(() => toast({ text: 'Markeret som ubesvaret i LunchHub' }), (x) => toast({ text: (x as Error).message }))}>Markér ubesvaret</Btn>
             : <Btn size="sm" variant="text" icon="check" onClick={() => void setLunchHubStatus(e, m, 'besvaret').then(() => toast({ text: 'Markeret som besvaret i LunchHub' }), (x) => toast({ text: (x as Error).message }))}>Markér besvaret</Btn>)}

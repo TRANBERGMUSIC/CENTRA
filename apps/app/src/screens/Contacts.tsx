@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useEngine, useList, useRecord, useRoute, fmt } from '../state.tsx';
 import { Btn, vars } from '../ui/primitives.tsx';
+import { ask } from '../ui/Confirm.tsx';
 import { Icon } from '../ui/Icon.tsx';
 import { useToast } from '../ui/Shell.tsx';
 import { useScreenEnter } from '../motion.ts';
@@ -110,8 +111,8 @@ function PersonCard({ id }: { id: string }) {
   const left = myOwed.reduce((s, x) => s + x.w.left, 0);
   const theirMails = p.email ? mails.filter((m) => m.fromEmail?.toLowerCase() === p.email!.toLowerCase()).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 6) : [];
 
-  function remove() {
-    if (shared.length && !confirm(`${p!.name} er med i ${shared.length} udlæg. Slette kontakten alligevel? Udlæggene beholdes.`)) return;
+  async function remove() {
+    if (shared.length && !(await ask({ title: `Slet ${p!.name}?`, text: `${p!.name} er med i ${shared.length} udlæg. Udlæggene beholdes.`, ok: 'Slet', danger: true }))) return;
     const { id: _i, type: _t, ...f } = p as any;
     rememberDeleted(e, p!.macId);
     e.remove('person', id); go({ screen: 'contacts' });

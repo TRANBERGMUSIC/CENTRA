@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { useEngine, useList, useRoute, fmt } from '../state.tsx';
 import { Btn, Panel } from '../ui/primitives.tsx';
+import { ask } from '../ui/Confirm.tsx';
 import { Icon } from '../ui/Icon.tsx';
 import { useToast } from '../ui/Shell.tsx';
 import { useScreenEnter } from '../motion.ts';
@@ -30,8 +31,8 @@ export function Connections() {
     setBusy(null);
     toast({ text: r.error ? `${a.name}: ${r.error}` : r.added.length ? `${r.added.length} nye mails fra ${a.name}` : `${a.name} er opdateret` });
   }
-  function removeAcct(a: MailAccount) {
-    if (!confirm(`Fjern ${a.name} (${a.email}) fra CENTRA? Mails fra kontoen fjernes her, men ikke på serveren.`)) return;
+  async function removeAcct(a: MailAccount) {
+    if (!(await ask({ title: `Fjern ${a.name}?`, text: `${a.email} fjernes fra CENTRA. Mails fra kontoen forsvinder her, men bliver på serveren.`, ok: 'Fjern', danger: true }))) return;
     for (const m of e.list('mail')) if ((m as any).acct === a.id) e.remove('mail', m.id);
     e.remove('mailacct', a.id);
     toast({ text: `${a.name} er fjernet` });
@@ -64,7 +65,7 @@ export function Connections() {
                 <span className="row__body"><span className="strong">{f.name}</span>
                   <span className={`meta ${f.lastError ? 'errtext' : ''}`}>{f.lastError || (f.lastSync ? `${f.count ?? 0} aftaler · opdateret ${fmt.ago(f.lastSync)} · kun visning` : 'Ikke hentet endnu')}</span></span>
                 <Btn size="sm" variant="text" disabled={busy === f.id} onClick={async () => { setBusy(f.id); try { const n = await syncFeed(e, f); toast({ text: `${f.name}: ${n} aftaler` }); } catch (x) { toast({ text: (x as Error).message }); } setBusy(null); }}>{busy === f.id ? 'Henter …' : 'Opdatér'}</Btn>
-                <Btn size="sm" variant="text" icon="x" aria-label={`Fjern ${f.name}`} onClick={() => { if (confirm(`Fjern kalenderen ${f.name} og dens aftaler fra CENTRA?`)) { removeFeed(e, f.id); toast({ text: `${f.name} er fjernet` }); } }} />
+                <Btn size="sm" variant="text" icon="x" aria-label={`Fjern ${f.name}`} onClick={async () => { if (await ask({ title: `Fjern kalenderen ${f.name}?`, text: 'Dens aftaler forsvinder fra CENTRA.', ok: 'Fjern', danger: true })) { removeFeed(e, f.id); toast({ text: `${f.name} er fjernet` }); } }} />
               </li>
             ))}</ul>
           ) : <p className="muted">Ingen kalendere endnu. Tilføj din Google-, iCloud- eller Outlook-kalender med dens hemmelige iCal-adresse. Dine egne aftaler i CENTRA ligger der allerede.</p>}
@@ -78,7 +79,7 @@ export function Connections() {
                 <span className="row__body"><span className="row__line"><span className="strong">{c.name}</span><span className="meta">&nbsp;· {c.who ?? ''}{c.sites ? ` · ${c.sites}` : ''}</span></span>
                   <span className={`meta ${c.lastError ? 'errtext' : ''}`}>{c.lastError || (c.lastSync ? `Hentet ${fmt.ago(c.lastSync)} · henvendelser lander i din indbakke` : 'Ikke hentet endnu')}</span></span>
                 <Btn size="sm" variant="text" disabled={busy === c.id || !mailAvailable()} onClick={async () => { setBusy(c.id); const r = await syncLunchHub(e, c); setBusy(null); toast({ text: r.error ? `LunchHub: ${r.error}` : r.added.length ? `${r.added.length} nye henvendelser fra LunchHub` : 'LunchHub er opdateret' }); }}>{busy === c.id ? 'Henter …' : 'Hent nu'}</Btn>
-                <Btn size="sm" variant="text" icon="x" aria-label={`Fjern ${c.name}`} onClick={() => { if (confirm('Fjern LunchHub fra CENTRA? Henvendelserne forsvinder her, men bliver i LunchHub.')) { removeLunchHub(e, c.id); toast({ text: 'LunchHub er fjernet' }); } }} />
+                <Btn size="sm" variant="text" icon="x" aria-label={`Fjern ${c.name}`} onClick={async () => { if (await ask({ title: 'Fjern LunchHub fra CENTRA?', text: 'Henvendelserne forsvinder her, men bliver i LunchHub.', ok: 'Fjern', danger: true })) { removeLunchHub(e, c.id); toast({ text: 'LunchHub er fjernet' }); } }} />
               </li>
             ))}</ul>
           ) : <p className="muted">Få henvendelserne fra frajorden.dk, smagssans.dk og bord.dk ind i din indbakke her. Svarer du, eller arkiverer du en, bliver den også markeret i LunchHub.</p>}

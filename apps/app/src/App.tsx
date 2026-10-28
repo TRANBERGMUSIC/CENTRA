@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RouteProvider, SessionProvider, useEngine, type Route } from './state.tsx';
 import { Sidebar, TabBar, CommandPalette, ToastHost, useToast } from './ui/Shell.tsx';
+import { ConfirmHost } from './ui/Confirm.tsx';
 import { Today } from './screens/Today.tsx';
 import { Notes } from './screens/Notes.tsx';
 import { Inbox } from './screens/Inbox.tsx';
@@ -69,6 +70,7 @@ export function App() {
       <ToastHost>
         <Shell theme={theme} setTheme={setTheme} firstOpen={!updated} />
         <UpdateNotes updated={updated} waiting={waiting} />
+        <ConfirmHost />
       </ToastHost>
     </SessionProvider>
   );

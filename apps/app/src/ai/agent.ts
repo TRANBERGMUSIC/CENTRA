@@ -41,7 +41,8 @@ export type Block =
   | { type: 'tool_use'; id: string; name: string; input: any }
   | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
   | { type: 'thinking'; thinking: string; signature: string }
-  | { type: 'redacted_thinking'; data: string };
+  | { type: 'redacted_thinking'; data: string }
+  | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } };
 export type Msg = { role: 'user' | 'assistant'; content: Block[] };
 
 /**
@@ -62,6 +63,7 @@ Sådan arbejder du:
 - Mail: find med search_mail, læs med read_mail, og lav svarudkast med draft_reply (de sendes aldrig automatisk; brugeren sender selv fra indbakken). "Hold øje med en mail …" → watch_mail med afsender og/eller ord fra emnet. Er der ingen mailkonti, så sig at de forbindes under Forbindelser.
 - Gør det, brugeren beder om, med det samme og bekræft kort, hvad du har gjort. Alt kan fortrydes med én knap, så du behøver ikke spørge om lov. Spørg kun, hvis en nødvendig oplysning mangler (fx hvilken dag).
 - Brug id'er fra konteksten herunder. Find aldrig på fakta om brugeren.
+- Billeder (skærmbilleder, fotos, kvitteringer, invitationer, beskeder): læs dem grundigt, også småt tekst. Spørger brugeren om noget, så svar ud fra billedet. Viser billedet noget, der hører hjemme i CENTRA (en aftale, en person, en kvittering eller et udlæg, en opgave, en mail der skal svares på), så gør det relevante med dine tools og sig kort, hvad du gjorde. Sig ærligt, hvis noget ikke kan læses.
 - Når brugeren er ny og ikke ved, hvor de skal starte, så stil ét spørgsmål ad gangen om deres hverdag: arbejde, faste aftaler, træning, mål, vigtige personer.`;
 
 function contextBlock(e: SyncEngine) {
@@ -109,8 +111,10 @@ async function ollama(s: AiSettings, sys: string, messages: Msg[], signal?: Abor
       out.push({ role: 'assistant', content: m.content.filter((b) => b.type === 'text').map((b: any) => b.text).join('\n'),
         tool_calls: m.content.filter((b) => b.type === 'tool_use').map((b: any) => ({ function: { name: b.name, arguments: b.input } })) });
     } else {
-      for (const b of m.content) {
-        if (b.type === 'text') out.push({ role: 'user', content: b.text });
+      const images = m.content.filter((b) => b.type === 'image').map((b: any) => b.source.data);
+      const lastText = m.content.map((b) => b.type).lastIndexOf('text');
+      for (const [i, b] of m.content.entries()) {
+        if (b.type === 'text') out.push({ role: 'user', content: b.text, ...(images.length && i === lastText ? { images } : {}) });
         if (b.type === 'tool_result') out.push({ role: 'tool', content: b.content });
       }
     }
@@ -146,11 +150,13 @@ export type Turn = { messages: Msg[]; reply: string; actions: Action[]; via: 'cl
  * Sends the conversation, runs the tools Assist asks for, and repeats until it answers.
  * `history` is the stored conversation; the returned `messages` replace it.
  */
-export async function ask(e: SyncEngine, history: Msg[], text: string, opts: { signal?: AbortSignal; onAction?: (a: Action) => void } = {}): Promise<Turn> {
+export async function ask(e: SyncEngine, history: Msg[], text: string, opts: { signal?: AbortSignal; onAction?: (a: Action) => void; images?: string[] } = {}): Promise<Turn> {
   const s = aiSettings(e);
   let via: 'claude' | 'local' = s.provider === 'claude' && s.claudeKey ? 'claude' : 'local';
-  // One model for the whole question (thinking is tied to the model that made it).
-  const route = routeModel(text, { mode: s.modelMode || 'auto', budgetUsd: s.budgetDkk ? s.budgetDkk / (s.usdDkk || 6.9) : 0, spentUsd: spentThisMonth(e), turns: history.length });
+  const pics = (opts.images ?? []).map(imageBlock).filter((b): b is Block => !!b);
+  // One model for the whole question (thinking is tied to the model that made it). Pictures need at least Sonnet's eyes.
+  let route = routeModel(text, { mode: s.modelMode || 'auto', budgetUsd: s.budgetDkk ? s.budgetDkk / (s.usdDkk || 6.9) : 0, spentUsd: spentThisMonth(e), turns: history.length });
+  if (pics.length && route.model === 'claude-haiku-5-5' && (s.modelMode || 'auto') === 'auto' && route.why !== 'månedens budget er brugt') route = { model: 'claude-sonnet-5-5', why: 'der er et billede med' };
   let usd = 0;
   const call = async (sys: string, msgs: Msg[]) => {
     if (via === 'claude') {
@@ -167,7 +173,7 @@ export async function ask(e: SyncEngine, history: Msg[], text: string, opts: { s
   // the time and a fresh picture of your data, so it is built once per question (stable through the
   // tool rounds) and thinking from earlier questions is left out of the history.
   const ctx = contextBlock(e);
-  const messages: Msg[] = [...trim(history).map(withoutThinking).filter((m) => m.content.length), { role: 'user', content: [{ type: 'text', text }] }];
+  const messages: Msg[] = [...trim(history).map(withoutThinking).filter((m) => m.content.length), { role: 'user', content: [...pics, { type: 'text', text }] }];
   const fresh = messages.length - 1; // the question just asked: it carries today's context when sent
   const actions: Action[] = [];
   const outgoing = () => messages.map((m, i) => {
@@ -194,7 +200,31 @@ export async function ask(e: SyncEngine, history: Msg[], text: string, opts: { s
   }
   const last = messages[messages.length - 1];
   const reply = last.role === 'assistant' ? last.content.filter((b) => b.type === 'text').map((b: any) => b.text).join('\n').trim() : '';
-  return { messages, reply: reply || (actions.length ? 'Klaret.' : ''), actions, via, model: via === 'claude' ? route.model : s.localModel, why: route.why, usd };
+  return { messages: keepRecentImages(messages), reply: reply || (actions.length ? 'Klaret.' : ''), actions, via, model: via === 'claude' ? route.model : s.localModel, why: route.why, usd };
+}
+
+/** data:image/…;base64,… → an image block Claude (and a local model that can see) understands. */
+export function imageBlock(url: string): Block | null {
+  const m = /^data:(image\/(?:jpeg|png|gif|webp));base64,(.+)$/s.exec(url);
+  return m ? { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } } : null;
+}
+
+/**
+ * Pictures stay in the conversation for the two newest questions that had one, so you can ask
+ * follow-ups ("hvad stod der nederst?"). Older ones become a short note: they would otherwise be paid
+ * for again in every message and make the encrypted store heavy.
+ */
+export function keepRecentImages(msgs: Msg[], keep = 2): Msg[] {
+  let seen = 0;
+  const out = [...msgs];
+  for (let i = out.length - 1; i >= 0; i--) {
+    const m = out[i];
+    if (m.role !== 'user' || !m.content.some((b) => b.type === 'image')) continue;
+    if (++seen <= keep) continue;
+    const n = m.content.filter((b) => b.type === 'image').length;
+    out[i] = { ...m, content: [{ type: 'text', text: `[${n === 1 ? 'Et billede' : `${n} billeder`} vist tidligere i samtalen]` }, ...m.content.filter((b) => b.type !== 'image')] };
+  }
+  return out;
 }
 
 /** Keeps the last ~40 messages, cut at a plain user message so tool calls and results stay paired. */
