@@ -7,6 +7,7 @@ import { useToast } from '../ui/Shell.tsx';
 import { useScreenEnter } from '../motion.ts';
 import { APP_VERSION, WEB_VERSION, REPO, checkForUpdate, platform, type Update } from '../updater.ts';
 import type { DeviceRecord } from '@centra/sync';
+import { bioKind, bioIsOn, bioEnable, bioDisable, bioProblem, BIO_NAME, type BioKind } from '../biometrics.ts';
 import { aiSettings, saveAiSettings, testAi, CLAUDE_MODELS, type AiSettings } from '../ai/agent.ts';
 
 export type Theme = 'dark' | 'oled' | 'light';
@@ -191,10 +192,38 @@ function SecurityPanel() {
         <>
           <div className="kv"><span>Password<span className="meta block">Låser dine data op. Gemmes ingen steder.</span></span><Btn size="sm" onClick={() => setForm('password')}>Skift password</Btn></div>
           <div className="kv"><span>Gendannelsesnøgle<span className="meta block">Den eneste vej ind, hvis du glemmer dit password.</span></span><Btn size="sm" onClick={() => setForm('recovery')}>Lav ny</Btn></div>
+          <BioRow />
           <div className="kv"><span>Automatisk lås<span className="meta block">Efter 15 min uden aktivitet, eller 5 min i baggrunden.</span></span><Btn size="sm" onClick={() => lock()}>Lås nu</Btn></div>
         </>
       )}
     </Panel>
+  );
+}
+
+/** Touch ID on/off. Turning it on asks for the finger once; the key then lives in the Mac's keychain. */
+function BioRow() {
+  const session = useSession();
+  const toast = useToast();
+  const [kind, setKind] = useState<BioKind>('none');
+  const [on, setOn] = useState(() => bioIsOn(session.user));
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { void bioKind().then(setKind); }, []);
+  if (platform !== 'desktop') return null;
+  const name = BIO_NAME[kind === 'none' ? 'touchid' : kind];
+  async function toggle(next: boolean) {
+    setBusy(true);
+    try {
+      if (next) { await bioEnable(session); toast({ icon: 'fingerprint', text: `${name} er slået til. Næste gang låser du op med fingeren.` }); }
+      else { await bioDisable(session.user); toast({ icon: 'fingerprint', text: `${name} er slået fra` }); }
+      setOn(next);
+    } catch (e) {
+      const msg = bioProblem(String((e as Error)?.message ?? e), name);
+      if (msg) toast({ icon: 'fingerprint', text: msg });
+    } finally { setBusy(false); }
+  }
+  return (
+    <div className="kv"><span>Lås op med {name}<span className="meta block">{kind === 'none' ? 'Denne Mac har ingen fingeraftrykslæser, eller der er ikke sat et fingeraftryk op.' : `Nøglen gemmes i Mac'ens nøglering og bruges kun efter ${name}. Dit password virker stadig altid.`}</span></span>
+      <label className="checkrow"><input type="checkbox" checked={on} disabled={busy || (kind === 'none' && !on)} onChange={(x) => void toggle(x.target.checked)} aria-label={`Lås op med ${name}`} /></label></div>
   );
 }
 

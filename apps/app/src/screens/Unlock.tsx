@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Wordmark } from '../ui/primitives.tsx';
 import { reduced, gsap, useGSAP } from '../motion.ts';
 import { Aura } from '../ui/Logo.tsx';
+import { Icon } from '../ui/Icon.tsx';
+import { bioKind, bioIsOn, bioUnlock, bioProblem, BIO_NAME, type BioKind } from '../biometrics.ts';
 import { DEFAULT_USER, explain, lookUp, recover, signIn, type Lookup, type Session, type Step } from '../session.ts';
 import DecryptedText from '../bits/DecryptedText.jsx';
 
@@ -24,6 +26,35 @@ export function Unlock({ onReady, notice }: { onReady: (s: Session) => void; not
   const [wait, setWait] = useState(0);
   const [pending, setPending] = useState<Lookup | null>(null);
   const card = useRef<HTMLFormElement>(null);
+  const [bio, setBio] = useState<BioKind>('none');
+  const bioOn = bio !== 'none' && mode === 'login' && bioIsOn(user);
+  const leave = () => (reduced() ? Promise.resolve() : new Promise((r) => gsap.to(card.current, { y: -24, scale: 0.96, opacity: 0, filter: 'blur(10px)', duration: 0.45, ease: 'power2.in', onComplete: r })));
+
+  async function tryBio(kind = bio) {
+    setError(null); setInfo(null);
+    setStep('Låser op');
+    try {
+      const s = await bioUnlock(user);
+      await leave();
+      onReady(s);
+    } catch (e) {
+      setStep(null);
+      const msg = bioProblem((e as Error).message, BIO_NAME[kind]);
+      if (msg) setError(msg);
+    }
+  }
+  // Touch ID asks by itself when the lock screen appears (or when you come back to the window).
+  useEffect(() => {
+    let off = () => {};
+    void bioKind().then((k) => {
+      setBio(k);
+      if (k === 'none' || !bioIsOn(user) || notice) return;
+      if (document.hasFocus()) void tryBio(k);
+      else { const f = () => { off(); void tryBio(k); }; addEventListener('focus', f, { once: true }); off = () => removeEventListener('focus', f); }
+    });
+    return () => off();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Arrival: the icon settles, then the wordmark, tagline and fields rise in one after another.
   useGSAP(() => {
@@ -79,7 +110,7 @@ export function Unlock({ onReady, notice }: { onReady: (s: Session) => void; not
       }
       const s = await signIn(look, pw, setStep);
       setPending(null);
-      if (!reduced()) await new Promise((r) => gsap.to(card.current, { y: -24, scale: 0.96, opacity: 0, filter: 'blur(10px)', duration: 0.45, ease: 'power2.in', onComplete: r }));
+      await leave();
       onReady(s);
     } catch (e) {
       setPending(null);
@@ -115,6 +146,7 @@ export function Unlock({ onReady, notice }: { onReady: (s: Session) => void; not
             <button className="btn btn--primary unlock__go" type="submit" disabled={wait > 0}>
               {wait > 0 ? `Vent ${wait} s` : mode === 'login' ? 'Lås op' : mode === 'create' ? 'Opret og lås op' : 'Skift password'}
             </button>
+            {bioOn && <button type="button" className="btn btn--secondary unlock__bio" onClick={() => void tryBio()}><Icon name="fingerprint" />Lås op med {BIO_NAME[bio]}</button>}
             <div className="unlock__links">
               {mode === 'login' ? <button type="button" className="tag" onClick={() => { setMode('recover'); setError(null); setInfo(null); }}>Glemt password?</button>
                 : <button type="button" className="tag" onClick={() => { setMode('login'); setPending(null); setError(null); setInfo(null); }}>Tilbage til login</button>}

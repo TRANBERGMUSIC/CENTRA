@@ -31,6 +31,14 @@ base64 = "0.23"
 flate2 = "1"
 tar = "0.4"
 
+# Touch ID unlock (see src/biometry): LocalAuthentication for the finger, the login keychain for the key
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSError", "NSData"] }
+objc2-local-authentication = { version = "0.3", default-features = false, features = ["std", "LAContext", "LAError", "LABiometryType", "block2"] }
+security-framework = "3"
+
 [profile.release]
 codegen-units = 1
 lto = true

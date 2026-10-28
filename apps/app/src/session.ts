@@ -38,6 +38,8 @@ export type Session = {
   logOutDevice: (id: string) => Promise<void>;
   /** Hands the open account key to the Mac app for one reload (an update), so you stay logged in. */
   stash: () => Promise<boolean>;
+  /** Turns on Touch ID unlock: confirms the finger and keeps the account key in the Mac's keychain. */
+  enableBiometrics: () => Promise<void>;
 };
 
 /** Relay address: baked in at build time (CI sets the Cloudflare relay), else the relay on this machine. */
@@ -192,6 +194,10 @@ async function openSession(relay: AnyRelay, user: string, account: AccountPublic
       remember();
       return r.code;
     },
+    async enableBiometrics() {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('bio_enable', { user, key: Array.from(ak) });
+    },
     async stash() {
       if (!('__TAURI_INTERNALS__' in window) || SYNC) return false;
       const { invoke } = await import('@tauri-apps/api/core');
@@ -208,23 +214,26 @@ async function openSession(relay: AnyRelay, user: string, account: AccountPublic
 }
 
 /**
- * After an update reloads the window: the Mac app hands back the account key it held for that one
- * reload (in memory, for at most a minute), and the vault opens again without the password.
+ * Opens the vault from an account key that is already open elsewhere: handed back by the Mac app
+ * after an update reload, or released by Touch ID from the keychain. Throws if the key does not fit.
  */
+export async function openWithKey(userIn: string, raw: number[] | Uint8Array): Promise<Session> {
+  const ak = new Uint8Array(raw);
+  const look = await lookUp(userIn);
+  const cached = localStorage.getItem(cacheKey(look.user));
+  if (!cached) { wipe(ak); throw new Error('offline'); }
+  const account = JSON.parse(cached) as AccountPublic;
+  const { keys } = unlockWithAk(account, ak); // throws if the key does not fit this account
+  return openSession(look.relay, look.user, account, keys, ak, false);
+}
+
+/** After an update reloads the window: the Mac app hands back the key it held (in memory, at most a minute). */
 export async function resumeAfterUpdate(): Promise<Session | null> {
   if (!('__TAURI_INTERNALS__' in window) || SYNC) return null;
   try {
     const { invoke } = await import('@tauri-apps/api/core');
     const got = await invoke<[string, number[]] | null>('session_take');
-    if (!got) return null;
-    const [userIn, raw] = got;
-    const ak = new Uint8Array(raw);
-    const look = await lookUp(userIn);
-    const cached = localStorage.getItem(cacheKey(look.user));
-    if (!cached) { wipe(ak); return null; }
-    const account = JSON.parse(cached) as AccountPublic;
-    const { keys } = unlockWithAk(account, ak); // throws if the key does not fit this account
-    return await openSession(look.relay, look.user, account, keys, ak, false);
+    return got ? await openWithKey(got[0], got[1]) : null;
   } catch {
     return null;
   }

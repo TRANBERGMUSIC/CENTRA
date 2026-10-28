@@ -317,3 +317,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { box-shadow: 
 .oitems__who button.is-on { background: color-mix(in oklab, var(--c-primary) 24%, transparent); box-shadow: none; color: var(--c-calm); font-weight: 600; text-decoration: none; }
 .kvacts { display: inline-flex; align-items: center; gap: 8px; flex: none; }
 .kv--danger > span:first-child { color: var(--c-negative); }
+
+/* Touch ID on the lock screen */
+.unlock__bio { width: 100%; height: 44px; border-radius: 999px; gap: 8px; justify-content: center; }
+.unlock__bio .ic { width: 20px; height: 20px; }
