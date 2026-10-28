@@ -7,5 +7,7 @@
   <string>CENTRA bruger mikrofonen, når du taler til Assist.</string>
   <key>NSSpeechRecognitionUsageDescription</key>
   <string>CENTRA laver din tale om til tekst, så Assist kan forstå den.</string>
+  <key>NSContactsUsageDescription</key>
+  <string>CENTRA henter dine kontakter, så du kan vælge hvem der skal med i appen.</string>
 </dict>
 </plist>

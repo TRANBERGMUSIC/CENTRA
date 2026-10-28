@@ -30,7 +30,7 @@ const PW = 'Money-test-password-1';
   await p.click('.nav-item:has-text("Assist")'); await p.fill('.connect input', 'sk-ant-api03-TESTKEY-abcdefghijklmnopqrstuvwxyz'); await p.click('.connect button[type=submit]'); await p.waitForTimeout(500);
 
   // Contact
-  await p.click('.nav-item:has-text("Kontakter")'); await p.click('text=Ny kontakt'); await p.waitForSelector('.pcard__name .gtitle');
+  await p.click('.nav-item:has-text("Kontakter")'); await p.click('.nlist__acts button:has-text("Ny")'); await p.waitForSelector('.pcard__name .gtitle');
   await p.fill('.pcard__name .gtitle', 'Mads Holm'); await p.locator('.pcard__name .gtitle').blur();
   await p.fill('input[type=tel]', '20 30 40 50'); await p.locator('input[type=tel]').blur();
   await p.fill('.pcard__grid input[list=relations]', 'Kollega'); await p.locator('.pcard__grid input[list=relations]').blur();

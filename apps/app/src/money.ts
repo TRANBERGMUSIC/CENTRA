@@ -27,6 +27,10 @@ export type Social = { kind: string; value: string };
 export type Person = {
   id: string; name: string; phone?: string; email?: string; socials?: Social[]; relation?: string; notes?: string;
   photo?: string; birthday?: string; address?: string; company?: string; tags?: string[]; createdAt?: string;
+  /** More numbers, mails and addresses (from an import, or added by hand). */
+  extra?: { label: string; value: string }[];
+  /** The contact it came from on the Mac (or in a vCard), so a new import updates instead of duplicating. */
+  macId?: string;
 };
 export const ME = 'me';
 export const SOCIALS: [string, string, (v: string) => string][] = [

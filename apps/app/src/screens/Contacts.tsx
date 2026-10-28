@@ -7,6 +7,8 @@ import { useScreenEnter } from '../motion.ts';
 import { RELATIONS, SOCIALS, socialUrl, initials, hueOf, kr, balances, owed, total, type Person, type Outlay, type Payment } from '../money.ts';
 import { shrinkImage } from '../ai/receipt.ts';
 import { queueAssist } from './Assist.tsx';
+import { ContactImport } from './ContactImport.tsx';
+import { rememberDeleted } from '../contactImport.ts';
 
 /** The people you know: how to reach them, how you know them, and what you share (udlæg, mails). */
 export function Contacts() {
@@ -28,11 +30,33 @@ export function Contacts() {
   const id = route.id ?? (matchMedia('(max-width: 640px)').matches ? undefined : list[0]?.id);
   const newPerson = () => go({ screen: 'contacts', id: e.create('person', { name: '', createdAt: new Date().toISOString() }) });
   const rels = ['Alle', ...RELATIONS.filter((r) => all.some((p) => p.relation === r))];
+  const toast = useToast();
+  const [importing, setImporting] = useState(false);
+  const [sel, setSel] = useState<Set<string> | null>(null);
+  const toggle = (pid: string) => setSel((s) => { const n = new Set(s); if (n.has(pid)) n.delete(pid); else n.add(pid); return n; });
+  function removeSelected() {
+    if (!sel?.size) return;
+    const gone = all.filter((p) => sel.has(p.id));
+    for (const p of gone) { rememberDeleted(e, p.macId); e.remove('person', p.id); }
+    setSel(null);
+    if (route.id && sel.has(route.id)) go({ screen: 'contacts' });
+    toast({ icon: 'contacts', text: `${gone.length} ${gone.length === 1 ? 'kontakt' : 'kontakter'} slettet`, action: { label: 'Fortryd', run: () => { for (const p of gone) e.set('person', p.id, { _deleted: false }); } } });
+  }
 
   return (
     <main className={`split ${route.id ? 'has-open' : ''}`} ref={ref}>
       <div className="split__list" data-enter>
-        <div className="nlist__head"><h1>Kontakter <span className="meta num">{all.length}</span></h1><Btn size="sm" icon="plus" onClick={newPerson}>Ny kontakt</Btn></div>
+        <div className="nlist__head"><h1>Kontakter <span className="meta num">{all.length}</span></h1>
+          <span className="nlist__acts">{all.length > 0 && <Btn size="sm" variant="text" onClick={() => setSel(sel ? null : new Set())}>{sel ? 'Færdig' : 'Vælg'}</Btn>}<Btn size="sm" variant="text" onClick={() => setImporting(true)}>Hent</Btn><Btn size="sm" icon="plus" onClick={newPerson}>Ny</Btn></span></div>
+        {sel && (
+          <div className="selbar">
+            <span className="meta num">{sel.size} valgt</span>
+            <Btn size="sm" variant="text" onClick={() => setSel(new Set(list.map((p) => p.id)))}>Vælg alle{q || rel !== 'Alle' ? ' viste' : ''}</Btn>
+            {all.some((p) => p.macId) && <Btn size="sm" variant="text" onClick={() => setSel(new Set(all.filter((p) => p.macId).map((p) => p.id)))}>Alle hentede</Btn>}
+            <span className="push-right" />
+            <Btn size="sm" variant="primary" icon="x" disabled={!sel.size} onClick={removeSelected}>Slet</Btn>
+          </div>
+        )}
         <input className="msearch" value={q} onChange={(x) => setQ(x.target.value)} placeholder="Søg på navn, nummer, mail, noter …" aria-label="Søg i kontakter" />
         {rels.length > 2 && <div className="acctpick">{rels.map((r) => <button key={r} className={rel === r ? 'is-active' : ''} aria-pressed={rel === r} onClick={() => setRel(r)}>{r}</button>)}</div>}
         <div className="plist">
@@ -40,7 +64,8 @@ export function Contacts() {
             <div key={letter}>
               <div className="gsec">{letter}</div>
               {ps.map((p) => (
-                <button key={p.id} className={`prow ${p.id === id ? 'is-selected' : ''}`} onClick={() => go({ screen: 'contacts', id: p.id })}>
+                <button key={p.id} className={`prow ${(sel ? sel.has(p.id) : p.id === id) ? 'is-selected' : ''}`} onClick={() => (sel ? toggle(p.id) : go({ screen: 'contacts', id: p.id }))}>
+                  {sel && <span className={`selbox ${sel.has(p.id) ? 'is-on' : ''}`} aria-hidden="true">{sel.has(p.id) && <Icon name="check" size="sm" />}</span>}
                   <Avatar p={p} />
                   <span className="row__body"><span className="ellipsis">{p.name || 'Uden navn'}</span><span className="meta ellipsis">{[p.relation, p.phone, p.email].filter(Boolean).join(' · ') || 'Ingen oplysninger endnu'}</span></span>
                   {owes[p.id] > 0 && <span className="pill pill--focus num">{kr(owes[p.id], { short: true })}</span>}
@@ -48,11 +73,12 @@ export function Contacts() {
               ))}
             </div>
           ))}
-          {!all.length && <p className="muted pad">Ingen kontakter endnu. Opret en, gem en afsender fra indbakken, eller tilføj folk, når du laver et udlæg. Du kan også sige til Assist: "Gem Mads som kontakt, han er min kollega i Netto, 20 30 40 50".</p>}
+          {!all.length && <p className="muted pad">Ingen kontakter endnu. Tryk Hent for at få dem fra din Mac, opret en, gem en afsender fra indbakken, eller tilføj folk, når du laver et udlæg. Du kan også sige til Assist: "Gem Mads som kontakt, han er min kollega i Netto, 20 30 40 50".</p>}
           {all.length > 0 && !list.length && <p className="muted pad">Ingen fundet.</p>}
         </div>
       </div>
       {id ? <PersonCard key={id} id={id} /> : <div className="split__detail" />}
+      {importing && <ContactImport onClose={() => setImporting(false)} />}
     </main>
   );
 }
@@ -87,6 +113,7 @@ function PersonCard({ id }: { id: string }) {
   function remove() {
     if (shared.length && !confirm(`${p!.name} er med i ${shared.length} udlæg. Slette kontakten alligevel? Udlæggene beholdes.`)) return;
     const { id: _i, type: _t, ...f } = p as any;
+    rememberDeleted(e, p!.macId);
     e.remove('person', id); go({ screen: 'contacts' });
     toast({ person: { name: p!.name || '?', photo: p!.photo }, text: `${p!.name || 'Kontakten'} er slettet`, action: { label: 'Fortryd', run: () => { e.set('person', id, { ...f, _deleted: false }); go({ screen: 'contacts', id }); } } });
   }
@@ -121,6 +148,17 @@ function PersonCard({ id }: { id: string }) {
             {field('birthday', 'Fødselsdag', 'date')}
             {field('address', 'Adresse')}
           </div>
+          {(p.extra ?? []).length > 0 && <>
+            <h3 className="panel__title pad-top">Mere</h3>
+            <ul className="rows">{(p.extra ?? []).map((x, i) => {
+              const href = /@/.test(x.value) ? `mailto:${x.value}` : /^\+?[\d\s()-]{6,}$/.test(x.value) ? `tel:${x.value.replace(/\s/g, '')}` : undefined;
+              return (
+                <li key={i} className="memrow"><span className="meta socialkind">{x.label}</span>
+                  {href ? <a className="row__body ellipsis" href={href}>{x.value}</a> : <span className="row__body ellipsis">{x.value}</span>}
+                  <Btn size="sm" variant="text" icon="x" aria-label="Fjern" onClick={() => set({ extra: (p.extra ?? []).filter((_, j) => j !== i) })} /></li>
+              );
+            })}</ul>
+          </>}
           <h3 className="panel__title pad-top">Sociale medier</h3>
           <ul className="rows">{(p.socials ?? []).map((s, i) => (
             <li key={i} className="memrow"><span className="meta socialkind">{SOCIALS.find(([, k]) => k === s.kind)?.[0] ?? s.kind}</span>
