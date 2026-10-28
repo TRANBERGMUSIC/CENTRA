@@ -346,3 +346,64 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { box-shadow: 
 .cimport__tag--new { background: color-mix(in oklab, var(--c-primary) 20%, transparent); color: var(--c-calm); }
 .cimport__tag--update { background: var(--c-focus-wash); color: var(--c-focus-text); }
 .cimport__tag--ignored { text-decoration: line-through; }
+
+/* what you owe others (violet), next to what others owe you (orange) */
+.row__trail.iow { color: var(--c-calm); }
+.owecard--mine { margin-top: 10px; }
+.owecard--mine .owecard__sum { font-size: 26px; }
+.owecard--mine .owebars__bar::after { background: var(--c-primary); }
+.gsec--mine { color: var(--c-calm); }
+.operson--mine .operson__sum { color: var(--c-calm); }
+.odebt--mine { box-shadow: inset 3px 0 0 var(--c-primary); }
+.onet { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 14px; margin: 4px 0 12px; border-radius: 12px; background: var(--fill); }
+.onet span { flex: 1; min-width: 200px; }
+.opayer .addperson input { min-width: 280px; }
+
+/* ---------------------------------------------------------------- mail, the way it was sent */
+.inbox { grid-template-columns: minmax(300px, 360px) minmax(0, 1fr) var(--l-detail-rail); }
+@media (max-width: 1599px) { .inbox { grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); } .inbox > .details { display: none; } }
+.reader { padding: 0 28px 48px; background: var(--c-ground); }
+.reader__bar { position: sticky; top: 0; z-index: 2; margin: 0 -28px 18px; padding: 12px 28px; gap: 2px; background: color-mix(in oklab, var(--c-ground) 82%, transparent); -webkit-backdrop-filter: saturate(1.8) blur(20px); backdrop-filter: saturate(1.8) blur(20px); border-bottom: 0.5px solid var(--sep); }
+.mailcard { max-width: 860px; margin: 0 auto; }
+.mailhead { display: flex; align-items: center; gap: 12px; }
+.mailhead__who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mailhead__line { display: flex; align-items: baseline; gap: 10px; justify-content: space-between; }
+.mailhead__line time { flex: none; }
+.mailsubject { font-size: 24px; line-height: 30px; font-weight: 600; letter-spacing: -0.015em; margin: 18px 0 2px; max-width: none; }
+.mailacct { margin-bottom: 16px; }
+.mailframe { display: block; width: 100%; min-height: 120px; border: 0; border-radius: 16px; background: #fff; box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 8px 30px rgba(0, 0, 0, 0.12); color-scheme: light; }
+.mailpaper--loading { display: grid; place-items: center; min-height: 160px; border-radius: 16px; background: var(--c-surface); }
+.mailtext--plain { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.6; padding: 22px 24px; border-radius: 16px; background: var(--c-surface); max-width: none; }
+.mailtext--plain a { color: var(--c-calm); }
+.mailbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; margin-bottom: 10px; border-radius: 12px; background: var(--fill); font-size: 13px; }
+.mailbar .ic { color: var(--c-focus); }
+.atts { margin-top: 18px; }
+.atts__head { margin-bottom: 8px; }
+.atts__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.att { display: flex; flex-direction: column; border-radius: 14px; background: var(--c-surface); overflow: hidden; box-shadow: 0 0 0 0.5px var(--sep); transition: transform 220ms cubic-bezier(.2, .9, .3, 1.2), box-shadow 220ms; }
+.att:hover { transform: translateY(-2px); box-shadow: 0 0 0 0.5px var(--sep), 0 10px 24px rgba(0, 0, 0, 0.18); }
+.att__face { display: grid; place-items: center; height: 110px; padding: 0; border: 0; background: var(--fill); cursor: pointer; overflow: hidden; }
+.att__face img { width: 100%; height: 100%; object-fit: cover; }
+.att__ph { width: 100%; height: 100%; background: linear-gradient(110deg, var(--fill) 30%, var(--fill-strong) 50%, var(--fill) 70%); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+.att__icon { width: 46px; height: 58px; border-radius: 6px 14px 6px 6px; display: grid; place-items: end center; padding-bottom: 8px; background: linear-gradient(160deg, #8e8e93, #636366); color: #fff; font-size: 10px; font-weight: 700; letter-spacing: .04em; box-shadow: 0 6px 14px rgba(0, 0, 0, .2); }
+.att--pdf .att__icon { background: linear-gradient(160deg, #ff6b5e, #d93a2b); }
+.att--cal .att__icon { background: linear-gradient(160deg, #5aa9ff, #2a78d6); }
+.att__meta { display: flex; flex-direction: column; gap: 1px; padding: 8px 10px 2px; font-size: 13px; min-width: 0; }
+.att__acts { display: flex; gap: 0; padding: 0 2px 4px; }
+.lightbox { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(0, 0, 0, 0.82); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); animation: lbin 180ms ease-out; }
+@keyframes lbin { from { opacity: 0; } }
+.lightbox__img { max-width: calc(100vw - 120px); max-height: calc(100vh - 120px); border-radius: 8px; box-shadow: 0 30px 80px rgba(0, 0, 0, .5); animation: lbzoom 260ms cubic-bezier(.2, .9, .3, 1.1); }
+@keyframes lbzoom { from { transform: scale(.94); opacity: 0; } }
+.lightbox__bar { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 10px; padding: 14px 18px; color: #fff; }
+.lightbox__bar .btn { color: #fff; }
+.lightbox__nav { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgba(255, 255, 255, .14); color: #fff; display: grid; place-items: center; cursor: pointer; }
+.lightbox__nav:hover { background: rgba(255, 255, 255, .24); }
+.lightbox__nav--prev { left: 20px; } .lightbox__nav--next { right: 20px; }
+@media (prefers-reduced-motion: reduce) { .att__ph, .lightbox, .lightbox__img { animation: none; } .att:hover { transform: none; } }
+.cimport__busy { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; border-radius: 12px; background: var(--fill); font-size: 14px; }
+.cimport__busy > span:nth-child(2) { flex: 1; min-width: 200px; }
+.cimport__prog { flex-basis: 100%; height: 4px; border-radius: 2px; background: var(--fill-strong); overflow: hidden; }
+.cimport__prog i { display: block; height: 100%; background: var(--brand-gradient); transition: width 200ms; }
+.spinner { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 2px solid var(--fill-strong); border-top-color: var(--c-primary); animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

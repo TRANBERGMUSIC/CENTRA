@@ -16,3 +16,12 @@ pub async fn contacts_fetch() -> Result<Vec<mac::MacContact>, String> {
 pub async fn contacts_fetch() -> Result<Vec<()>, String> {
     Err("unavailable".into())
 }
+
+/// Asks nothing: just says whether macOS has already given (or refused) access to Contacts.
+#[tauri::command]
+pub fn contacts_status() -> String {
+    #[cfg(target_os = "macos")]
+    return mac::status().to_string();
+    #[cfg(not(target_os = "macos"))]
+    return "unavailable".to_string();
+}

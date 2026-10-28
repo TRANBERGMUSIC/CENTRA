@@ -5,7 +5,7 @@ import { Icon } from '../ui/Icon.tsx';
 import { useToast } from '../ui/Shell.tsx';
 import { useScreenEnter } from '../motion.ts';
 import { Progress } from '../ui/DayStrip.tsx';
-import { ME, kr, parseKr, shares, owed, total, balances, isOpen, payBack, parseItemLines, findOrCreatePerson, personName, CATEGORIES, type Outlay, type Payment, type Person, type Item } from '../money.ts';
+import { ME, kr, parseKr, shares, owed, iOwe, iPaid, payerOf, debts, payDebt, total, balances, isOpen, payBack, parseItemLines, findOrCreatePerson, personName, CATEGORIES, type Outlay, type Payment, type Person, type Item } from '../money.ts';
 import { readReceipt, shrinkImage } from '../ai/receipt.ts';
 import { aiReady, aiSettings } from '../ai/agent.ts';
 import { Avatar } from './Contacts.tsx';
@@ -27,7 +27,9 @@ export function Outlays() {
   const owedTotal = bal.reduce((s, b) => s + b.left, 0);
   // An udlæg only counts as paid once it has an amount, someone besides you, and nothing left to pay.
   // Until then (just created, no items or people yet) it stays under Aktive, so it never vanishes.
-  const settled = (o: Outlay) => total(o) > 0 && (o.people ?? []).some((p) => p !== ME) && !isOpen(o, pays);
+  const settled = (o: Outlay) => total(o) > 0 && (iPaid(o) ? (o.people ?? []).some((p) => p !== ME) : !!payerOf(o)) && !isOpen(o, pays);
+  const dbt = debts(e).filter((b) => b.left > 0);
+  const debtTotal = dbt.reduce((s, b) => s + b.left, 0);
   const active = outlays.filter((o) => !settled(o));
   const done = outlays.filter(settled);
   const [showDone, setShowDone] = useState(false);
@@ -35,16 +37,18 @@ export function Outlays() {
   // with nothing chosen, the overview of who owes you what.
   const who = route.id?.startsWith('who:') ? route.id.slice(4) : null;
   const id = who ? undefined : route.id;
-  const create = () => go({ screen: 'outlays', id: e.create('outlay', { title: '', date: today(), people: [ME], items: [], countMine: true, createdAt: new Date().toISOString() }) });
-  const max = Math.max(1, ...bal.map((b) => b.left));
+  // "Jeg skylder": someone else paid (paidBy "" until you pick who).
+  const create = (theyPaid = false) => go({ screen: 'outlays', id: e.create('outlay', { title: '', date: today(), people: [ME], items: [], countMine: true, createdAt: new Date().toISOString(), ...(theyPaid ? { paidBy: '' } : {}) }) });
+  const max = Math.max(1, ...bal.map((b) => b.left), ...dbt.map((b) => b.left));
 
   const row = (o: Outlay) => {
-    const ow = owed(o, pays);
-    const left = ow.reduce((s, w) => s + w.left, 0), share = ow.reduce((s, w) => s + w.share, 0);
+    const mine = iOwe(o, pays);
+    const ow = mine ? [] : owed(o, pays);
+    const left = mine ? mine.left : ow.reduce((s, w) => s + w.left, 0), share = mine ? mine.share : ow.reduce((s, w) => s + w.share, 0);
     return (
       <button key={o.id} className={`orow ${o.id === id ? 'is-selected' : ''}`} onClick={() => go({ screen: 'outlays', id: o.id })}>
         <span className="row__line"><span className="strong ellipsis">{o.title || 'Nyt udlæg'}</span><span className="num row__trail">{kr(total(o))}</span></span>
-        <span className="row__line meta"><span className="ellipsis">{fmt.shortDate(o.date)} · {(o.people ?? []).filter((p) => p !== ME).map((p) => personName(e, p).split(' ')[0]).join(', ') || 'ingen personer endnu'}</span>{left > 0 && <span className="row__trail ow">mangler {kr(left)}</span>}</span>
+        <span className="row__line meta"><span className="ellipsis">{fmt.shortDate(o.date)} · {!iPaid(o) ? (payerOf(o) ? `${personName(e, payerOf(o)).split(' ')[0]} lagde ud` : 'hvem lagde ud?') : (o.people ?? []).filter((p) => p !== ME).map((p) => personName(e, p).split(' ')[0]).join(', ') || 'ingen personer endnu'}</span>{left > 0 && (mine || !iPaid(o) ? <span className="row__trail iow">du skylder {kr(left)}</span> : <span className="row__trail ow">mangler {kr(left)}</span>)}</span>
         {share > 0 && <Progress ratio={(share - left) / share} small />}
       </button>
     );
@@ -53,7 +57,7 @@ export function Outlays() {
   return (
     <main className={`split ${route.id ? 'has-open' : ''}`} ref={ref}>
       <div className="split__list" data-enter>
-        <div className="nlist__head"><h1>Udlæg</h1><Btn size="sm" icon="plus" onClick={create}>Nyt udlæg</Btn></div>
+        <div className="nlist__head"><h1>Udlæg</h1><span className="nlist__acts"><Btn size="sm" variant="text" onClick={() => create(true)}>Jeg skylder</Btn><Btn size="sm" icon="plus" onClick={() => create()}>Nyt udlæg</Btn></span></div>
         <section className="owecard" aria-label="Skyldes dig">
           <div className="meta">Folk skylder dig</div>
           <div className="owecard__sum num"><CountUp key={owedTotal} to={owedTotal} from={0} duration={0.8} decimals={owedTotal % 1 ? 2 : 0} separator="." decimalSeparator="," trigger="mount" /> kr</div>
@@ -66,6 +70,19 @@ export function Outlays() {
               </button></li>
             );
           })}</ul> : <p className="meta">Ingen skylder dig noget lige nu.</p>}
+        </section>
+        <section className="owecard owecard--mine" aria-label="Du skylder">
+          <div className="meta">Du skylder</div>
+          <div className="owecard__sum num">{kr(debtTotal)}</div>
+          {dbt.length ? <ul className="owebars">{dbt.map((b) => {
+            const p = e.get(b.person) as unknown as Person | null;
+            return (
+              <li key={b.person}><button className={who === b.person ? 'is-selected' : ''} onClick={() => go({ screen: 'outlays', id: 'who:' + b.person })}>
+                {p && <Avatar p={p} />}<span className="ellipsis">{p?.name ?? 'Ukendt'}</span><span className="num">{kr(b.left)}</span>
+                <span className="owebars__bar" style={{ ['--w' as any]: b.left / max }} />
+              </button></li>
+            );
+          })}</ul> : <p className="meta">Du skylder ikke nogen noget. Har en anden lagt ud for dig, så tryk Jeg skylder.</p>}
         </section>
         <div className="gsec">Aktive <span className="num">{active.length}</span></div>
         {active.map(row)}
@@ -94,12 +111,15 @@ function OutlayDetail({ id }: { id: string }) {
   const [payFor, setPayFor] = useState<string | null>(null);
   const [payAmt, setPayAmt] = useState('');
   const [assign, setAssign] = useState<string | null>(null);
+  const [payer, setPayer] = useState('');
   if (!o) return <div className="split__detail" />;
+  const mineToPay = !iPaid(o);
   const set = (f: Partial<Outlay>) => e.set('outlay', id, f as Record<string, unknown>);
   const items = o.items ?? [];
   const people = o.people ?? [ME];
   const sh = shares(o);
   const ow = owed(o, pays);
+  const debt = iOwe(o, pays);
   const sum = total(o);
   const ai = aiReady(aiSettings(e));
 
@@ -149,6 +169,22 @@ function OutlayDetail({ id }: { id: string }) {
     toast({ person: { name: personName(e, person), photo: (e.get(person) as unknown as Person | null)?.photo }, text: `${personName(e, person)} har betalt ${kr(amount)}`, action: { label: 'Fortryd', run: () => e.remove('payment', pid) } });
     setPayFor(null); setPayAmt('');
   }
+  /** Someone else paid: they go in as the payer, and you are always part of the split. */
+  const setPayerName = (name: string) => {
+    if (!name.trim()) return;
+    const { id: pid, created } = findOrCreatePerson(e, name);
+    if (pid === ME) return set({ paidBy: undefined as unknown as string });
+    const ppl = [ME, ...people.filter((p) => p !== ME)];
+    set({ paidBy: pid, people: ppl.includes(pid) ? ppl : [...ppl, pid] });
+    if (created) toast({ person: { name: name.trim() }, text: `${name.trim()} er gemt som kontakt` });
+    setPayer('');
+  };
+  function iPaidBack(amount: number) {
+    if (!(amount > 0) || !debt) return;
+    const pid = e.create('payment', { outlay: id, person: ME, amount, at: new Date().toISOString() });
+    toast({ person: { name: personName(e, debt.person), photo: (e.get(debt.person) as unknown as Person | null)?.photo }, text: `Du har betalt ${personName(e, debt.person).split(' ')[0]} ${kr(amount)}`, action: { label: 'Fortryd', run: () => e.remove('payment', pid) } });
+    setPayFor(null); setPayAmt('');
+  }
   const reminder = (pid: string, left: number) => `Hej ${personName(e, pid).split(' ')[0]}! Du mangler at betale ${kr(left)} for ${o.title || 'udlægget'}${o.date ? ` (${fmt.shortDate(o.date)})` : ''}. Tak 🙏`;
 
   return (
@@ -181,6 +217,25 @@ function OutlayDetail({ id }: { id: string }) {
       </section>
 
       <section className="panel">
+        <div className="panel__head"><h2 className="panel__title">Hvem lagde ud</h2></div>
+        <div className="segmented" role="radiogroup" aria-label="Hvem lagde ud">
+          {([[false, 'Det gjorde jeg'], [true, 'En anden, jeg skylder']] as const).map(([other, label]) => (
+            <button key={label} type="button" role="radio" aria-checked={mineToPay === other} className={mineToPay === other ? 'is-active' : ''}
+              onClick={() => { if (mineToPay === other) return; set(other ? { paidBy: '', people: people.includes(ME) ? people : [ME, ...people] } : { paidBy: undefined as unknown as string }); }}>{label}</button>
+          ))}
+        </div>
+        {mineToPay && (
+          <div className="opayer pad-top">
+            {payerOf(o) ? (() => { const c = e.get(payerOf(o)) as unknown as Person | null; return <span className="pchip">{c && <Avatar p={c} />}{c?.name ?? 'Ukendt'} lagde ud<button aria-label="Skift" onClick={() => set({ paidBy: '' })}><Icon name="x" size="sm" /></button></span>; })()
+              : <form className="addperson" onSubmit={(x) => { x.preventDefault(); setPayerName(payer); }}>
+                  <input autoFocus list="payer-list" value={payer} onChange={(x) => setPayer(x.target.value)} placeholder="Hvem lagde ud? Skriv navnet, tryk Enter" aria-label="Hvem lagde ud" />
+                  <datalist id="payer-list">{contacts.map((c) => <option key={c.id} value={c.name} />)}</datalist>
+                </form>}
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
         <div className="panel__head"><h2 className="panel__title">Hvem var med</h2></div>
         <div className="chips opeople">
           {people.map((p) => {
@@ -192,13 +247,14 @@ function OutlayDetail({ id }: { id: string }) {
             <datalist id="contacts-list">{contacts.filter((c) => !people.includes(c.id)).map((c) => <option key={c.id} value={c.name} />)}</datalist>
           </form>
         </div>
-        <div className="segmented pad-top" role="radiogroup" aria-label="Hvem betaler">
+        {!mineToPay && <div className="segmented pad-top" role="radiogroup" aria-label="Hvem betaler">
           {([[true, 'Delt med mig'], [false, 'Jeg lagde ud, de betaler det hele']] as const).map(([mine, label]) => (
             <button key={label} type="button" role="radio" aria-checked={people.includes(ME) === mine} className={people.includes(ME) === mine ? 'is-active' : ''}
               onClick={() => { if (people.includes(ME) === mine) return; set({ people: mine ? [ME, ...people] : people.filter((p) => p !== ME), items: items.map((it) => ({ ...it, who: (it.who ?? []).filter((w) => mine || w !== ME) })) }); }}>{label}</button>
           ))}
-        </div>
-        {!people.includes(ME) && <p className="meta small">Du er ikke med i delingen: {people.length ? 'de andre deler hele beløbet' : 'tilføj den eller dem, der skal betale'}.{people.length === 1 ? ` ${personName(e, people[0])} skylder dig ${kr(sum)}.` : ''}</p>}
+        </div>}
+        {mineToPay && <p className="meta small">Du er med i delingen. Dit beløb er din andel af det, {payerOf(o) ? personName(e, payerOf(o)).split(' ')[0] : 'den anden'} betalte.</p>}
+        {!mineToPay && !people.includes(ME) && <p className="meta small">Du er ikke med i delingen: {people.length ? 'de andre deler hele beløbet' : 'tilføj den eller dem, der skal betale'}.{people.length === 1 ? ` ${personName(e, people[0])} skylder dig ${kr(sum)}.` : ''}</p>}
       </section>
 
       <section className="panel">
@@ -240,6 +296,45 @@ function OutlayDetail({ id }: { id: string }) {
         </form>
       </section>
 
+      {mineToPay ? (
+      <section className="panel">
+        <h2 className="panel__title">Det skylder du</h2>
+        {!payerOf(o) ? <p className="muted">Vælg hvem der lagde ud, så regner CENTRA din del ud.</p> : debt && (() => {
+          const c = e.get(debt.person) as unknown as Person | null;
+          const first = (c?.name ?? 'dem').split(' ')[0];
+          return (
+            <div className="oweline">
+              <div className="oweline__top">
+                {c && <Avatar p={c} />}
+                <span className="row__body"><span className="strong">Til {c?.name ?? 'Ukendt'}</span><span className="meta num">Din andel {kr(debt.share)}{debt.paid > 0 ? ` · betalt ${kr(debt.paid)}` : ''}</span></span>
+                {debt.left > 0 ? <Pill tone="calm">Du skylder {kr(debt.left)}</Pill> : <span className="status">{debt.share > 0 ? 'Betalt' : 'Intet at betale'}</span>}
+              </div>
+              {debt.share > 0 && <Progress ratio={debt.paid / debt.share} small />}
+              {debt.left > 0 && (payFor === ME ? (
+                <form className="askbar" onSubmit={(x) => { x.preventDefault(); iPaidBack(parseKr(payAmt)); }}>
+                  <input autoFocus inputMode="decimal" value={payAmt} onChange={(x) => setPayAmt(x.target.value)} placeholder={String(debt.left).replace('.', ',')} aria-label="Beløb du har betalt" />
+                  <Btn type="submit" variant="primary">Gem</Btn><Btn type="button" variant="text" onClick={() => setPayFor(null)}>Annullér</Btn>
+                </form>
+              ) : (
+                <div className="oweline__acts">
+                  <Btn size="sm" variant="primary" icon="check" onClick={() => iPaidBack(debt.left)}>Jeg har betalt alt</Btn>
+                  <Btn size="sm" onClick={() => { setPayFor(ME); setPayAmt(''); }}>Betalt en del</Btn>
+                  {c?.phone && <a className="btn btn--text btn--sm" href={`sms:${c.phone.replace(/\s/g, '')}?&body=${encodeURIComponent(`Hej ${first}! Jeg har lige sendt dig ${kr(debt.left)} for ${o.title || 'udlægget'}. Tak fordi du lagde ud 🙏`)}`}>Sms {first}</a>}
+                </div>
+              ))}
+              {people.filter((p) => p !== ME && p !== debt.person).length > 0 && <p className="meta small">{first} lagde også ud for {people.filter((p) => p !== ME && p !== debt.person).map((p) => `${personName(e, p).split(' ')[0]} (${kr(sh[p] ?? 0)})`).join(', ')}. Det er mellem dem.</p>}
+            </div>
+          );
+        })()}
+        {pays.length > 0 && (<>
+          <h3 className="panel__title pad-top">Betalinger</h3>
+          <ul className="rows">{pays.map((p) => (
+            <li key={p.id} className="memrow"><span className="row__body"><span>Du betalte <b className="num">{kr(p.amount)}</b></span><span className="meta">{fmt.ago(p.at)}{p.note ? ' · ' + p.note : ''}</span></span>
+              <Btn size="sm" variant="text" icon="x" aria-label="Slet betaling" onClick={() => { e.remove('payment', p.id); toast({ text: 'Betalingen er slettet', action: { label: 'Fortryd', run: () => e.set('payment', p.id, { _deleted: false }) } }); }} /></li>
+          ))}</ul>
+        </>)}
+      </section>
+      ) : (
       <section className="panel">
         <h2 className="panel__title">Hvem skylder hvad</h2>
         {people.includes(ME) && <div className="kv"><span>Din egen andel<span className="meta block">{o.countMine === false ? 'Tæller ikke med i Udgifter' : 'Tæller med i dine udgifter'}</span></span><span className="num">{kr(sh[ME] ?? 0)}</span></div>}
@@ -279,6 +374,7 @@ function OutlayDetail({ id }: { id: string }) {
           ))}</ul>
         </>)}
       </section>
+      )}
       <div className="gedit__foot">
         <label className="checkrow small"><input type="checkbox" checked={o.countMine !== false} onChange={(x) => set({ countMine: x.target.checked })} />Min andel tæller med i Udgifter</label>
         <span className="push-right" />
@@ -304,20 +400,24 @@ function Overview() {
   const { go } = useRoute();
   useList('outlay'); useList('payment'); useList('person');
   const bal = balances(e).filter((b) => b.left > 0);
+  const dbt = debts(e).filter((b) => b.left > 0);
+  const list = (rows: typeof bal, mine: boolean) => <div className="oppl">{rows.map((b) => {
+    const p = e.get(b.person) as unknown as Person | null;
+    const titles = b.open.map((oid) => (e.get(oid) as unknown as Outlay | null)?.title || 'Udlæg');
+    return (
+      <button key={b.person} className={`panel operson ${mine ? 'operson--mine' : ''}`} onClick={() => go({ screen: 'outlays', id: 'who:' + b.person })}>
+        {p && <Avatar p={p} />}
+        <span className="row__body"><span className="strong">{p?.name ?? 'Ukendt'}</span><span className="meta ellipsis">{titles.length} udlæg: {titles.join(', ')}</span></span>
+        <span className="operson__sum num">{kr(b.left)}</span><Icon name="chevron-right" size="sm" />
+      </button>
+    );
+  })}</div>;
   return (
     <div className="split__detail odetail" data-lenis-prevent>
       <h2 className="otitle">Hvem skylder dig</h2>
-      {bal.length ? <div className="oppl">{bal.map((b) => {
-        const p = e.get(b.person) as unknown as Person | null;
-        const titles = b.open.map((oid) => (e.get(oid) as unknown as Outlay | null)?.title || 'Udlæg');
-        return (
-          <button key={b.person} className="panel operson" onClick={() => go({ screen: 'outlays', id: 'who:' + b.person })}>
-            {p && <Avatar p={p} />}
-            <span className="row__body"><span className="strong">{p?.name ?? 'Ukendt'}</span><span className="meta ellipsis">{titles.length} {titles.length === 1 ? 'udlæg' : 'udlæg'}: {titles.join(', ')}</span></span>
-            <span className="operson__sum num">{kr(b.left)}</span><Icon name="chevron-right" size="sm" />
-          </button>
-        );
-      })}</div> : <p className="muted">Ingen skylder dig noget lige nu. Tryk på Nyt udlæg, når du har lagt ud for nogen. Hvert udlæg får sin egen liste af varer.</p>}
+      {bal.length ? list(bal, false) : <p className="muted">Ingen skylder dig noget lige nu. Tryk på Nyt udlæg, når du har lagt ud for nogen. Hvert udlæg får sin egen liste af varer.</p>}
+      <h2 className="otitle pad-top">Du skylder</h2>
+      {dbt.length ? list(dbt, true) : <p className="muted">Du skylder ikke nogen noget. Har en anden lagt ud for dig, så tryk Jeg skylder, og vælg hvem.</p>}
     </div>
   );
 }
@@ -335,7 +435,25 @@ function PersonDebt({ person }: { person: string }) {
   const mine = outlays.map((o) => ({ o, w: owed(o, pays).find((x) => x.person === person) })).filter((x): x is { o: Outlay; w: NonNullable<typeof x.w> } => !!x.w && x.w.share > 0);
   const open = mine.filter((x) => x.w.left > 0.004), paid = mine.filter((x) => x.w.left <= 0.004);
   const left = Math.round(open.reduce((s, x) => s + x.w.left, 0) * 100) / 100;
+  // The other way: udlæg this person paid, where you owe them your part.
+  const theirs = outlays.map((o) => ({ o, w: iOwe(o, pays) })).filter((x): x is { o: Outlay; w: NonNullable<typeof x.w> } => !!x.w && x.w.person === person && x.w.share > 0);
+  const iOpen = theirs.filter((x) => x.w.left > 0.004), iDone = theirs.filter((x) => x.w.left <= 0.004);
+  const iLeft = Math.round(iOpen.reduce((s, x) => s + x.w.left, 0) * 100) / 100;
+  const [myPart, setMyPart] = useState<string | null>(null);
   const first = (p?.name ?? '').split(' ')[0];
+  const net = Math.round((left - iLeft) * 100) / 100;
+  const payThem = (amount: number, note = '') => {
+    if (!(amount > 0)) return;
+    const ids = payDebt(e, person, amount, note);
+    toast({ person: { name: p?.name ?? 'Ukendt', photo: p?.photo }, text: `Du har betalt ${first} ${kr(amount)}`, action: { label: 'Fortryd', run: () => ids.forEach((x) => e.remove('payment', x)) } });
+    setMyPart(null);
+  };
+  /** They owe you and you owe them: cancel out the smaller amount both ways. */
+  const offset = () => {
+    const x = Math.min(left, iLeft);
+    const a = payBack(e, person, x, 'modregnet'), b = payDebt(e, person, x, 'modregnet');
+    toast({ person: { name: p?.name ?? 'Ukendt', photo: p?.photo }, text: `${kr(x)} modregnet. ${net > 0 ? `${first} skylder dig nu ${kr(net)}` : net < 0 ? `Du skylder nu ${first} ${kr(-net)}` : 'I er kvit'}`, action: { label: 'Fortryd', run: () => [...a, ...b].forEach((id) => e.remove('payment', id)) } });
+  };
   const message = `Hej ${first}! Du mangler at betale ${kr(left)} for ${open.map((x) => `${x.o.title || 'udlæg'} (${kr(x.w.left)})`).join(', ')}. Tak 🙏`;
   const settle = (amount: number) => {
     if (!(amount > 0)) return;
@@ -362,7 +480,7 @@ function PersonDebt({ person }: { person: string }) {
       <button className="phone-back" onClick={() => go({ screen: 'outlays' })}><Icon name="chevron-left" size="sm" />Udlæg</button>
       <div className="ophead">
         {p && <Avatar p={p} large />}
-        <div><h2 className="otitle">{p?.name ?? 'Ukendt'}</h2><p className="meta">{left > 0 ? `Skylder dig ${kr(left)} for ${open.length} ${open.length === 1 ? 'udlæg' : 'udlæg'}` : 'Skylder dig ikke noget'}</p></div>
+        <div><h2 className="otitle">{p?.name ?? 'Ukendt'}</h2><p className="meta">{[left > 0 ? `Skylder dig ${kr(left)}` : iLeft > 0 ? '' : 'Skylder dig ikke noget', iLeft > 0 ? `du skylder ${kr(iLeft)}` : ''].filter(Boolean).join(' · ')}</p></div>
         <Btn size="sm" variant="text" className="push-right" onClick={() => go({ screen: 'contacts', id: person })}>Kontakt</Btn>
       </div>
       {left > 0 && (part !== null ? (
@@ -379,9 +497,41 @@ function PersonDebt({ person }: { person: string }) {
           <Btn variant="text" onClick={() => { void navigator.clipboard?.writeText(message); toast({ text: 'Besked kopieret' }); }}>Kopiér besked</Btn>
         </div>
       ))}
+      {left > 0 && iLeft > 0 && (
+        <div className="onet"><span>{first} skylder dig {kr(left)}, og du skylder {first} {kr(iLeft)}. {net > 0 ? `Samlet skylder ${first} dig ${kr(net)}.` : net < 0 ? `Samlet skylder du ${first} ${kr(-net)}.` : 'I går lige op.'}</span>
+          <Btn size="sm" variant="primary" onClick={offset}>Modregn {kr(Math.min(left, iLeft))}</Btn></div>
+      )}
       {open.length > 0 && <div className="gsec">Mangler betaling <span className="num">{open.length}</span></div>}
       {open.map(card)}
-      {paid.length > 0 && <div className="gsec">Betalt <span className="num">{paid.length}</span></div>}
+      {theirs.length > 0 && <>
+        <div className="gsec gsec--mine">Du skylder {first} <span className="num">{kr(iLeft)}</span></div>
+        {iLeft > 0 && (myPart !== null ? (
+          <form className="askbar" onSubmit={(x) => { x.preventDefault(); payThem(parseKr(myPart)); }}>
+            <input autoFocus inputMode="decimal" value={myPart} onChange={(x) => setMyPart(x.target.value)} placeholder={String(iLeft).replace('.', ',')} aria-label="Beløb du har betalt" />
+            <Btn type="submit" variant="primary">Gem</Btn><Btn type="button" variant="text" onClick={() => setMyPart(null)}>Annullér</Btn>
+          </form>
+        ) : (
+          <div className="oweline__acts">
+            <Btn variant="primary" icon="check" onClick={() => payThem(iLeft)}>Jeg har betalt alt ({kr(iLeft)})</Btn>
+            <Btn onClick={() => setMyPart('')}>Betalt en del</Btn>
+          </div>
+        ))}
+        {[...iOpen, ...iDone].map(({ o, w }) => (
+          <section key={o.id} className="panel odebt odebt--mine">
+            <button className="odebt__head" onClick={() => go({ screen: 'outlays', id: o.id })}>
+              <span className="row__body"><span className="strong">{o.title || 'Udlæg'}</span><span className="meta">{fmt.shortDate(o.date)}{o.place ? ' · ' + o.place : ''} · {first} betalte {kr(total(o))}</span></span>
+              {w.left > 0.004 ? <Pill tone="calm">Du skylder {kr(w.left)}</Pill> : <span className="status">Betalt</span>}
+              <Icon name="chevron-right" size="sm" />
+            </button>
+            <ul className="odebt__items">{partsOf({ ...o, people: o.people?.includes(ME) ? o.people : [ME, ...(o.people ?? [])] }, ME).map((it) => (
+              <li key={it.id}><span className="ellipsis">{it.name}</span><span className="meta">{it.split > 1 ? `delt på ${it.split}` : 'kun dig'}</span><span className="num">{kr(it.part)}</span></li>
+            ))}</ul>
+            <div className="odebt__foot meta num"><span>Din andel {kr(w.share)}</span>{w.paid > 0 && <span>betalt {kr(w.paid)}</span>}</div>
+            {w.share > 0 && <Progress ratio={w.paid / w.share} small />}
+          </section>
+        ))}
+      </>}
+      {paid.length > 0 && <div className="gsec">Betalt til dig <span className="num">{paid.length}</span></div>}
       {paid.map(card)}
     </div>
   );

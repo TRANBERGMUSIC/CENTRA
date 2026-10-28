@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEngine } from '../state.tsx';
 import { Btn } from '../ui/primitives.tsx';
 import { Icon } from '../ui/Icon.tsx';
@@ -12,6 +12,7 @@ const desktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
 /** data: URL → a small JPEG (photos from a vCard can be several MB). */
 async function shrinkDataUrl(url: string) {
+  if (url.length < 80_000) return url; // Contacts' own thumbnails are already small
   const m = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(url);
   if (!m) throw new Error('bad image');
   const bin = m[2] ? atob(m[3]) : decodeURIComponent(m[3]);
@@ -30,6 +31,14 @@ export function ContactImport({ onClose }: { onClose: () => void }) {
   const [rows, setRows] = useState<Planned[] | null>(null);
   const [pick, setPick] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
+  const [prog, setProg] = useState<[number, number] | null>(null);
+  const [secs, setSecs] = useState(0);
+  // A visible clock while CENTRA works, so it never looks frozen.
+  useEffect(() => {
+    if (!busy) { setSecs(0); return; }
+    const t = setInterval(() => setSecs((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [busy]);
   const [err, setErr] = useState<{ text: string; settings?: string } | null>(null);
   const [q, setQ] = useState('');
 
@@ -40,10 +49,17 @@ export function ContactImport({ onClose }: { onClose: () => void }) {
     if (!p.length) setErr({ text: 'Der var ingen kontakter at hente.' });
   };
   async function fromMacApp() {
-    setErr(null); setBusy('Henter dine kontakter …');
+    setErr(null);
     try {
       const { invoke } = await import('@tauri-apps/api/core');
+      const status = await invoke<string>('contacts_status').catch(() => 'ask');
+      if (status === 'denied' || status === 'restricted') throw new Error('denied');
+      setBusy(status === 'ask'
+        ? 'Mac\'en spørger, om CENTRA må se dine kontakter. Tryk OK i boksen. Kan du ikke se den, ligger den måske bag CENTRA-vinduet.'
+        : 'Læser dine kontakter fra Mac\'en …');
       const list = await invoke<MacContact[]>('contacts_fetch');
+      setBusy(`Sammenligner ${list.length} kontakter med dem, du har …`);
+      await new Promise((r) => setTimeout(r, 0));
       load(list.map(fromMac).filter((x): x is Incoming => !!x));
     } catch (x) {
       const code = String((x as Error)?.message ?? x);
@@ -61,9 +77,10 @@ export function ContactImport({ onClose }: { onClose: () => void }) {
   async function run() {
     if (!rows) return;
     const chosen = rows.filter((r) => pick.has(r.c.uid));
-    setBusy(`Importerer ${chosen.length} …`);
+    setBusy(`Gemmer ${chosen.length} kontakter …`);
     try {
-      const r = await apply(e, chosen, shrinkDataUrl);
+      const r = await apply(e, chosen, shrinkDataUrl, (d, n) => setProg([d, n]));
+      setProg(null);
       toast({ icon: 'contacts', title: 'Kontakter hentet', text: [r.created && `${r.created} nye`, r.updated && `${r.updated} opdateret`].filter(Boolean).join(' · ') || 'Intet nyt' });
       onClose();
     } catch (x) { setErr({ text: (x as Error).message }); setBusy(null); }
@@ -108,7 +125,13 @@ export function ContactImport({ onClose }: { onClose: () => void }) {
               </ul>
             </>
           )}
-          {busy && <p className="meta" role="status">{busy}</p>}
+          {busy && (
+            <div className="cimport__busy" role="status">
+              <span className="spinner" aria-hidden="true" />
+              <span>{busy}{prog ? ` ${prog[0]} af ${prog[1]}` : ''}<span className="meta num">{secs > 2 ? ` · ${secs} s` : ''}</span></span>
+              {prog && <span className="cimport__prog"><i style={{ width: `${Math.round((prog[0] / Math.max(1, prog[1])) * 100)}%` }} /></span>}
+            </div>
+          )}
           {err && <p className="unlock__error" role="alert">{err.text} {err.settings && <button className="btn btn--text btn--sm" onClick={() => void openExternal(err.settings!)}>Åbn Systemindstillinger</button>}</p>}
           <div className="sheet__foot">
             {rows && <Btn variant="text" onClick={() => { setRows(null); setErr(null); }}>Tilbage</Btn>}

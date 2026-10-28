@@ -45,7 +45,10 @@ const wire = (a: MailAccount) => ({
   smtp_host: a.smtpHost.trim(), smtp_port: Number(a.smtpPort), smtp_security: a.smtpSecurity, from_name: a.fromName || null, from_email: a.email.trim(),
 });
 
-type Wire = { uid: number; message_id: string; in_reply_to: string; references: string; from_name: string; from_email: string; to: string[]; cc: string[]; subject: string; date: string; text: string; seen: boolean; flagged: boolean; answered: boolean; attachments: string[]; list: boolean };
+type Wire = { uid: number; message_id: string; in_reply_to: string; references: string; from_name: string; from_email: string; to: string[]; cc: string[]; subject: string; date: string; text: string; seen: boolean; flagged: boolean; answered: boolean; attachments: string[]; list: boolean; html?: string; parts?: Part[] };
+export type Part = { index: number; name: string; mime: string; size: number; cid: string; inline: boolean };
+/** HTML up to this size is kept with the mail; bigger mails fetch it again when opened. */
+const HTML_KEEP = 250_000;
 
 export const testAccount = (a: MailAccount) => invoke<number>('mail_test', { account: wire(a) });
 
@@ -84,6 +87,7 @@ export async function syncAccount(e: SyncEngine, a: MailAccount): Promise<SyncRe
         subject: m.subject || '(intet emne)', at: m.date || new Date().toISOString(), preview: preview(m.text), body: m.text,
         unread: !m.seen, flagged: m.flagged, answered: m.answered, attachments: m.attachments, attachment: m.attachments[0] ?? '',
         list: m.list, messageId: m.message_id, inReplyTo: m.in_reply_to, references: m.references, cat, needsReply, archived: false,
+        html: (m.html?.length ?? 0) <= HTML_KEEP ? m.html ?? '' : '', parts: m.parts ?? [], full: true,
       });
       added.push(id);
     }
@@ -97,6 +101,40 @@ export async function syncAccount(e: SyncEngine, a: MailAccount): Promise<SyncRe
 }
 
 const acctOf = (e: SyncEngine, m: any) => e.get(m.acct) as unknown as MailAccount | null;
+
+/* ---------------------------------------------------------------- the mail as it was sent */
+export type Body = { text: string; html: string; parts: Part[] };
+/** The mail's own HTML and parts. Kept with the mail when small; fetched from the server otherwise. */
+export async function mailBody(e: SyncEngine, m: any): Promise<Body> {
+  // Fetched by this version (or opened once already), and not too big to keep: it's all here.
+  if (m.full && !m.htmlTooBig) return { text: m.body ?? '', html: m.html ?? '', parts: m.parts ?? [] };
+  const a = acctOf(e, m);
+  if (!a || !mailAvailable()) return { text: m.body ?? '', html: '', parts: [] };
+  const b = await invoke<Body>('mail_body', { account: wire(a), uid: m.uid, folder: null });
+  e.set('mail', m.id, { full: true, parts: b.parts, htmlTooBig: b.html.length > HTML_KEEP, ...(b.html.length <= HTML_KEEP ? { html: b.html } : {}) });
+  return b;
+}
+
+const partCache = new Map<string, Promise<string>>();
+/** One attachment or inline image as a data: URL (cached while the app runs). */
+export function mailPart(e: SyncEngine, m: any, index: number): Promise<string> {
+  const key = `${m.id}:${index}`;
+  let p = partCache.get(key);
+  if (!p) {
+    const a = acctOf(e, m);
+    p = !a ? Promise.reject(new Error('Kontoen findes ikke længere')) : invoke<{ mime: string; data: string }>('mail_part', { account: wire(a), uid: m.uid, index, folder: null }).then((r) => `data:${r.mime};base64,${r.data}`);
+    p.catch(() => partCache.delete(key));
+    partCache.set(key, p);
+  }
+  return p;
+}
+
+/** Saves an attachment to Overførsler (and shows it in Finder), or opens it in its own app. */
+export async function openMailPart(e: SyncEngine, m: any, index: number, save: boolean): Promise<string> {
+  const a = acctOf(e, m);
+  if (!a) throw new Error('Kontoen findes ikke længere');
+  return invoke<string>('mail_save_part', { account: wire(a), uid: m.uid, index, save, folder: null });
+}
 
 /** Read / unread, star: changed here at once, then on the server in the background. */
 export function setMailFlag(e: SyncEngine, m: any, f: { unread?: boolean; flagged?: boolean }) {

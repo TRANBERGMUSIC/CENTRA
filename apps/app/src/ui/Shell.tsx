@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon, type IconName } from './Icon.tsx';
 import { Wordmark } from './primitives.tsx';
 import { useEngine, useList, useRoute, useSession, useSyncStatus, fmt, type Route } from '../state.tsx';
-import { balances, ME } from '../money.ts';
+import { balances, debts, ME } from '../money.ts';
 import { gsap, useGSAP, reduced, ease, dur, useNavPill } from '../motion.ts';
 import { Logo } from './Logo.tsx';
 import { lock } from '../lock.ts';
@@ -26,7 +26,7 @@ function useCounts() {
   const goals = useList('goal');
   useList('outlay'); useList('payment');
   const e = useEngine();
-  const owing = balances(e).filter((b) => b.left > 0).length;
+  const owing = balances(e).filter((b) => b.left > 0).length + debts(e).filter((b) => b.left > 0).length;
   return {
     inbox: mails.filter((m: any) => m.needsReply && !m.archived).length,
     assist: sugg.filter((s: any) => s.status === 'pending').length,

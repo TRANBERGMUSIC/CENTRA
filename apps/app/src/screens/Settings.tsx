@@ -8,6 +8,7 @@ import { useScreenEnter } from '../motion.ts';
 import { APP_VERSION, WEB_VERSION, REPO, checkForUpdate, platform, type Update } from '../updater.ts';
 import type { DeviceRecord } from '@centra/sync';
 import { bioKind, bioIsOn, bioEnable, bioDisable, bioProblem, BIO_NAME, type BioKind } from '../biometrics.ts';
+import { remoteImagesOn, setRemoteImages } from '../ui/MailView.tsx';
 import { aiSettings, saveAiSettings, testAi, CLAUDE_MODELS, type AiSettings } from '../ai/agent.ts';
 
 export type Theme = 'dark' | 'oled' | 'light';
@@ -21,6 +22,7 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
   const { relay, device, user } = session;
   const e = useEngine();
   const toast = useToast();
+  useList('setting');
   const status = useSyncStatus();
   const ref = useRef<HTMLElement>(null);
   useScreenEnter(ref, 'settings');
@@ -88,6 +90,10 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
           <div className="kv"><span>Slået fra<span className="meta block">CENTRA kører på denne computer, og alt gemmes krypteret med en nøgle fra dit password. Sync til iPhone og andre computere er bygget og slås til senere.</span></span><span className="meta">Kun denne enhed</span></div>
         </Panel>
         )}
+        <Panel title="Mail" className="span-12">
+          <div className="kv"><span>Vis billeder i mails automatisk<span className="meta block">Billeder hentes fra afsenderens server, når du åbner mailen. Slår du det fra, viser CENTRA en knap i stedet, og afsenderen kan ikke se, at du har læst den. Usynlige sporings-pixels fjernes altid.</span></span>
+            <label className="checkrow"><input type="checkbox" checked={remoteImagesOn(e)} onChange={(x) => { setRemoteImages(e, x.target.checked); toast({ text: x.target.checked ? 'Billeder vises automatisk' : 'Billeder vises først, når du beder om det' }); }} aria-label="Vis billeder i mails automatisk" /></label></div>
+        </Panel>
         <DataPanel onExport={exportAll} />
       </div>
     </main>

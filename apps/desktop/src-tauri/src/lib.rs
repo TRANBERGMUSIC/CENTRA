@@ -26,10 +26,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         // Mail (IMAP/SMTP) and calendar feeds: the web layer can't open sockets, so Rust does it.
         .invoke_handler(tauri::generate_handler![
-            mail::mail_test, mail::mail_fetch, mail::mail_update, mail::mail_send, mail::fetch_calendar,
+            mail::mail_test, mail::mail_fetch, mail::mail_update, mail::mail_send, mail::fetch_calendar, mail::mail_body, mail::mail_part, mail::mail_save_part,
             webupdate::web_ready, webupdate::web_info, webupdate::web_update_check, webupdate::session_stash, webupdate::session_take,
             biometry::bio_kind, biometry::bio_enable, biometry::bio_unlock, biometry::bio_disable,
-            contacts::contacts_fetch
+            contacts::contacts_fetch, contacts::contacts_status
         ])
         // Choose the interface (installed fast update or the built-in one) before the window opens.
         .setup(|app| {

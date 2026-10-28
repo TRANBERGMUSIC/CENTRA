@@ -41,6 +41,38 @@ pub struct Msg {
     pub answered: bool,
     pub attachments: Vec<String>,
     pub list: bool,
+    /// The mail as it was designed (empty when it is plain text or too big). Shown in a sandbox.
+    pub html: String,
+    /// Attachments and inline images: what they are, so the interface can fetch one when needed.
+    pub parts: Vec<Part>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct Part {
+    /// Position among the message's attachments (what `mail_part` takes).
+    pub index: u32,
+    pub name: String,
+    pub mime: String,
+    pub size: usize,
+    /// Content-ID, for <img src="cid:…"> in the HTML.
+    pub cid: String,
+    pub inline: bool,
+}
+
+#[derive(Serialize)]
+pub struct PartData {
+    pub name: String,
+    pub mime: String,
+    /// base64
+    pub data: String,
+}
+
+/// The body and parts of one message, for mails fetched before CENTRA kept the HTML.
+#[derive(Serialize)]
+pub struct Body {
+    pub text: String,
+    pub html: String,
+    pub parts: Vec<Part>,
 }
 
 #[derive(Serialize)]
@@ -194,9 +226,37 @@ fn strip_html(h: &str) -> String {
     clean.trim().to_string()
 }
 
-fn parse(uid: u32, raw: &[u8], flags: &[imap::types::Flag]) -> Option<Msg> {
-    let m = MessageParser::default().parse(raw)?;
-    let from = addr_list(m.from()).into_iter().next().unwrap_or_default();
+const HTML_MAX: usize = 600_000;
+
+fn parts_of(m: &mail_parser::Message) -> Vec<Part> {
+    m.attachments()
+        .enumerate()
+        .map(|(i, a)| {
+            let mime = a
+                .content_type()
+                .map(|c| format!("{}/{}", c.ctype(), c.subtype().unwrap_or("octet-stream")))
+                .unwrap_or_else(|| "application/octet-stream".into())
+                .to_lowercase();
+            let cid = a.content_id().unwrap_or("").trim().trim_matches(|c| c == '<' || c == '>').to_string();
+            let inline = a.content_disposition().map(|d| d.ctype().eq_ignore_ascii_case("inline")).unwrap_or(!cid.is_empty());
+            let fallback = if mime.starts_with("image/") { "billede" } else if a.is_message() { "videresendt mail.eml" } else { "vedhæftning" };
+            Part { index: i as u32, name: a.attachment_name().unwrap_or(fallback).to_string(), mime, size: a.len(), cid, inline }
+        })
+        .collect()
+}
+
+/// Every text/html body part, joined (Apple Mail splits a mail around inline images).
+fn html_of(m: &mail_parser::Message) -> String {
+    let mut out = String::new();
+    for p in m.html_bodies() {
+        if p.is_text_html() {
+            if let Some(t) = p.text_contents() { out.push_str(t); }
+        }
+    }
+    if out.len() > HTML_MAX { String::new() } else { out }
+}
+
+fn text_of(m: &mail_parser::Message) -> String {
     let mut text = m.body_text(0).map(|t| t.to_string()).unwrap_or_default();
     if text.trim().is_empty() {
         if let Some(h) = m.body_html(0) { text = strip_html(&h); }
@@ -206,6 +266,15 @@ fn parse(uid: u32, raw: &[u8], flags: &[imap::types::Flag]) -> Option<Msg> {
         while !text.is_char_boundary(cut) { cut -= 1; }
         text.truncate(cut);
     }
+    text
+}
+
+fn parse(uid: u32, raw: &[u8], flags: &[imap::types::Flag]) -> Option<Msg> {
+    let m = MessageParser::default().parse(raw)?;
+    let from = addr_list(m.from()).into_iter().next().unwrap_or_default();
+    let text = text_of(&m);
+    let html = html_of(&m);
+    let parts = parts_of(&m);
     let attachments = m.attachments().map(|a| a.attachment_name().unwrap_or("vedhæftning").to_string()).collect();
     use imap::types::Flag;
     Some(Msg {
@@ -225,7 +294,98 @@ fn parse(uid: u32, raw: &[u8], flags: &[imap::types::Flag]) -> Option<Msg> {
         answered: flags.iter().any(|f| matches!(f, Flag::Answered)),
         attachments,
         list: m.header("List-Unsubscribe").is_some() || m.header("List-Id").is_some(),
+        html,
+        parts,
     })
+}
+
+/// The raw message for one UID (looks in the given folder, INBOX by default).
+fn raw_blocking(a: &Account, folder: &str, uid: u32) -> Result<Vec<u8>, String> {
+    let mut s = connect(a)?;
+    s.select(folder).map_err(err("Mappe"))?;
+    let fetched = s.uid_fetch(uid.to_string(), "(UID BODY.PEEK[])").map_err(err("Hentning"))?;
+    let raw = fetched.iter().find_map(|f| f.body().map(|b| b.to_vec())).ok_or("Mailen findes ikke længere i indbakken på serveren (måske arkiveret eller slettet).")?;
+    let _ = s.logout();
+    Ok(raw)
+}
+
+fn part_blocking(a: &Account, folder: &str, uid: u32, index: u32) -> Result<(String, String, Vec<u8>), String> {
+    let raw = raw_blocking(a, folder, uid)?;
+    let m = MessageParser::default().parse(&raw).ok_or("Mailen kunne ikke læses")?;
+    let meta = parts_of(&m).into_iter().nth(index as usize).ok_or("Vedhæftningen findes ikke")?;
+    let part = m.attachment(index).ok_or("Vedhæftningen findes ikke")?;
+    Ok((meta.name, meta.mime, part.contents().to_vec()))
+}
+
+/// A file name that is safe to write: no folders, no hidden files, no odd characters.
+fn safe_name(name: &str) -> String {
+    let n: String = name.chars().map(|c| if c == '/' || c == '\\' || c == ':' || c.is_control() { '_' } else { c }).collect();
+    let n = n.trim().trim_start_matches('.').to_string();
+    if n.is_empty() { "vedhæftning".into() } else { n }
+}
+
+fn free_path(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let p = dir.join(name);
+    if !p.exists() { return p; }
+    let (stem, ext) = match name.rfind('.') { Some(i) if i > 0 => (&name[..i], &name[i..]), _ => (name, "") };
+    (2..1000).map(|n| dir.join(format!("{stem} ({n}){ext}"))).find(|p| !p.exists()).unwrap_or(p)
+}
+
+#[tauri::command]
+pub async fn mail_body(account: Account, uid: u32, folder: Option<String>) -> Result<Body, String> {
+    let folder = folder.unwrap_or_else(|| "INBOX".into());
+    tauri::async_runtime::spawn_blocking(move || {
+        let raw = raw_blocking(&account, &folder, uid)?;
+        let m = MessageParser::default().parse(&raw).ok_or("Mailen kunne ikke læses")?;
+        Ok(Body { text: text_of(&m), html: html_of(&m), parts: parts_of(&m) })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(friendly)
+}
+
+/// One attachment or inline image, as base64 (for previews; at most 30 MB).
+#[tauri::command]
+pub async fn mail_part(account: Account, uid: u32, index: u32, folder: Option<String>) -> Result<PartData, String> {
+    let folder = folder.unwrap_or_else(|| "INBOX".into());
+    tauri::async_runtime::spawn_blocking(move || {
+        let (name, mime, data) = part_blocking(&account, &folder, uid, index)?;
+        if data.len() > 30_000_000 { return Err("Filen er for stor til at vise her. Brug Gem eller Åbn.".to_string()); }
+        use base64::Engine;
+        Ok(PartData { name, mime, data: base64::engine::general_purpose::STANDARD.encode(data) })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(friendly)
+}
+
+/// Saves an attachment to Overførsler (save = true) or opens it in its own app (Preview, Pages …).
+#[tauri::command]
+pub async fn mail_save_part<R: tauri::Runtime>(app: tauri::AppHandle<R>, account: Account, uid: u32, index: u32, save: bool, folder: Option<String>) -> Result<String, String> {
+    use tauri::Manager;
+    use tauri_plugin_opener::OpenerExt;
+    let folder = folder.unwrap_or_else(|| "INBOX".into());
+    let dir = if save {
+        app.path().download_dir().map_err(|e| e.to_string())?
+    } else {
+        std::env::temp_dir().join("CENTRA vedhæftninger")
+    };
+    let path = tauri::async_runtime::spawn_blocking(move || -> Result<std::path::PathBuf, String> {
+        let (name, _, data) = part_blocking(&account, &folder, uid, index)?;
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let path = free_path(&dir, &safe_name(&name));
+        std::fs::write(&path, data).map_err(|e| e.to_string())?;
+        Ok(path)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(friendly)?;
+    if save {
+        let _ = app.opener().reveal_item_in_dir(&path);
+    } else {
+        app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(|e| e.to_string())?;
+    }
+    Ok(path.to_string_lossy().to_string())
 }
 
 fn imap_date(days_back: u32) -> String {
@@ -414,6 +574,20 @@ mod tests {
         assert_eq!((m.from_name.as_str(), m.from_email.as_str(), m.subject.as_str()), ("Netto", "vagt@netto.dk", "Vagtplan uge 45"));
         assert!(m.seen && m.list && m.text.contains("Her er din plan"));
         assert_eq!(m.message_id, "a1@netto.dk");
+    }
+
+    #[test]
+    fn html_and_parts() {
+        let raw = b"From: Mads <mads@example.dk>\r\nTo: w@example.dk\r\nSubject: Billeder\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=X\r\n\r\n--X\r\nContent-Type: multipart/related; boundary=Y\r\n\r\n--Y\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>Se <b>her</b>: <img src=\"cid:logo@x\"></p>\r\n--Y\r\nContent-Type: image/png\r\nContent-ID: <logo@x>\r\nContent-Disposition: inline\r\nContent-Transfer-Encoding: base64\r\n\r\niVBORw0KGgo=\r\n--Y--\r\n--X\r\nContent-Type: application/pdf; name=\"Kontrakt.pdf\"\r\nContent-Disposition: attachment; filename=\"Kontrakt.pdf\"\r\nContent-Transfer-Encoding: base64\r\n\r\nJVBERi0xLjQ=\r\n--X--\r\n";
+        let m = parse(9, raw, &[]).unwrap();
+        assert!(m.html.contains("<b>her</b>") && m.html.contains("cid:logo@x"), "{}", m.html);
+        assert!(m.text.contains("Se her"));
+        let p: Vec<_> = m.parts.iter().map(|p| (p.index, p.name.as_str(), p.mime.as_str(), p.cid.as_str(), p.inline, p.size)).collect();
+        assert_eq!(p, vec![(0, "billede", "image/png", "logo@x", true, 8), (1, "Kontrakt.pdf", "application/pdf", "", false, 8)]);
+        let parsed = MessageParser::default().parse(&raw[..]).unwrap();
+        assert_eq!(parsed.attachment(1).unwrap().contents(), b"%PDF-1.4");
+        assert_eq!(safe_name("../../.ssh/id_rsa"), "_.._.ssh_id_rsa");
+        assert_eq!(safe_name(".hidden"), "hidden");
     }
 
     /// Against a real IMAP/SMTP server on this machine: CENTRA_MAIL_TEST=1 cargo test --lib live -- --nocapture

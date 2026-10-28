@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { ready, randomKey, KeyRing } from '@centra/crypto';
 import { SyncEngine, MemoryHub, MemoryRelay, MemoryStore } from '@centra/sync';
-import { parseKr, kr, shares, owed, balances, payBack, parseItemLines, perMonth, payDates, monthSpend, findOrCreatePerson, cancelLink, ME, type Outlay, type Expense } from '../src/money.ts';
+import { parseKr, kr, shares, owed, iOwe, debts, payDebt, balances, payBack, parseItemLines, perMonth, payDates, monthSpend, findOrCreatePerson, cancelLink, ME, type Outlay, type Expense } from '../src/money.ts';
 
 beforeAll(ready);
 async function engine() {
@@ -87,13 +87,45 @@ describe('Assist: kontakter, udlæg og udgifter', () => {
     expect(o.result.new_contacts).toEqual(['Sofie']);
     const p = runTool(e, 'record_payment', { person: 'mads', amount: 100 }) as any;
     expect(p.result.still_owes).toBe(60);
-    expect(contextFor(e)).toContain('Mads Holm skylder 60 kr');
+    expect(contextFor(e)).toContain('Mads Holm skylder brugeren 60 kr');
+    // Someone else paid: the user owes them
+    const d: any = runTool(e, 'create_outlay', { title: 'Biograf', people: ['mig', 'Sofie Lund'], paid_by: 'Sofie Lund', items: [{ name: 'Billetter', amount: 240 }] });
+    expect([d.result.you_owe, d.result.to]).toEqual([120, 'Sofie Lund']);
+    expect(contextFor(e)).toContain('Brugeren skylder Sofie Lund 120 kr');
+    const back = runTool(e, 'i_paid_back', { person: 'Sofie Lund', amount: 120 }) as any;
+    expect(back.result.you_still_owe).toBe(0);
     applyUndo(e, p.action.undo);
-    expect((runTool(e, 'balances', {}).result as any[]).find((b) => b.person === 'Mads Holm').owes).toBe(160);
+    expect((runTool(e, 'balances', {}).result as any).owed_to_you.find((b: any) => b.person === 'Mads Holm').owes).toBe(160);
 
     const x = runTool(e, 'add_expense', { name: 'Netflix', amount: 129, interval: 'month' }) as any;
     expect((e.get(x.result.id) as any).category).toBe('Abonnementer');
     expect((runTool(e, 'list_expenses', {}).result as any).items[0].cancel).toBe('https://www.netflix.com/cancelplan');
     expect(contextFor(e)).toContain('Faste udgifter: 129 kr');
+  });
+});
+
+describe('det du selv skylder', () => {
+  it('en anden lagde ud: du skylder din andel, og de andre tæller ikke som dine', async () => {
+    const e = await engine();
+    const maria = e.create('person', { name: 'Maria' }), sofie = e.create('person', { name: 'Sofie' });
+    const o1 = e.create('outlay', { title: 'Biograf', date: '2026-10-01', people: [ME, maria, sofie], paidBy: maria, items: [{ id: 'a', name: 'Billetter', amount: 300, who: [] }] });
+    e.create('outlay', { title: 'Pizza', date: '2026-10-05', people: [ME, maria], paidBy: maria, items: [{ id: 'b', name: 'Pizza', amount: 200, who: [] }, { id: 'c', name: 'Øl', amount: 60, who: [maria] }] });
+    const o = e.get(o1) as unknown as Outlay;
+    expect(owed(o, [])).toEqual([]);                                   // nobody owes me here
+    expect(iOwe(o, [])).toEqual({ person: maria, share: 100, paid: 0, left: 100 });
+    expect(balances(e)).toEqual([]);
+    expect(debts(e).map((d) => [d.person, d.left])).toEqual([[maria, 200]]);
+    // I pay Maria 150: the oldest first (Biograf 100, then 50 off Pizza)
+    payDebt(e, maria, 150);
+    const d = debts(e)[0];
+    expect([d.left, d.open.length]).toEqual([50, 1]);
+    payDebt(e, maria, 50);
+    expect(debts(e)[0].left).toBe(0);
+  });
+  it('udlæg uden valgt betaler er hverken din gæld eller deres', async () => {
+    const e = await engine();
+    const id = e.create('outlay', { title: 'Kaffe', date: '2026-10-01', people: [ME], paidBy: '', items: [{ id: 'a', name: 'Kaffe', amount: 40, who: [] }] });
+    const o = e.get(id) as unknown as Outlay;
+    expect([owed(o, []), iOwe(o, [])]).toEqual([[], null]);
   });
 });

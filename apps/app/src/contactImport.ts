@@ -277,10 +277,12 @@ export function plan(e: SyncEngine, incoming: Incoming[]): Planned[] {
 }
 
 /** Writes the chosen ones. Photos are shrunk by `shrink` (so the encrypted store stays small). */
-export async function apply(e: SyncEngine, chosen: Planned[], shrink?: (dataUrl: string) => Promise<string>): Promise<{ created: number; updated: number }> {
-  let created = 0, updated = 0;
+export async function apply(e: SyncEngine, chosen: Planned[], shrink?: (dataUrl: string) => Promise<string>, onProgress?: (done: number, total: number) => void): Promise<{ created: number; updated: number }> {
+  let created = 0, updated = 0, done = 0;
   const ignored = ignoredUids(e);
   for (const pl of chosen) {
+    // Let the screen breathe (and show progress) every few contacts.
+    if (done++ % 15 === 0) { onProgress?.(done - 1, chosen.length); await new Promise((r) => setTimeout(r, 0)); }
     const c = { ...pl.c };
     if (c.photo && shrink) { try { c.photo = await shrink(c.photo); } catch { c.photo = undefined; } }
     const current = pl.match ? (e.get(pl.match.id) as unknown as Person | null) ?? pl.match : undefined;

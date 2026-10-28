@@ -68,7 +68,11 @@ export function findOrCreatePerson(e: SyncEngine, name: string, fields: Partial<
 
 /* ---------------------------------------------------------------- udlæg */
 export type Item = { id: string; name: string; amount: number; who: string[] };
-export type Outlay = { id: string; title: string; place?: string; date: string; items: Item[]; people: string[]; receipt?: string; note?: string; countMine?: boolean; category?: string; createdAt?: string };
+export type Outlay = {
+  id: string; title: string; place?: string; date: string; items: Item[]; people: string[]; receipt?: string; note?: string; countMine?: boolean; category?: string; createdAt?: string;
+  /** Who paid the bill. Missing or ME: you lagde ud, the others owe you. Someone else: you owe them your part. "" = not chosen yet. */
+  paidBy?: string;
+};
 export type Payment = { id: string; outlay: string; person: string; amount: number; at: string; note?: string };
 
 export const total = (o: Pick<Outlay, 'items'>) => (o.items ?? []).reduce((s, i) => s + ore(i.amount || 0), 0) / 100;
@@ -95,14 +99,61 @@ export function shares(o: Pick<Outlay, 'items' | 'people'>): Record<string, numb
 }
 
 export type Owed = { person: string; share: number; paid: number; left: number };
+/** Who paid: ME unless someone else is set ("" = someone else, not chosen yet). */
+export const payerOf = (o: Pick<Outlay, 'paidBy'>) => (o.paidBy === undefined || o.paidBy === ME ? ME : o.paidBy);
+export const iPaid = (o: Pick<Outlay, 'paidBy'>) => payerOf(o) === ME;
+
+/** What the others owe you on an udlæg you paid (empty when someone else paid). */
 export function owed(o: Outlay, payments: Payment[]): Owed[] {
+  if (!iPaid(o)) return [];
   const sh = shares(o);
   return Object.entries(sh).filter(([p]) => p !== ME).map(([person, share]) => {
     const paid = payments.filter((x) => x.outlay === o.id && x.person === person).reduce((s, x) => s + ore(x.amount), 0) / 100;
     return { person, share, paid, left: Math.max(0, Math.round((share - paid) * 100) / 100) };
   });
 }
-export const isOpen = (o: Outlay, payments: Payment[]) => owed(o, payments).some((x) => x.left > 0.004);
+/** What you owe on an udlæg someone else paid: `person` is who you owe. Null when you paid, or the payer isn't chosen yet. */
+export function iOwe(o: Outlay, payments: Payment[]): Owed | null {
+  const payer = payerOf(o);
+  if (payer === ME || !payer) return null;
+  const share = shares({ ...o, people: o.people?.includes(ME) ? o.people : [ME, ...(o.people ?? [])] })[ME] ?? 0;
+  const paid = payments.filter((x) => x.outlay === o.id && x.person === ME).reduce((s, x) => s + ore(x.amount), 0) / 100;
+  return { person: payer, share, paid, left: Math.max(0, Math.round((share - paid) * 100) / 100) };
+}
+export const isOpen = (o: Outlay, payments: Payment[]) => owed(o, payments).some((x) => x.left > 0.004) || (iOwe(o, payments)?.left ?? 0) > 0.004;
+
+/** Per person: how much you owe them right now, across every udlæg they paid. */
+export function debts(e: SyncEngine) {
+  const outlays = e.list('outlay') as unknown as Outlay[];
+  const pays = e.list('payment') as unknown as Payment[];
+  const by = new Map<string, { person: string; share: number; paid: number; left: number; open: string[] }>();
+  for (const o of outlays) {
+    const w = iOwe(o, pays);
+    if (!w) continue;
+    const b = by.get(w.person) ?? { person: w.person, share: 0, paid: 0, left: 0, open: [] };
+    b.share += w.share; b.paid += w.paid; b.left = Math.round((b.left + w.left) * 100) / 100;
+    if (w.left > 0.004) b.open.push(o.id);
+    by.set(w.person, b);
+  }
+  return [...by.values()].filter((b) => b.share > 0).sort((a, b) => b.left - a.left);
+}
+
+/** You paid someone back: it pays off your oldest open debt to them first. Returns the payment ids. */
+export function payDebt(e: SyncEngine, creditor: string, amount: number, note = ''): string[] {
+  const outlays = (e.list('outlay') as unknown as Outlay[]).filter((o) => payerOf(o) === creditor).sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
+  let left = ore(amount);
+  const ids: string[] = [];
+  for (const o of outlays) {
+    if (left <= 0) break;
+    const w = iOwe(o, e.list('payment') as unknown as Payment[]);
+    if (!w || w.left <= 0) continue;
+    const take = Math.min(left, ore(w.left));
+    ids.push(e.create('payment', { outlay: o.id, person: ME, amount: take / 100, at: new Date().toISOString(), note }));
+    left -= take;
+  }
+  if (left > 0 && ids.length) { const last = e.get(ids[ids.length - 1]) as unknown as Payment; e.set('payment', last.id, { amount: last.amount + left / 100, note: (note ? note + ' · ' : '') + 'mere end skyldt' }); }
+  return ids;
+}
 
 /** Per person across every udlæg: how much they owe in total right now. */
 export function balances(e: SyncEngine) {

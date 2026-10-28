@@ -2,8 +2,9 @@ import { useMemo, useRef, useState } from 'react';
 import { useEngine, useList, useRecord, useRoute, useNow, fmt } from '../state.tsx';
 import { Btn, Pill, vars } from '../ui/primitives.tsx';
 import { Icon } from '../ui/Icon.tsx';
+import { MailView } from '../ui/MailView.tsx';
 import { useToast } from '../ui/Shell.tsx';
-import { useLenis, useScreenEnter, collapseOut } from '../motion.ts';
+import { useScreenEnter, collapseOut } from '../motion.ts';
 import { moveMail, sendMail, setMailFlag, syncAll, mailAvailable, type MailAccount } from '../mail.ts';
 import { queueAssist } from './Assist.tsx';
 
@@ -113,7 +114,7 @@ function Reader({ id, onMove }: { id: string; onMove: (m: any, a: 'archive' | 't
   const content = useRef<HTMLDivElement>(null);
   const [reply, setReply] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  useLenis(wrap, content, id);
+  // Native scrolling here: the mail itself is a frame, and wheel events from it must reach this pane.
   if (!m) return <div className="reader" />;
   const p = who(m);
   const text = reply ?? m.draft ?? '';
@@ -141,13 +142,19 @@ function Reader({ id, onMove }: { id: string; onMove: (m: any, a: 'archive' | 't
           <Btn size="sm" variant="text" icon="star" aria-pressed={!!m.flagged} onClick={() => setMailFlag(e, m, { flagged: !m.flagged })}>{m.flagged ? 'Stjernet' : 'Stjerne'}</Btn>
           <Btn size="sm" variant="text" icon="assist" onClick={() => { queueAssist(`Lav et kort svarudkast i min tone til mailen [${m.id}] fra ${p.name} om "${m.subject}".`); go({ screen: 'assist' }); }}>Assist</Btn>
         </div>
-        <h2>{m.subject}</h2>
-        <div className="meta">{new Date(m.at).toLocaleString('da-DK', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })} · {m.acctName}</div>
-        <div className="msg">
-          <div className="msg__head"><span className="avatar avatar--lg" style={vars({ '--h': p.hue })}>{p.initials}</span><div><div className="strong">{p.name}</div><div className="meta">{p.email}{m.to?.length ? ' · til ' + m.to.join(', ') : ''}</div></div></div>
-          <div className="msg__body mailtext">{m.body || m.preview}</div>
-          {m.attachments?.length > 0 && <div className="attach">{m.attachments.map((a: string) => <span key={a} className="pill pill--neutral"><Icon name="paperclip" size="sm" />{a}</span>)}<span className="meta">Åbn vedhæftninger i din mailapp</span></div>}
-        </div>
+        <article className="mailcard">
+          <header className="mailhead">
+            <span className="avatar avatar--lg" style={vars({ '--h': p.hue })}>{p.initials}</span>
+            <div className="mailhead__who">
+              <div className="mailhead__line"><span className="strong ellipsis">{p.name}</span><time className="meta num">{new Date(m.at).toLocaleString('da-DK', { day: 'numeric', month: 'short', year: new Date(m.at).getFullYear() === new Date().getFullYear() ? undefined : 'numeric', hour: '2-digit', minute: '2-digit' })}</time></div>
+              <div className="meta ellipsis">{p.email}{m.to?.length ? ` · til ${m.to.join(', ')}` : ''}{m.cc?.length ? ` · cc ${m.cc.join(', ')}` : ''}</div>
+            </div>
+            <SaveSender m={m} />
+          </header>
+          <h2 className="mailsubject">{m.subject}</h2>
+          <div className="meta mailacct">{m.acctName}</div>
+          <MailView e={e} m={m} />
+        </article>
         {open && (
           <div className="replybox">
             {m.draft && reply === null && <div className="composer__ai"><Icon name="assist" size="sm" />Udkast fra Assist · ret frit, intet sendes uden dig</div>}
@@ -162,6 +169,20 @@ function Reader({ id, onMove }: { id: string; onMove: (m: any, a: 'archive' | 't
       </div>
     </div>
   );
+}
+
+/** "Gem som kontakt" / "Åbn kontakt" in the mail's header, so it works without the side panel too. */
+function SaveSender({ m }: { m: any }) {
+  const e = useEngine();
+  const { go } = useRoute();
+  const toast = useToast();
+  const persons = useList('person') as any[];
+  const p = who(m);
+  if (!p.email) return null;
+  const known = persons.find((x) => x.email && x.email.toLowerCase() === p.email.toLowerCase());
+  if (known) return <Btn size="sm" variant="text" icon="contacts" onClick={() => go({ screen: 'contacts', id: known.id })}>Kontakt</Btn>;
+  if (m.cat !== 'Personer') return null;
+  return <Btn size="sm" variant="text" icon="contacts" onClick={() => { const cid = e.create('person', { name: m.fromName || p.email, email: p.email, createdAt: new Date().toISOString() }); toast({ person: { name: m.fromName || p.email }, text: `${m.fromName || p.email} er gemt som kontakt`, action: { label: 'Åbn', run: () => go({ screen: 'contacts', id: cid }) } }); }}>Gem kontakt</Btn>;
 }
 
 const quote = (m: any) => `${new Date(m.at).toLocaleString('da-DK', { dateStyle: 'long', timeStyle: 'short' })} skrev ${m.fromName || m.fromEmail}:\n${String(m.body ?? '').split('\n').slice(0, 40).map((l: string) => '> ' + l).join('\n')}`;

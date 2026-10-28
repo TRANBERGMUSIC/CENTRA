@@ -74,6 +74,16 @@ fn access(store: &CNContactStore) -> Result<(), String> {
     }
 }
 
+/// Whether CENTRA may read Contacts: "authorized", "limited", "denied", "restricted" or "ask" (not asked yet).
+pub fn status() -> &'static str {
+    let st = unsafe { CNContactStore::authorizationStatusForEntityType(CNEntityType::Contacts) };
+    if st == CNAuthorizationStatus::Authorized { "authorized" }
+    else if st == CNAuthorizationStatus::Limited { "limited" }
+    else if st == CNAuthorizationStatus::Denied { "denied" }
+    else if st == CNAuthorizationStatus::Restricted { "restricted" }
+    else { "ask" }
+}
+
 pub fn fetch() -> Result<Vec<MacContact>, String> {
     let store = unsafe { CNContactStore::new() };
     access(&store)?;

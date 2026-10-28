@@ -6,7 +6,7 @@ import type { SyncEngine } from '@centra/sync';
 import { occurrences, dayKey, repeatLabel, type CalEvent } from '../calendar.ts';
 import { goalStats, type Goal, type GoalUpdate } from '../goals.ts';
 import type { Route } from '../state.tsx';
-import { ME, findPerson, findOrCreatePerson, balances, owed, total, shares, payBack, perMonth, cancelLink, serviceFor, CATEGORIES, people, personName, kr, type Person, type Outlay, type Payment, type Expense } from '../money.ts';
+import { ME, findPerson, findOrCreatePerson, balances, debts, payDebt, iOwe, owed, total, shares, payBack, perMonth, cancelLink, serviceFor, CATEGORIES, people, personName, kr, type Person, type Outlay, type Payment, type Expense } from '../money.ts';
 
 export type Undo =
   | { kind: 'remove'; type: string; id: string }
@@ -120,9 +120,10 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'create_outlay',
-    description: 'Register an udlæg: the user paid and others owe their part. List items with amounts; for each item "who" are the people sharing it ("mig" for the user); leave "who" empty to split it evenly among everyone in "people". People are created as contacts if new.',
+    description: 'Register an udlæg. Normally the user paid and others owe their part. If someone ELSE paid and the user owes them ("jeg skylder Maria 150 for biograf", "Mads betalte pizzaen"), set paid_by to that person: then only the user\'s own part is tracked as a debt. List items with amounts; for each item "who" are the people sharing it ("mig" for the user); leave "who" empty to split it evenly among everyone in "people". People are created as contacts if new.',
     input_schema: obj({
       title: str('short title, e.g. "Pizza fredag"'), place: str('optional shop/place'), date: str('YYYY-MM-DD, default today'),
+      paid_by: str('who paid the bill: omit (or "mig") when the user paid; a name when someone else paid and the user owes them'),
       people: { type: 'array', items: { type: 'string' }, description: 'everyone who shares the cost, by name; include "mig" if the user pays a part too' },
       items: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, amount: { type: 'number' }, who: { type: 'array', items: { type: 'string' } } }, required: ['name', 'amount'] } },
     }, ['title', 'people', 'items']),
@@ -133,8 +134,13 @@ export const TOOLS: ToolDef[] = [
     input_schema: obj({ person: str('name of who paid'), amount: num('kroner'), outlay_id: str('optional specific udlæg id') }, ['person', 'amount']),
   },
   {
+    name: 'i_paid_back',
+    description: 'The user paid someone back what they owed them (all or part). Pays off the oldest debt to that person first.',
+    input_schema: obj({ person: str('name of who the user paid'), amount: num('kroner') }, ['person', 'amount']),
+  },
+  {
     name: 'balances',
-    description: 'Who owes the user money right now, per person and per udlæg.',
+    description: 'Who owes the user money right now, and what the user owes others, per person and per udlæg.',
     input_schema: obj({}),
   },
   {
@@ -301,12 +307,19 @@ export function runTool(e: SyncEngine, name: string, input: any): ToolResult {
     case 'create_outlay': {
       const created: string[] = [];
       const ids = (input.people ?? []).map((n: string) => { const r = findOrCreatePerson(e, n); if (r.created) created.push(n); return r.id; });
-      const ppl = [...new Set<string>(ids)];
+      const payer = input.paid_by && !['mig', 'me', 'jeg'].includes(String(input.paid_by).trim().toLowerCase()) ? findOrCreatePerson(e, String(input.paid_by)) : null;
+      if (payer?.created) created.push(String(input.paid_by));
+      const ppl = [...new Set<string>(payer ? [ME, ...ids, payer.id] : ids)];
       const items = (input.items ?? []).map((it: any, i: number) => ({ id: 'i' + i + Math.random().toString(36).slice(2, 7), name: String(it.name), amount: Number(it.amount),
         who: (it.who ?? []).map((n: string) => findOrCreatePerson(e, n).id).filter((w: string) => ppl.includes(w)) }));
       if (!ppl.length || !items.length) throw new Error('Mangler personer eller varer');
-      const id = e.create('outlay', { title: String(input.title), place: input.place ?? '', date: input.date && /^\d{4}-\d{2}-\d{2}$/.test(input.date) ? input.date : dayKey(new Date()), people: ppl, items, countMine: true, createdAt: nowIso(), by: 'Assist' });
+      const id = e.create('outlay', { title: String(input.title), place: input.place ?? '', date: input.date && /^\d{4}-\d{2}-\d{2}$/.test(input.date) ? input.date : dayKey(new Date()), people: ppl, items, countMine: true, createdAt: nowIso(), by: 'Assist', ...(payer ? { paidBy: payer.id } : {}) });
       const o = e.get(id) as unknown as Outlay;
+      if (payer) {
+        const d = iOwe(o, [])!;
+        return { result: { ok: true, id, total: total(o), you_owe: d.share, to: personName(e, payer.id), new_contacts: created },
+          action: { label: `Du skylder ${personName(e, payer.id).split(' ')[0]} ${kr(d.share)} for ${input.title}`, undo: { kind: 'remove', type: 'outlay', id }, open: { screen: 'outlays', id } } };
+      }
       const ow = owed(o, []).map((w) => ({ person: personName(e, w.person), owes: w.share }));
       return { result: { ok: true, id, total: total(o), my_share: shares(o)[ME] ?? 0, owes: ow, new_contacts: created },
         action: { label: `Udlæg: ${input.title}, ${kr(total(o))}${ow.length ? ' · ' + ow.map((w) => `${w.person.split(' ')[0]} ${kr(w.owes)}`).join(', ') : ''}`, undo: { kind: 'remove', type: 'outlay', id }, open: { screen: 'outlays', id } } };
@@ -322,9 +335,20 @@ export function runTool(e: SyncEngine, name: string, input: any): ToolResult {
       const left = balances(e).find((b) => b.person === p.id)?.left ?? 0;
       return { result: { ok: true, still_owes: left }, action: { label: `${p.name} har betalt ${kr(amount)}${left > 0 ? ` · mangler ${kr(left)}` : ' · alt betalt'}`, undo: { kind: 'removeMany', type: 'payment', ids }, open: { screen: 'outlays' } } };
     }
+    case 'i_paid_back': {
+      const p = findPerson(e, input.person);
+      if (!p) throw new Error(`Kender ingen ved navn ${input.person}`);
+      const amount = Number(input.amount);
+      const ids = payDebt(e, p.id, amount);
+      if (!ids.length) throw new Error(`Du skylder ikke ${p.name} noget lige nu`);
+      const left = debts(e).find((b) => b.person === p.id)?.left ?? 0;
+      return { result: { ok: true, you_still_owe: left }, action: { label: `Du har betalt ${p.name} ${kr(amount)}${left > 0 ? ` · du skylder stadig ${kr(left)}` : ' · alt betalt'}`, undo: { kind: 'removeMany', type: 'payment', ids }, open: { screen: 'outlays' } } };
+    }
     case 'balances': {
       const outs = e.list('outlay') as unknown as Outlay[], pays = e.list('payment') as unknown as Payment[];
-      return { result: balances(e).filter((b) => b.left > 0).map((b) => ({ person: personName(e, b.person), owes: b.left, open: b.open.map((id) => { const o = outs.find((x) => x.id === id)!; return { id, title: o.title, date: o.date, left: owed(o, pays).find((w) => w.person === b.person)?.left }; }) })) };
+      const owed_to_you = balances(e).filter((b) => b.left > 0).map((b) => ({ person: personName(e, b.person), owes: b.left, open: b.open.map((id) => { const o = outs.find((x) => x.id === id)!; return { id, title: o.title, date: o.date, left: owed(o, pays).find((w) => w.person === b.person)?.left }; }) }));
+      const you_owe = debts(e).filter((b) => b.left > 0).map((b) => ({ person: personName(e, b.person), you_owe: b.left, open: b.open.map((id) => { const o = outs.find((x) => x.id === id)!; return { id, title: o.title, date: o.date, left: iOwe(o, pays)?.left }; }) }));
+      return { result: { owed_to_you, you_owe } };
     }
     case 'add_expense': {
       const svc = serviceFor(String(input.name));
@@ -390,7 +414,10 @@ export function contextFor(e: SyncEngine): string {
   const waiting = mails.filter((m) => m.needsReply).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8).map((m) => `- [${m.id}] ${m.fromName}: ${m.subject} (${String(m.at).slice(0, 10)})`);
   const mailInfo = accts.length ? [`Forbundne konti: ${accts.join(', ')}. ${mails.length} mails i indbakken, ${mails.filter((m) => m.unread).length} ulæste. Brug search_mail og read_mail til resten.`, ...(waiting.length ? ['Venter på svar:', ...waiting] : [])] : ['Ingen mailkonti forbundet endnu (det gøres under Forbindelser).'];
   const contacts = (people(e) as Person[]).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 80).map((p) => `- [${p.id}] ${p.name}${p.relation ? ' (' + p.relation + ')' : ''}${p.company ? ', ' + p.company : ''}${p.notes ? ': ' + p.notes.replace(/\s+/g, ' ').slice(0, 140) : ''}`);
-  const owing = balances(e).filter((b) => b.left > 0).map((b) => `- ${personName(e, b.person)} skylder ${kr(b.left)}`);
+  const owing = [
+    ...balances(e).filter((b) => b.left > 0).map((b) => `- ${personName(e, b.person)} skylder brugeren ${kr(b.left)}`),
+    ...debts(e).filter((b) => b.left > 0).map((b) => `- Brugeren skylder ${personName(e, b.person)} ${kr(b.left)}`),
+  ];
   const xs = (e.list('expense') as unknown as Expense[]).filter((x) => x.active !== false);
   const money = xs.length ? [`Faste udgifter: ${kr(xs.reduce((s, x) => s + perMonth(x), 0), { short: true })} pr. måned fordelt på ${xs.length} poster (brug list_expenses).`] : [];
   const sec = (t: string, l: string[], empty: string) => `## ${t}\n${l.length ? l.join('\n') : empty}`;

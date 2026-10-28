@@ -8,7 +8,7 @@ import { useScreenEnter } from '../motion.ts';
 import { goalStats, type Goal, type GoalUpdate } from '../goals.ts';
 import { SuggestionRows, queueAssist } from './Assist.tsx';
 import { dayOccurrences, type CalEvent } from '../calendar.ts';
-import { balances, kr, monthSpend, perMonth, personName, type Expense } from '../money.ts';
+import { balances, kr, monthSpend, perMonth, personName, type Expense, debts } from '../money.ts';
 import DecryptedText from '../bits/DecryptedText.jsx';
 
 export function Today({ firstOpen }: { firstOpen: boolean }) {
@@ -165,14 +165,15 @@ function MoneyPanel() {
   useList('outlay'); useList('payment'); useList('person');
   const xs = useList('expense') as unknown as Expense[];
   const owing = balances(e).filter((b) => b.left > 0);
+  const iOweList = debts(e).filter((b) => b.left > 0);
   const now = new Date();
   const spend = monthSpend(e, now.getFullYear(), now.getMonth());
   const upcoming = spend.filter((x) => new Date(x.date + 'T12:00') >= new Date(now.getFullYear(), now.getMonth(), now.getDate()) && x.source === 'expense').slice(0, 3);
-  if (!owing.length && !xs.length) return null;
+  if (!owing.length && !iOweList.length && !xs.length) return null;
   return (
     <Panel title="Penge" className="span-12" link="Udgifter" onLink={() => go({ screen: 'expenses' })}>
       <div className="moneyrow">
-        <button className="kpi kpi--btn" onClick={() => go({ screen: 'outlays' })}><span className="meta">Folk skylder dig</span><b className="num">{kr(owing.reduce((s, b) => s + b.left, 0), { short: true })}</b><span className="meta ellipsis">{owing.slice(0, 3).map((b) => personName(e, b.person).split(' ')[0]).join(', ') || 'Ingen'}</span></button>
+        <button className="kpi kpi--btn" onClick={() => go({ screen: 'outlays' })}><span className="meta">Folk skylder dig</span><b className="num">{kr(owing.reduce((s, b) => s + b.left, 0), { short: true })}</b><span className="meta ellipsis">{owing.slice(0, 3).map((b) => personName(e, b.person).split(' ')[0]).join(', ') || 'Ingen'}{iOweList.length ? ` · du skylder ${kr(iOweList.reduce((s, b) => s + b.left, 0), { short: true })}` : ''}</span></button>
         <button className="kpi kpi--btn" onClick={() => go({ screen: 'expenses' })}><span className="meta">Udgifter denne måned</span><b className="num">{kr(spend.reduce((s, x) => s + x.amount, 0), { short: true })}</b><span className="meta">{kr(xs.reduce((s, x) => s + perMonth(x), 0), { short: true })} faste pr. måned</span></button>
         <div className="kpi"><span className="meta">Kommer snart</span>{upcoming.length ? upcoming.map((u) => <span key={u.ref + u.date} className="row__line small"><span className="ellipsis">{u.name}</span><span className="num row__trail">{fmt.shortDate(u.date)} · {kr(u.amount, { short: true })}</span></span>) : <span className="meta">Intet resten af måneden</span>}</div>
       </div>
