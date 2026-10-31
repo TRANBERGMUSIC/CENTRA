@@ -6,8 +6,8 @@
 import type { SyncEngine } from '@centra/sync';
 
 export type Usage = { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number };
-export type Feature = 'chat' | 'kvittering' | 'mailsortering' | 'test' | 'andet';
-export const FEATURES: Record<Feature, string> = { chat: 'Samtaler med Assist', kvittering: 'Kvitteringer', mailsortering: 'Mailsortering', test: 'Test af forbindelse', andet: 'Andet' };
+export type Feature = 'chat' | 'kvittering' | 'udlaeg' | 'mailsortering' | 'test' | 'andet';
+export const FEATURES: Record<Feature, string> = { chat: 'Samtaler med Assist', kvittering: 'Kvitteringer', udlaeg: 'Udlæg skrevet med ord', mailsortering: 'Mailsortering', test: 'Test af forbindelse', andet: 'Andet' };
 
 type Price = { input: number; cacheWrite: number; cacheRead: number; output: number };
 const PRICES: Record<string, Price | ((promptTokens: number) => Price)> = {
@@ -63,19 +63,33 @@ export function spentThisMonth(e: SyncEngine, now = new Date()) {
 
 /* ---------------------------------------------------------------- choosing the model */
 export type Route = { model: string; why: string };
-/** Work that needs real thinking: plans, analysis, long writing. Everyday words ("hvorfor", "budget") don't count. */
-const DEEP = /\bplanlæg|lav en plan|strategi|analysér|analyser|analyse af|sammenlign|gennemgå alle|gennemgå mine|prioritér mine|prioriter mine|tænk grundigt|forklar grundigt|skriv en lang|skriv et langt|ansøgning|opsummér alle|opsummer alle|hele måneden|hele året/i;
-
 /**
- * Automatic choice. Haiku 5.5 does almost everything in CENTRA (commands, questions, mail, udlæg,
- * pictures) at about a twentieth of Sonnet's price. Sonnet 5.5 only for planning, analysis and long
- * texts. Opus is never chosen automatically; pick it in Indstillinger if you want it.
- * Over the monthly budget everything goes to Haiku.
+ * Automatic choice: always Haiku 5.5, the cheapest. It handles everything in CENTRA (calendar, notes,
+ * mail, udlæg, pictures) for well under 1 øre a question. Sonnet only when you ask for it ("Svar
+ * grundigere" under an answer) or choose it in Indstillinger. Opus is never chosen by itself.
  */
-export function routeModel(text: string, opts: { mode: string; budgetUsd?: number; spentUsd?: number; turns?: number }): Route {
-  if (opts.mode !== 'auto') return { model: opts.mode, why: 'valgt fast i Indstillinger' };
-  if (opts.budgetUsd && (opts.spentUsd ?? 0) >= opts.budgetUsd) return { model: 'claude-haiku-5-5', why: 'månedens budget er brugt' };
-  const t = text.trim();
-  if (DEEP.test(t) || t.length > 1500) return { model: 'claude-sonnet-5-5', why: 'kræver planlægning eller analyse' };
-  return { model: 'claude-haiku-5-5', why: 'almindelig opgave' };
+export function routeModel(_text: string, opts: { mode: string; budgetUsd?: number; spentUsd?: number; turns?: number }): Route {
+  if (opts.mode !== 'auto') {
+    if (opts.budgetUsd && (opts.spentUsd ?? 0) >= opts.budgetUsd) return { model: 'claude-haiku-5-5', why: 'månedens budget er brugt' };
+    return { model: opts.mode, why: 'valgt fast i Indstillinger' };
+  }
+  return { model: 'claude-haiku-5-5', why: 'billigste model' };
 }
+
+/* ---------------------------------------------------------------- the log: what each use was for */
+export type LogEntry = { id: string; at: string; feature: Feature; model: string; label: string; detail?: string; calls: number; input: number; output: number; cacheWrite: number; cacheRead: number; usd: number };
+const LOG_KEEP = 500;
+export const addTokens = (a: Usage, b?: Usage): Usage => ({
+  input_tokens: (a.input_tokens ?? 0) + (b?.input_tokens ?? 0), output_tokens: (a.output_tokens ?? 0) + (b?.output_tokens ?? 0),
+  cache_creation_input_tokens: (a.cache_creation_input_tokens ?? 0) + (b?.cache_creation_input_tokens ?? 0), cache_read_input_tokens: (a.cache_read_input_tokens ?? 0) + (b?.cache_read_input_tokens ?? 0),
+});
+
+/** One line in the log per thing CENTRA used Claude for (a question to Assist with all its rounds, a receipt, a batch of mails). */
+export function logUsage(e: SyncEngine, x: { feature: Feature; model: string; label: string; detail?: string; calls: number; usage: Usage; usd: number }) {
+  if (!x.calls) return;
+  const t = tok(x.usage);
+  e.create('usagelog', { at: new Date().toISOString(), feature: x.feature, model: x.model, label: x.label.replace(/\s+/g, ' ').trim().slice(0, 140), detail: (x.detail ?? '').slice(0, 200), calls: x.calls, ...t, usd: x.usd });
+  const all = e.list('usagelog') as unknown as LogEntry[];
+  if (all.length > LOG_KEEP) for (const old of all.sort((a, b) => a.at.localeCompare(b.at)).slice(0, all.length - LOG_KEEP)) e.remove('usagelog', old.id);
+}
+export const usageLog = (e: SyncEngine) => (e.list('usagelog') as unknown as LogEntry[]).sort((a, b) => b.at.localeCompare(a.at));

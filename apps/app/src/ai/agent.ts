@@ -7,7 +7,7 @@
  */
 import type { SyncEngine } from '@centra/sync';
 import { TOOLS, runTool, contextFor, type Action } from './tools.ts';
-import { recordUsage, routeModel, spentThisMonth, MODEL_NAMES, type Feature, type Usage } from './usage.ts';
+import { recordUsage, routeModel, spentThisMonth, logUsage, addTokens, MODEL_NAMES, type Feature, type Usage } from './usage.ts';
 
 export type AiSettings = {
   provider: 'claude' | 'local';
@@ -26,7 +26,7 @@ export type AiSettings = {
   usdDkk: number;
 };
 export const DEFAULT_AI: AiSettings = { provider: 'claude', claudeModel: 'claude-sonnet-5-5', localUrl: 'http://localhost:11434', localModel: 'qwen3:8b', fallbackLocal: true, triage: true, modelMode: 'auto', budgetDkk: 0, usdDkk: 6.9 };
-export const CLAUDE_MODELS: [string, string][] = [['auto', 'Automatisk · Haiku, Sonnet til det svære'], ['claude-haiku-5-5', 'Haiku 5.5 · hurtigst og billigst'], ['claude-sonnet-5-5', 'Sonnet 5.5 · alsidig'], ['claude-opus-5-5', 'Opus 5.5 · klogest']];
+export const CLAUDE_MODELS: [string, string][] = [['auto', 'Automatisk · altid den billigste (Haiku)'], ['claude-haiku-5-5', 'Haiku 5.5 · hurtigst og billigst'], ['claude-sonnet-5-5', 'Sonnet 5.5 · alsidig'], ['claude-opus-5-5', 'Opus 5.5 · klogest']];
 
 export function aiSettings(e: SyncEngine): AiSettings {
   const r = (e.get('setting-ai') ?? {}) as Partial<AiSettings>;
@@ -157,10 +157,10 @@ export async function ask(e: SyncEngine, history: Msg[], text: string, opts: { s
   // One model for the whole question (thinking is tied to the model that made it). "Svar grundigere" asks for one.
   const route = opts.model ? { model: opts.model, why: 'du bad om et grundigere svar' }
     : routeModel(text, { mode: s.modelMode || 'auto', budgetUsd: s.budgetDkk ? s.budgetDkk / (s.usdDkk || 6.9) : 0, spentUsd: spentThisMonth(e), turns: history.length });
-  let usd = 0;
+  let usd = 0, calls = 0, used: Usage = {};
   const call = async (sys: string, msgs: Msg[]) => {
     if (via === 'claude') {
-      try { const r = await claude(s, sys, msgs, opts.signal, { model: route.model, e, feature: 'chat', cache: true }); usd += r.usd ?? 0; return r; } catch (err) {
+      try { const r = await claude(s, sys, msgs, opts.signal, { model: route.model, e, feature: 'chat', cache: true, maxTokens: 4096 }); usd += r.usd ?? 0; calls++; used = addTokens(used, r.usage); return r; } catch (err) {
         // No internet or Claude down: carry on with the local model if that's allowed.
         if (s.fallbackLocal && !(err instanceof AiError && (err.status === 401 || err.status === 400)) && !opts.signal?.aborted) { via = 'local'; return ollama(s, sys, msgs, opts.signal); }
         throw err;
@@ -173,20 +173,27 @@ export async function ask(e: SyncEngine, history: Msg[], text: string, opts: { s
   // the time and a fresh picture of your data, so it is built once per question (stable through the
   // tool rounds) and thinking from earlier questions is left out of the history.
   const ctx = contextBlock(e);
-  const messages: Msg[] = [...trim(history).map(withoutThinking).filter((m) => m.content.length), { role: 'user', content: [...pics, { type: 'text', text }] }];
+  // Repaired together with the new question (an unanswered tool call from last time is answered in
+  // the same message, before the question).
+  const messages: Msg[] = repair([...trim(history).map(withoutThinking).filter((m) => m.content.length), { role: 'user', content: [...pics, { type: 'text', text }] }]);
   const fresh = messages.length - 1; // the question just asked: it carries today's context when sent
+  // Today's context goes after any tool answers in that message (Claude wants those first).
+  const withCtx = (m: Msg): Msg => { const n = m.content.filter((b) => b.type === 'tool_result').length; return { ...m, content: [...m.content.slice(0, n), { type: 'text', text: ctx } as Block, ...m.content.slice(n)] }; };
   const actions: Action[] = [];
   const outgoing = () => messages.map((m, i) => {
-    let x = i === fresh ? { ...m, content: [{ type: 'text', text: ctx } as Block, ...m.content] } : m;
+    let x = i === fresh ? withCtx(m) : m;
     // Cache points: end of the earlier conversation, and the newest message (tool rounds reuse it).
     if (i === fresh - 1 || i === messages.length - 1) x = cachePoint(x);
     return x;
   });
   for (let round = 0; round < 8; round++) {
-    const res = await call(SYSTEM, via === 'claude' ? outgoing() : messages.map((m, i) => (i === fresh ? { ...m, content: [{ type: 'text', text: ctx } as Block, ...m.content] } : m)));
+    const res = await call(SYSTEM, via === 'claude' ? outgoing() : messages.map((m, i) => (i === fresh ? withCtx(m) : m)));
     messages.push({ role: 'assistant', content: res.content });
     const uses = res.content.filter((b): b is Extract<Block, { type: 'tool_use' }> => b.type === 'tool_use');
-    if (res.stop !== 'tool_use' || !uses.length) break;
+    if (!uses.length) break;
+    // Cut off mid-way (too long an answer): the tool calls may be incomplete, so they are not run, but
+    // each gets an answer, or the conversation can't continue.
+    if (res.stop !== 'tool_use') { messages.push({ role: 'user', content: uses.map((u) => ({ type: 'tool_result', tool_use_id: u.id, content: 'Ikke udført: svaret blev afbrudt. Prøv igen kortere.', is_error: true }) as Block) }); continue; }
     const results: Block[] = uses.map((u) => {
       try {
         const r = runTool(e, u.name, u.input ?? {});
@@ -200,7 +207,8 @@ export async function ask(e: SyncEngine, history: Msg[], text: string, opts: { s
   }
   const last = messages[messages.length - 1];
   const reply = last.role === 'assistant' ? last.content.filter((b) => b.type === 'text').map((b: any) => b.text).join('\n').trim() : '';
-  return { messages: keepRecentImages(messages.slice(-60)), reply: reply || (actions.length ? 'Klaret.' : ''), actions, via, model: via === 'claude' ? route.model : s.localModel, why: route.why, usd };
+  if (calls) logUsage(e, { feature: 'chat', model: route.model, label: text || 'Billede', detail: actions.map((a) => a.label).join(' · '), calls, usage: used, usd });
+  return { messages: keepRecentImages(repair(trim(messages, 60))), reply: reply || (actions.length ? 'Klaret.' : ''), actions, via, model: via === 'claude' ? route.model : s.localModel, why: route.why, usd };
 }
 
 /** data:image/…;base64,… → an image block Claude (and a local model that can see) understands. */
@@ -239,15 +247,53 @@ export const shortenOld = (m: Msg): Msg => (m.role === 'user' && m.content.some(
  * The conversation sent along: the last ~24 messages, cut at a plain user message so tool calls and
  * results stay paired. Every message is paid for again with each new question, so less is cheaper.
  */
-function trim(h: Msg[]): Msg[] {
-  const MAX = 24;
+function trim(h: Msg[], max = 24): Msg[] {
   let out = h;
-  if (h.length > MAX) {
-    let i = h.length - MAX;
-    while (i < h.length && !(h[i].role === 'user' && h[i].content.some((b) => b.type === 'text'))) i++;
+  if (h.length > max) {
+    let i = h.length - max;
+    while (i < h.length && !(h[i].role === 'user' && h[i].content.some((b) => b.type === 'text') && !h[i].content.some((b) => b.type === 'tool_result'))) i++;
     out = h.slice(i);
   }
   return out.map(shortenOld);
+}
+
+/**
+ * Makes a stored conversation valid for Claude again: every tool call followed by its answer, no
+ * answer without its call, no two messages in a row from the same side, and it starts with you.
+ * (A conversation cut off mid-way, e.g. by a stopped or too long answer, would otherwise fail with
+ * "tool_use ids were found without tool_result blocks".)
+ */
+export function repair(h: Msg[]): Msg[] {
+  const out: Msg[] = [];
+  const toolIds = (m?: Msg) => (m?.role === 'assistant' ? m.content.filter((b) => b.type === 'tool_use').map((b: any) => b.id as string) : []);
+  for (let i = 0; i < h.length; i++) {
+    const m = h[i];
+    const prev = out[out.length - 1];
+    if (m.role === 'assistant') {
+      if (prev?.role === 'assistant') prev.content = [...prev.content, ...m.content]; // two in a row: one turn
+      else out.push({ role: 'assistant', content: [...m.content] });
+      const cur = out[out.length - 1];
+      const ids = toolIds(cur);
+      if (!ids.length) continue;
+      // The calls must be answered right after: take the answers that are there, fill in the rest.
+      const next = h[i + 1];
+      const nextUser = next?.role === 'user' ? next : null;
+      const got = nextUser ? nextUser.content.filter((b) => b.type === 'tool_result' && ids.includes((b as any).tool_use_id)) : [];
+      const missing = ids.filter((id) => !got.some((b: any) => b.tool_use_id === id)).map((id) => ({ type: 'tool_result', tool_use_id: id, content: 'Ikke udført.', is_error: true }) as Block);
+      const rest = nextUser ? nextUser.content.filter((b) => b.type !== 'tool_result') : [];
+      out.push({ role: 'user', content: [...got, ...missing, ...rest] });
+      if (nextUser) i++;
+    } else {
+      // An answer to a call that isn't right before it is dropped.
+      const ids = toolIds(prev);
+      const content = m.content.filter((b) => b.type !== 'tool_result' || ids.includes((b as any).tool_use_id));
+      if (!content.length) continue;
+      if (prev?.role === 'user') prev.content = [...prev.content, ...content];
+      else out.push({ role: 'user', content });
+    }
+  }
+  while (out.length && (out[0].role !== 'user' || out[0].content.some((b) => b.type === 'tool_result'))) out.shift();
+  return out.filter((m) => m.content.length);
 }
 
 /** A quick round-trip to check the key or the local model from Settings. */
@@ -262,14 +308,17 @@ export async function testAi(s: AiSettings): Promise<string> {
  * One question that must come back as JSON (reading a receipt, sorting mail). `images` are data
  * URLs; Claude reads them directly, a local model only if it can see (e.g. qwen2.5vl, llava).
  */
-export async function askJson<T>(e: SyncEngine, sys: string, text: string, opts: { images?: string[]; fast?: boolean; maxTokens?: number; feature?: Feature } = {}): Promise<T> {
+export async function askJson<T>(e: SyncEngine, sys: string, text: string, opts: { images?: string[]; fast?: boolean; smart?: boolean; maxTokens?: number; feature?: Feature; label?: string } = {}): Promise<T> {
   const s = aiSettings(e);
   const images = opts.images ?? [];
   let raw = '';
   if (s.provider === 'claude' && s.claudeKey) {
     const content: any[] = images.map((d) => { const m = /^data:(image\/[a-z+]+);base64,(.*)$/.exec(d)!; return { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } }; });
     content.push({ type: 'text', text });
-    const r = await claude(s, sys, [{ role: 'user', content }], undefined, { tools: false, model: opts.fast ? 'claude-haiku-5-5' : 'claude-sonnet-5-5', maxTokens: opts.maxTokens ?? 4096, e, feature: opts.feature ?? 'andet' });
+    // Haiku unless a caller really needs more (cheapest that can read receipts, mails and short texts).
+    const model = opts.smart ? 'claude-sonnet-5-5' : 'claude-haiku-5-5';
+    const r = await claude(s, sys, [{ role: 'user', content }], undefined, { tools: false, model, maxTokens: opts.maxTokens ?? 4096, e, feature: opts.feature ?? 'andet' });
+    logUsage(e, { feature: opts.feature ?? 'andet', model, label: opts.label ?? text.slice(0, 120), calls: 1, usage: r.usage ?? {}, usd: r.usd ?? 0 });
     raw = r.content.filter((b) => b.type === 'text').map((b: any) => b.text).join('');
   } else {
     let r: Response;

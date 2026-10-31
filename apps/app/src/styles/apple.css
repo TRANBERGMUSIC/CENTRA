@@ -479,3 +479,26 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { box-shadow: 
 .msg__deeper { margin-left: 8px; padding: 0; border: 0; background: none; color: var(--c-primary-text, var(--c-focus)); font: inherit; cursor: pointer; }
 .msg__deeper:hover { text-decoration: underline; }
 .msg__deeper:focus-visible { outline: 2px solid var(--c-focus); outline-offset: 2px; border-radius: 4px; }
+
+/* ---------------------------------------------------------------- Udgifter: Claude-forbrug og log */
+.cspend .panel__body, .cspend { display: flex; flex-direction: column; gap: 14px; }
+.cspend__sum { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.cspend__sum > div { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 14px; background: var(--fill); min-width: 0; }
+.cspend__sum b { font-size: 22px; font-weight: 650; letter-spacing: -.01em; }
+@media (max-width: 640px) { .cspend__sum { grid-template-columns: 1fr; } }
+.cspend__head .mfilter { margin-top: 0; }
+.clog { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.clog li + li { border-top: 1px solid var(--c-border); }
+.clog__row { width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 4px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 10px; }
+.clog__row:hover { background: var(--fill); }
+.clog__row:focus-visible { outline: 2px solid var(--c-focus); outline-offset: -2px; }
+.clog__row .xdot { flex: none; }
+.clog__what { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.clog__price { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.clog__more { padding: 0 4px 12px 28px; display: flex; flex-direction: column; gap: 8px; }
+.clog__more p { margin: 0; color: var(--c-muted); }
+.clog__tok { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; font-size: var(--fs-meta); }
+.clog__tok div { display: flex; gap: 6px; }
+.clog__tok dt { color: var(--c-muted); }
+.clog__tok dd { margin: 0; }
+.grid12.grid12--spaced { margin-top: var(--s-4); }

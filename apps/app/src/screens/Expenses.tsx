@@ -8,6 +8,7 @@ import { Donut, MonthBars, SLOTS } from '../ui/Charts.tsx';
 import { CATEGORIES, INTERVALS, SERVICES, cancelLink, kr, monthSpend, parseKr, payDates, perMonth, serviceFor, type Expense, type Interval } from '../money.ts';
 import CountUp from '../bits/CountUp.jsx';
 import { queueAssist } from './Assist.tsx';
+import { ClaudeSpend } from './Usage.tsx';
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
 const slotOf = (c: string) => { const i = CATEGORIES.indexOf(c); return i >= 0 && i < SLOTS ? i : -1; };
@@ -106,6 +107,7 @@ export function Expenses() {
           ))}</ul> : <p className="muted">Intet planlagt.</p>}
         </Panel>
       </div>
+      <div className="grid12 grid12--spaced"><ClaudeSpend /></div>
       {edit && <ExpenseEditor x={edit === 'new' ? null : edit} onClose={() => setEdit(null)} />}
     </main>
   );

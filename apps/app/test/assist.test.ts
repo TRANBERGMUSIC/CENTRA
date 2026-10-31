@@ -151,11 +151,12 @@ describe('modelvalg og forbrug', () => {
     expect(r('ja')).toBe('claude-haiku-5-5');
     expect(r('Hvad har jeg i kalenderen på fredag, og hvem skal jeg møde?')).toBe('claude-haiku-5-5');
     expect(r('Hvorfor skylder Mads mig penge? Hvad er mit budget?')).toBe('claude-haiku-5-5'); // everyday words
-    expect(r('Planlæg min uge med træning, arbejde og tid til SmartLink')).toBe('claude-sonnet-5-5');
-    expect(r('x'.repeat(1600))).toBe('claude-sonnet-5-5');
+    expect(r('Planlæg min uge med træning, arbejde og tid til SmartLink')).toBe('claude-haiku-5-5'); // always the cheapest
+    expect(r('x'.repeat(1600))).toBe('claude-haiku-5-5');
     expect(['claude-haiku-5-5', 'claude-sonnet-5-5']).toContain(r('Lav en strategi og analysér hele året grundigt '.repeat(30))); // never Opus by itself
     expect(r('Planlæg min uge', { budgetUsd: 1, spentUsd: 1.2 })).toBe('claude-haiku-5-5');
     expect(routeModel('Planlæg', { mode: 'claude-sonnet-5-5' }).model).toBe('claude-sonnet-5-5');
+    expect(routeModel('Planlæg', { mode: 'claude-sonnet-5-5', budgetUsd: 1, spentUsd: 2 }).model).toBe('claude-haiku-5-5');
   });
   it('regner prisen ud efter Anthropics priser, også Haikus store prompts', async () => {
     expect(costOf('claude-sonnet-5-5', { input_tokens: 1e6, output_tokens: 1e6 })).toBe(12);
