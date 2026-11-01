@@ -32,8 +32,13 @@ jobs:
       - id: nm
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: node_modules
-          key: nm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          # npm keeps some packages inside the workspaces (apps/app/node_modules …), so those come along too
+          path: |
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+            services/*/node_modules
+          key: nm2-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - if: steps.nm.outputs.cache-hit != 'true'
         run: npm ci --no-audit --no-fund
       - name: Build
