@@ -143,7 +143,6 @@ export function Today({ firstOpen }: { firstOpen: boolean }) {
           </>)}
         </div>
       </div>
-      {editing && <p className="hw__hint" data-enter>Træk i <Icon name="menu" size="sm" /> for at flytte et modul. Skjul dem, du ikke bruger, og tilføj andre nederst.</p>}
 
       <div className="grid12" onPointerMove={dragMove} onPointerUp={drop} onPointerCancel={drop}>
         {shown.map((it, i) => {
@@ -263,7 +262,7 @@ function InboxModule() {
             );
           })}
         </ul>
-      ) : <p className="muted">{mails.length ? 'Ingen mails venter på svar.' : 'Ingen mail endnu. Forbind Gmail, iCloud, one.com eller Simply under Forbindelser.'}</p>}
+      ) : <p className="muted">{mails.length ? 'Ingen mails venter på svar.' : 'Ingen mail endnu.'}</p>}
     </Panel>
   );
 }
@@ -287,7 +286,7 @@ function NotesModule() {
   const notes = useList('note', (a, b) => (b.editedAt ?? '').localeCompare(a.editedAt ?? '')) as any[];
   return (
     <Panel title="Seneste noter" link="Alle noter" onLink={() => go({ screen: 'notes' })}>
-      {!notes.length && <p className="muted">Ingen noter endnu. Skriv en, eller sig til Assist: "Lav en note om …"</p>}
+      {!notes.length && <p className="muted">Ingen noter endnu.</p>}
       <ul className="rows">
         {notes.slice(0, 4).map((n) => (
           <li key={n.id}>
@@ -329,7 +328,7 @@ function RemindersModule() {
         ))}
       </ul>
       {open.length > 6 && <button className="tag" onClick={() => go({ screen: 'reminders' })}>{open.length - 6} mere</button>}
-      {!open.length && <p className="muted">Intet at huske. Sig til Assist eller Siri: "Husk mig på at ringe til mor kl. 17".</p>}
+      {!open.length && <p className="muted">Intet at huske.</p>}
       <form className="hl__quick" onSubmit={(x) => { x.preventDefault(); if (text.trim()) { addReminder(e, text); setText(''); } }}>
         <input value={text} onChange={(x) => setText(x.target.value)} placeholder="Tilføj …" aria-label="Tilføj til huskelisten" enterKeyHint="done" />
       </form>
@@ -359,7 +358,7 @@ function ChecklistModule() {
   return (
     <Panel title="Tjekliste" count={items.length ? `${items.length - open.length} af ${items.length}` : undefined} link={note ? 'Åbn' : undefined} onLink={() => note && go({ screen: 'notes', id: note.id })}
       aside={lists.length > 1 ? <select className="mselect hw__pick" value={note?.id} onChange={(x) => e.set('setting', 'setting-home-checklist', { note: x.target.value })} aria-label="Vælg tjekliste">{lists.map((n) => <option key={n.id} value={n.id}>{n.title || 'Uden titel'}</option>)}</select> : undefined}>
-      {!note ? <p className="muted">Ingen tjeklister endnu. Lav en note med en tjekliste (skriv [] og mellemrum), eller sig til Assist: "Lav en indkøbsliste med mælk, æg og brød".</p> : (
+      {!note ? <p className="muted">Ingen tjeklister endnu.</p> : (
         <>
           {note && lists.length === 1 && <p className="meta">{note.title || 'Uden titel'}</p>}
           <ul className="hcheck">
@@ -389,7 +388,7 @@ function GoalsModule() {
   const onTrack = stats.filter((x) => x.s.onTrack).length;
   return (
     <Panel title="Mål" count={`${onTrack} af ${goals.length} på sporet`} link="Alle mål" onLink={() => go({ screen: 'goals' })}>
-      {!goals.length && <p className="muted">Ingen mål endnu. Fortæl Assist, hvad du gerne vil nå, så sætter den målet op og følger med.</p>}
+      {!goals.length && <p className="muted">Ingen mål endnu.</p>}
       <ul className="rows">
         {stats.map(({ g, s }) => (
           <li key={g.id}>
@@ -411,7 +410,7 @@ function PhotosModule() {
   const photos = useList('photo', (a, b) => (b.at ?? '').localeCompare(a.at ?? '')) as any[];
   return (
     <Panel title="Seneste billeder" count={photos.length} link="Alle billeder" onLink={() => go({ screen: 'photos' })}>
-      {!photos.length ? <p className="muted">Ingen billeder endnu. Gem en kvittering, en seddel eller en ting, du vil kunne finde igen, under Billeder.</p> : (
+      {!photos.length ? <p className="muted">Ingen billeder endnu.</p> : (
         <div className="hphotos">{photos.slice(0, 6).map((p) => <button key={p.id} onClick={() => go({ screen: 'photos', id: p.id })} title={p.title}><img src={p.thumb || p.image} alt={p.title} loading="lazy" /></button>)}</div>
       )}
     </Panel>
@@ -428,9 +427,8 @@ function AskBar() {
   const [t, setT] = useState('');
   return (
     <>
-      {!memory.length && <p className="muted">CENTRA kender dig ikke endnu. Fortæl Assist om din arbejdstid, dine rutiner og dine mål, så fylder den kalender, noter og mål ud for dig.</p>}
       <form className="askbar pad-top" onSubmit={(ev) => { ev.preventDefault(); if (!t.trim()) return; queueAssist(t.trim()); go({ screen: 'assist' }); }}>
-        <input value={t} onChange={(ev) => setT(ev.target.value)} placeholder={memory.length ? 'Spørg eller bed om noget …' : 'Fx: Jeg arbejder i Netto 06–16 tirsdag til fredag'} aria-label="Skriv til Assist" />
+        <input value={t} onChange={(ev) => setT(ev.target.value)} placeholder="Spørg eller bed om noget …" aria-label="Skriv til Assist" />
         <Btn type="submit" variant="primary" icon="send" aria-label="Send" disabled={!t.trim()} />
       </form>
     </>

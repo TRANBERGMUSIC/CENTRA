@@ -38,11 +38,11 @@ export function BrowserPanel() {
 
   return (
     <Panel title="Browser og VPN" className="span-12">
-      <div className="kv"><span>Åbn links i<span className="meta block">CENTRA's egen browser åbner links fra mails, Assist og resten af appen i et vindue for sig, med privat tilstand og VPN, hvis du vil.</span></span>
+      <div className="kv"><span>Åbn links i</span>
         <div className="segmented" role="radiogroup" aria-label="Åbn links i">
           {([['centra', 'CENTRA'], ['safari', 'Safari']] as const).map(([k, l]) => <button key={k} role="radio" aria-checked={s.mode === k} className={s.mode === k ? 'is-active' : ''} onClick={() => saveBrowserSettings(e, { mode: k })}>{l}</button>)}
         </div></div>
-      <div className="kv"><span>Privat som standard<span className="meta block">Intet gemmes: cookies, logins og historik forsvinder, når browservinduet lukkes. Kan også slås til og fra i værktøjslinjen.</span></span>
+      <div className="kv"><span>Privat som standard<span className="meta block">Intet gemmes, når vinduet lukkes.</span></span>
         <input type="checkbox" checked={s.incognito} onChange={(x) => saveBrowserSettings(e, { incognito: x.target.checked })} aria-label="Privat som standard" /></div>
       <div className="kv"><span>Søgemaskine<span className="meta block">Når det, du skriver i adressefeltet, ikke er en adresse.</span></span>
         <select className="kvinput" value={s.search} onChange={(x) => saveBrowserSettings(e, { search: x.target.value as BrowserSettings['search'] })} aria-label="Søgemaskine">
@@ -52,7 +52,7 @@ export function BrowserPanel() {
         <input type="checkbox" disabled={!active} checked={s.vpnOn && !!active} onChange={(x) => saveBrowserSettings(e, { vpnOn: x.target.checked })} aria-label="VPN i browseren" /></div>
 
       <div className="vpnlist">
-        <div className="vpnlist__head"><b>Dine VPN'er</b><span className="meta">{s.vpns.length ? 'Den valgte bruges. Skift her eller i browserens værktøjslinje.' : 'Ingen endnu.'}</span><Btn size="sm" icon="plus" className="push-right" onClick={() => setEdit('new')}>Tilføj VPN</Btn></div>
+        <div className="vpnlist__head"><b>Dine VPN'er</b><span className="meta">{s.vpns.length ? '' : 'Ingen endnu.'}</span><Btn size="sm" icon="plus" className="push-right" onClick={() => setEdit('new')}>Tilføj VPN</Btn></div>
         {s.vpns.length > 0 && (
           <ul role="radiogroup" aria-label="VPN i brug">
             {s.vpns.map((v) => (
@@ -152,7 +152,7 @@ function VpnEditor({ v, onClose, onSave }: { v: VpnProfile | null; onClose: () =
               </div>
             </>
           )}
-          <label className="ufield"><span>Navn</span><input value={f.name} onChange={(x) => set({ name: x.target.value })} placeholder="Fx Proton Holland" /></label>
+          <label className="ufield"><span>Navn</span><input value={f.name} onChange={(x) => set({ name: x.target.value })} /></label>
           {err && <p className="unlock__error" role="alert">{err}</p>}
           {ok && <p className="vpnform__ok" role="status">{ok}</p>}
           <div className="sheet__foot">

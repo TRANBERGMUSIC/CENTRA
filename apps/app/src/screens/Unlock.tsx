@@ -152,7 +152,6 @@ export function Unlock({ onReady, notice }: { onReady: (s: Session) => void; not
               {mode === 'login' ? <button type="button" className="tag" onClick={() => { setMode('recover'); setError(null); setInfo(null); }}>Glemt password?</button>
                 : <button type="button" className="tag" onClick={() => { setMode('login'); setPending(null); setError(null); setInfo(null); }}>Tilbage til login</button>}
             </div>
-            <p className="meta unlock__note">Alt er krypteret på din enhed. Uden dit password kan ingen læse dine data, heller ikke serveren.</p>
           </>
         )}
       </form>

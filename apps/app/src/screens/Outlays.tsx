@@ -91,12 +91,12 @@ export function Outlays() {
                 <span className="owebars__bar" style={{ ['--w' as any]: b.left / max }} />
               </button></li>
             );
-          })}</ul> : <p className="meta">Du skylder ikke nogen noget. Har en anden lagt ud for dig, så tryk Jeg skylder.</p>}
+          })}</ul> : <p className="meta">Du skylder ikke nogen noget.</p>}
         </section>
         {openTallies.length > 0 && <><div className="gsec">Regnestykker <span className="num">{openTallies.length}</span></div>{openTallies.map((t) => <TallyRow key={t.id} t={t} selected={t.id === id} onOpen={() => go({ screen: 'outlays', id: t.id })} />)}</>}
         <div className="gsec">Aktive <span className="num">{active.length}</span></div>
         {active.map(row)}
-        {!outlays.length && <p className="muted pad">Lagde du ud for nogen? Tryk Nyt udlæg og skriv bare, hvad der blev købt, og hvem der var med. Eller tag et billede af kvitteringen. Så regner CENTRA ud, hvem der skylder hvad.</p>}
+        {!outlays.length && <p className="muted pad">Ingen udlæg endnu.</p>}
         {done.length + doneTallies.length > 0 && <button className="gsec gsec--btn" onClick={() => setShowDone((x) => !x)} aria-expanded={showDone}>Betalt <span className="num">{done.length + doneTallies.length}</span> <Icon name="chevron-down" size="sm" /></button>}
         {showDone && done.map(row)}
         {showDone && doneTallies.map((t) => <TallyRow key={t.id} t={t} selected={t.id === id} onOpen={() => go({ screen: 'outlays', id: t.id })} />)}
@@ -278,7 +278,7 @@ function OutlayDetail({ id }: { id: string }) {
           <div className="opayer pad-top">
             {payerOf(o) ? (() => { const c = e.get(payerOf(o)) as unknown as Person | null; return <span className="pchip">{c && <Avatar p={c} />}{c?.name ?? 'Ukendt'} lagde ud<button aria-label="Skift" onClick={() => set({ paidBy: '' })}><Icon name="x" size="sm" /></button></span>; })()
               : <form className="addperson" onSubmit={(x) => { x.preventDefault(); setPayerName(payer); }}>
-                  <input autoFocus list="payer-list" value={payer} onChange={(x) => setPayer(x.target.value)} placeholder="Hvem lagde ud? Skriv navnet, tryk Enter" aria-label="Hvem lagde ud" />
+                  <input autoFocus list="payer-list" value={payer} onChange={(x) => setPayer(x.target.value)} placeholder="Hvem lagde ud?" aria-label="Hvem lagde ud" />
                   <datalist id="payer-list">{contacts.map((c) => <option key={c.id} value={c.name} />)}</datalist>
                 </form>}
           </div>
@@ -312,11 +312,10 @@ function OutlayDetail({ id }: { id: string }) {
           {items.length > 0 && <Btn size="sm" variant="text" className="push-right" onClick={() => { setItems(items.map((it) => ({ ...it, who: [] }))); setAssign(null); }}>Del alt ligeligt</Btn>}</div>
         {items.length > 0 && people.length > 1 && (
           <div className="oassign">
-            <span className="meta">Ikke alt skal deles? Vælg en person og tryk på de varer, der kun er deres:</span>
+            <span className="meta">Kun for én:</span>
             <div className="chips">{people.map((p) => (
               <button key={p} type="button" className={`tag ${assign === p ? 'is-active' : ''}`} aria-pressed={assign === p} onClick={() => setAssign(assign === p ? null : p)}>{p === ME ? 'Mig' : personName(e, p).split(' ')[0]}</button>
             ))}{assign && <Btn size="sm" variant="primary" onClick={() => setAssign(null)}>Færdig</Btn>}</div>
-            {assign && <p className="meta small">Tryk på en vare for at give den til {assign === ME ? 'dig' : personName(e, assign).split(' ')[0]} alene. Tryk igen for at dele den mellem alle.</p>}
           </div>
         )}
         <ul className={`oitems ${assign ? 'is-assigning' : ''}`}>
@@ -349,7 +348,7 @@ function OutlayDetail({ id }: { id: string }) {
       {mineToPay ? (
       <section className="panel">
         <h2 className="panel__title">Det skylder du</h2>
-        {!payerOf(o) ? <p className="muted">Vælg hvem der lagde ud, så regner CENTRA din del ud.</p> : debt && (() => {
+        {!payerOf(o) ? <p className="muted">Vælg hvem der lagde ud.</p> : debt && (() => {
           const c = e.get(debt.person) as unknown as Person | null;
           const first = (c?.name ?? 'dem').split(' ')[0];
           return (
@@ -415,7 +414,7 @@ function OutlayDetail({ id }: { id: string }) {
             </div>
           );
         })}
-        {!ow.length && <p className="muted">Tilføj de personer, der var med, så regner CENTRA ud, hvad de skylder.</p>}
+        {!ow.length && <p className="muted">Ingen personer endnu.</p>}
         {pays.length > 0 && (<>
           <h3 className="panel__title pad-top">Betalinger</h3>
           <ul className="rows">{pays.map((p) => (
@@ -465,9 +464,9 @@ function Overview() {
   return (
     <div className="split__detail odetail" data-lenis-prevent>
       <h2 className="otitle">Hvem skylder dig</h2>
-      {bal.length ? list(bal, false) : <p className="muted">Ingen skylder dig noget lige nu. Tryk på Nyt udlæg, når du har lagt ud for nogen. Hvert udlæg får sin egen liste af varer.</p>}
+      {bal.length ? list(bal, false) : <p className="muted">Ingen skylder dig noget.</p>}
       <h2 className="otitle pad-top">Du skylder</h2>
-      {dbt.length ? list(dbt, true) : <p className="muted">Du skylder ikke nogen noget. Har en anden lagt ud for dig, så tryk Jeg skylder, og vælg hvem.</p>}
+      {dbt.length ? list(dbt, true) : <p className="muted">Du skylder ikke nogen noget.</p>}
     </div>
   );
 }

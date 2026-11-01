@@ -97,9 +97,8 @@ export function ContactImport({ onClose }: { onClose: () => void }) {
           <h2>Hent kontakter</h2>
           {!rows ? (
             <>
-              <p className="muted">Hent dem, du allerede har, med numre, mails, adresser, fødselsdage, profiler og billeder. Har du personen i CENTRA i forvejen, bliver kun det manglende fyldt ud. Du vælger selv, hvem der kommer med, og kan slette dem igen bagefter.</p>
               <div className="cimport__src">
-                {desktop && <button className="cimport__opt" onClick={() => void fromMacApp()} disabled={!!busy}><Icon name="contacts" /><span><b>Fra Mac'ens Kontakter</b><span className="meta">Alt fra appen Kontakter, også iCloud. Mac'en spørger om lov første gang.</span></span></button>}
+                {desktop && <button className="cimport__opt" onClick={() => void fromMacApp()} disabled={!!busy}><Icon name="contacts" /><span><b>Fra Mac'ens Kontakter</b></span></button>}
                 <button className="cimport__opt" onClick={() => file.current?.click()} disabled={!!busy}><Icon name="paperclip" /><span><b>Fra en vCard-fil (.vcf)</b><span className="meta">Fra Kontakter (Arkiv → Eksportér → vCard), iCloud, Google eller din telefon.</span></span></button>
                 <input ref={file} type="file" accept=".vcf,text/vcard,text/x-vcard" hidden onChange={(x) => { void fromFile(x.target.files?.[0]); x.target.value = ''; }} />
               </div>

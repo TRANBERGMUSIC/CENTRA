@@ -95,14 +95,14 @@ export function TallyDetail({ id }: { id: string }) {
     <div className="split__detail odetail" data-lenis-prevent>
       <button className="phone-back" onClick={() => go({ screen: 'outlays' })}><Icon name="chevron-left" size="sm" />Udlæg</button>
       <div className="otitlerow">
-        <input className="gtitle" defaultValue={t.title} placeholder="Fx Pant og mad med Jonas" aria-label="Titel" onBlur={(x) => x.target.value.trim() !== t.title && set({ title: x.target.value.trim() })} />
+        <input className="gtitle" defaultValue={t.title} aria-label="Titel" onBlur={(x) => x.target.value.trim() !== t.title && set({ title: x.target.value.trim() })} />
         <Btn size="sm" variant="text" icon="x" onClick={remove}>Slet</Btn>
       </div>
       <div className="ometa">
         <label className="ufield"><span>Dato</span><input type="date" value={t.date ?? ''} onChange={(x) => set({ date: x.target.value })} /></label>
         <div className="ufield"><span>Med</span>
           {p ? <span className="pchip">{<Avatar p={p} />}{p.name}<button aria-label="Skift person" onClick={() => set({ person: '' })}><Icon name="x" size="sm" /></button></span>
-            : <form className="addperson" onSubmit={(x) => { x.preventDefault(); setPerson(who); }}><input autoFocus={!lines.length} list="tally-people" value={who} onChange={(x) => setWho(x.target.value)} placeholder="Hvem? Skriv navnet, tryk Enter" aria-label="Med hvem" /><datalist id="tally-people">{contacts.map((c) => <option key={c.id} value={c.name} />)}</datalist></form>}
+            : <form className="addperson" onSubmit={(x) => { x.preventDefault(); setPerson(who); }}><input autoFocus={!lines.length} list="tally-people" value={who} onChange={(x) => setWho(x.target.value)} placeholder="Hvem?" aria-label="Med hvem" /><datalist id="tally-people">{contacts.map((c) => <option key={c.id} value={c.name} />)}</datalist></form>}
         </div>
       </div>
 
@@ -118,7 +118,7 @@ export function TallyDetail({ id }: { id: string }) {
         <form className="owrite" onSubmit={(x) => { x.preventDefault(); void fromText(); }}>
           <div className="owrite__box">
             <textarea ref={box} rows={3} className="otext" value={text} onChange={(x) => setText(x.target.value)} onKeyDown={(x) => { if (x.key === 'Enter' && (x.metaKey || x.ctrlKey)) { x.preventDefault(); void fromText(); } }}
-              placeholder={lines.length ? 'Fx "snusen var en gave" eller "Jonas fik pantpengene"' : 'Skriv det som du ville sige det, fx: Pantede flasker med Jonas for 440, vi købte mad for 315 som jeg betalte, og han gav mig en pakke snus til 64.'} aria-label="Hvad skete der" />
+              placeholder={lines.length ? 'Ret noget …' : 'Hvad skete der?'} aria-label="Hvad skete der" />
             <button type="button" className={`iconbtn ${dict.listening ? 'is-live' : ''}`} aria-pressed={dict.listening} aria-label={dict.listening ? 'Stop med at lytte' : 'Indtal det'} onClick={() => { spoken.current = text.trim(); dict.toggle(); }}><Icon name="mic" /></button>
           </div>
           <div className="owrite__bar"><Btn type="submit" variant="primary" icon="send" disabled={reading || !text.trim()}>{reading ? 'Regner …' : lines.length ? 'Opdatér' : 'Regn det ud'}</Btn></div>
@@ -156,7 +156,7 @@ export function TallyDetail({ id }: { id: string }) {
           x.preventDefault(); const f = new FormData(x.currentTarget); const n = String(f.get('n') ?? '').trim(), a = parseKr(String(f.get('a') ?? ''));
           if (n && Number.isFinite(a)) { set({ lines: [...lines, { id: rid(), text: n, amount: Math.abs(a), kind: 'expense', by: 'me', whose: 'both' }] }); x.currentTarget.reset(); }
         }}>
-          <input name="n" placeholder="Post, fx Mad" aria-label="Ny post" /><input name="a" className="oitems__amt" inputMode="decimal" placeholder="Beløb" aria-label="Beløb" /><Btn type="submit" icon="plus">Tilføj</Btn>
+          <input name="n" placeholder="Post" aria-label="Ny post" /><input name="a" className="oitems__amt" inputMode="decimal" placeholder="Beløb" aria-label="Beløb" /><Btn type="submit" icon="plus">Tilføj</Btn>
         </form>
       </section>
       {pays.length > 0 && (

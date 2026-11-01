@@ -88,7 +88,7 @@ export function Photos() {
       onDrop={(ev) => { ev.preventDefault(); setDrag(false); void add(ev.dataTransfer.files); }}>
       <div className="phlist" data-lenis-prevent>
         <div className="titlerow" data-enter>
-          <div><h1>Billeder</h1><p>Gem ting, du vil kunne finde igen: tøj, produkter, sedler, skærmbilleder. CENTRA læser hvert billede, så du (og Assist) kan søge i det, også i teksten.</p></div>
+          <div><h1>Billeder</h1></div>
           <div className="actions">
             <Btn icon="assist" onClick={() => { queueAssist('Hvad har jeg gemt af billeder for nylig? Giv mig et kort overblik.'); go({ screen: 'assist' }); }}>Spørg Assist</Btn>
             <Btn variant="primary" icon="plus" onClick={() => file.current?.click()}>Tilføj billeder</Btn>
@@ -96,7 +96,7 @@ export function Photos() {
           </div>
         </div>
         <div className="phbar" data-enter>
-          <input className="msearch" type="search" value={q} onChange={(x) => setQ(x.target.value)} placeholder="Søg: fx grøn trøje, booking, kvittering netto" aria-label="Søg i billeder" />
+          <input className="msearch" type="search" value={q} onChange={(x) => setQ(x.target.value)} placeholder="Søg" aria-label="Søg i billeder" />
           {busy > 0 && <span className="meta phbusy"><span className="spinner" aria-hidden="true" />Læser {busy} {busy === 1 ? 'billede' : 'billeder'} …</span>}
         </div>
         {kinds.length > 1 && <div className="ntags phkinds">{[null, ...kinds].map((k) => <button key={k ?? 'all'} className={`tag ${kind === k ? 'is-active' : ''}`} onClick={() => setKind(k)}>{k ?? 'Alle'}</button>)}</div>}
@@ -113,7 +113,7 @@ export function Photos() {
               )];
             })}
           </div>
-        ) : <div className="phempty"><Icon name="camera" /><p className="muted">{all.length ? 'Intet fundet. Prøv andre ord.' : 'Ingen billeder endnu. Tryk Tilføj billeder, træk billeder herind, eller sæt et skærmbillede ind med ⌘V. Du kan også sende et billede til Assist og sige "gem det her".'}</p></div>}
+        ) : <div className="phempty"><Icon name="camera" /><p className="muted">{all.length ? 'Intet fundet.' : 'Ingen billeder endnu.'}</p></div>}
       </div>
       {id && <PhotoDetail key={id} id={id} />}
       {drag && <div className="chat__drop phdrop" aria-hidden="true"><Icon name="camera" /><span>Slip for at gemme billederne</span></div>}
@@ -163,7 +163,7 @@ function PhotoDetail({ id }: { id: string }) {
         <form className="ntag__add" onSubmit={(x) => { x.preventDefault(); const v = tag.trim().replace(/^#/, '').toLowerCase(); if (v && !p.tags.includes(v)) set({ tags: [...p.tags, v] }); setTag(''); }}><input value={tag} onChange={(x) => setTag(x.target.value)} placeholder="+ tag" aria-label="Tilføj tag" /></form>
       </div>
       {p.text && <div className="phfield"><span className="meta">Tekst i billedet</span><pre className="phtext">{p.text}</pre><Btn size="sm" variant="text" onClick={() => { void navigator.clipboard?.writeText(p.text); toast({ text: 'Teksten er kopieret' }); }}>Kopiér teksten</Btn></div>}
-      <label className="phfield"><span className="meta">Din note</span><input className="kvinput" defaultValue={p.note ?? ''} placeholder="Fx Str. M, til jul, spørg Sofie" onBlur={(x) => x.target.value !== (p.note ?? '') && set({ note: x.target.value })} /></label>
+      <label className="phfield"><span className="meta">Din note</span><input className="kvinput" defaultValue={p.note ?? ''} onBlur={(x) => x.target.value !== (p.note ?? '') && set({ note: x.target.value })} /></label>
       <div className="phacts">
         <Btn icon="assist" onClick={() => { queueAssist(`Se på mit gemte billede [${p.id}] "${p.title}": `); go({ screen: 'assist' }); }}>Spørg Assist</Btn>
         <Btn icon="notes" onClick={toNote}>Gem som note</Btn>

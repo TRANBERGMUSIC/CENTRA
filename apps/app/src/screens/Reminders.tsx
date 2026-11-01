@@ -53,7 +53,7 @@ export function Reminders() {
   return (
     <main className="canvas reminders" ref={ref}>
       <div className="titlerow" data-enter>
-        <div><h1>Huskeliste</h1><p>Det, du skal huske at gøre. Med et tidspunkt får du besked, når det er tid. Sig det til Assist eller Siri: "husk mig på at levere udstyr tilbage til Sigge kl. 12".</p></div>
+        <div><h1>Huskeliste</h1></div>
       </div>
 
       <form className="hl__add" onSubmit={add} data-enter>

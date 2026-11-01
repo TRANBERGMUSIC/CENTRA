@@ -61,7 +61,7 @@ export function Expenses() {
   return (
     <main className="canvas" ref={ref}>
       <div className="titlerow" data-enter>
-        <div><h1>Udgifter</h1><p>{list.length ? `${fixed.length} faste udgifter. Klik på en kategori for at filtrere.` : 'Få overblik over hvad der går ud hver måned, og hvor du kan opsige det.'}</p></div>
+        <div><h1>Udgifter</h1>{list.length > 0 && <p>{fixed.length} faste udgifter</p>}</div>
         <div className="actions">
           <Btn icon="assist" onClick={() => { queueAssist('Gennemgå mine mails og find faste udgifter og abonnementer (kvitteringer, fornyelser, fakturaer). Vis dem, og spørg før du tilføjer dem til Udgifter.'); go({ screen: 'assist' }); }}>Find i mine mails</Btn>
           <Btn variant="primary" icon="plus" onClick={() => setEdit('new')}>Ny udgift</Btn>
@@ -99,7 +99,7 @@ export function Expenses() {
                 <Btn size="sm" variant="text" icon="edit" aria-label={`Ret ${x.name}`} onClick={() => setEdit(x)} />
               </li>
             ))}</ul>
-          ) : <p className="muted">Ingen udgifter endnu. Tilføj husleje, abonnementer, forsikringer, telefon og andre faste betalinger, eller lad Assist finde dem i dine mails.</p>}
+          ) : <p className="muted">Ingen udgifter endnu.</p>}
         </Panel>
         <Panel title="De næste 30 dage" className="span-5" count={soon.length}>
           {soon.length ? <ul className="rows">{soon.map(({ x, d }, i) => (
@@ -144,7 +144,7 @@ function ExpenseEditor({ x, onClose }: { x: Expense | null; onClose: () => void 
       <div className="scrim" onClick={onClose} />
       <form className="sheet" role="dialog" aria-label={x ? 'Ret udgift' : 'Ny udgift'} onSubmit={save}>
         <div className="sheet__body">
-          <input className="gtitle" autoFocus list="services" value={f.name} placeholder="Navn, fx Netflix eller Husleje" aria-label="Navn"
+          <input className="gtitle" autoFocus list="services" value={f.name} placeholder="Navn" aria-label="Navn"
             onChange={(ev) => { const v = ev.target.value; const s = serviceFor(v); setF((o) => ({ ...o, name: v, ...(s && !x ? { category: s.category } : {}) })); }} />
           <datalist id="services">{SERVICES.map((s) => <option key={s.name} value={s.name} />)}</datalist>
           <div className="gedit__grid">
@@ -158,7 +158,7 @@ function ExpenseEditor({ x, onClose }: { x: Expense | null; onClose: () => void 
             <label className="ufield"><span>Link til opsigelse eller ændring</span><input value={f.cancelUrl} onChange={set('cancelUrl')} placeholder={svc ? svc.cancel : 'https://… (tom: CENTRA finder et)'} spellCheck={false} />
               <span className="meta">{f.cancelUrl ? 'Dit eget link bruges.' : svc ? `Kendt tjeneste: ${svc.name}. Link til opsigelse er sat.` : 'Uden link søger "Opsig" på nettet efter, hvordan du opsiger den.'}</span></label>
           )}
-          <label className="ufield"><span>Note</span><input value={f.note} onChange={set('note')} placeholder="Fx kundenummer eller bindingsperiode" /></label>
+          <label className="ufield"><span>Note</span><input value={f.note} onChange={set('note')} /></label>
           {x && x.interval !== 'once' && <label className="checkrow small"><input type="checkbox" checked={f.active} onChange={set('active')} />Aktiv (slå fra, når den er opsagt)</label>}
           {err && <p className="unlock__error" role="alert">{err}</p>}
           <div className="sheet__foot">

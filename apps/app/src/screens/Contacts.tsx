@@ -77,7 +77,7 @@ export function Contacts() {
             </div>
           ))}
           <More at={moreAt} left={list.length - shown} />
-          {!all.length && <p className="muted pad">Ingen kontakter endnu. Tryk Hent for at få dem fra din Mac, opret en, gem en afsender fra indbakken, eller tilføj folk, når du laver et udlæg. Du kan også sige til Assist: "Gem Mads som kontakt, han er min kollega i Netto, 20 30 40 50".</p>}
+          {!all.length && <p className="muted pad">Ingen kontakter endnu.</p>}
           {all.length > 0 && !list.length && <p className="muted pad">Ingen fundet.</p>}
         </div>
       </div>
@@ -179,7 +179,7 @@ function PersonCard({ id }: { id: string }) {
         <section className="panel">
           <h2 className="panel__title">Noter</h2>
           <p className="meta">Hvem er {p.name?.split(' ')[0] || 'personen'}, hvad laver de, hvad bruger du kontakten til? Assist læser med og husker det.</p>
-          <textarea className="pnotes" defaultValue={p.notes ?? ''} placeholder="Fx: Kollega i Netto. Spiller bas. Kan låne en trailer." onBlur={(x) => x.target.value !== (p.notes ?? '') && set({ notes: x.target.value })} />
+          <textarea className="pnotes" defaultValue={p.notes ?? ''} onBlur={(x) => x.target.value !== (p.notes ?? '') && set({ notes: x.target.value })} />
         </section>
 
         <section className="panel">

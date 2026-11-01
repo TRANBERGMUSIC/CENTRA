@@ -148,7 +148,7 @@ export function Notes() {
             </button>
           ))}
           <More at={moreAt} left={list.length - shown} />
-          {!list.length && <p className="meta pad">{words.length ? 'Intet fundet.' : view.kind === 'folder' ? 'Mappen er tom. Træk en note herover, eller tryk + for en ny.' : 'Ingen noter her endnu.'}</p>}
+          {!list.length && <p className="meta pad">{words.length ? 'Intet fundet.' : view.kind === 'folder' ? 'Mappen er tom.' : 'Ingen noter her endnu.'}</p>}
         </div>
       </div>
       {id ? <Editor key={id} id={id} /> : <div className="editor"><p className="muted">Ingen noter endnu. <button className="tag" onClick={() => newNote()}>Skriv den første</button></p></div>}
@@ -219,7 +219,7 @@ function Editor({ id }: { id: string }) {
               {folderPaths(e).map((p) => <option key={p} value={p}>{p.split('/').join(' › ')}</option>)}<option value="__new">Ny mappe …</option></select></label>
           ) : (
             <form className="nmove nmove--new" onSubmit={(x) => { x.preventDefault(); if (newFolder.trim()) { try { const p = createFolder(e, newFolder); e.set('note', id, { folder: p }); } catch (err) { toast({ text: (err as Error).message }); } } setNewFolder(null); }}>
-              <Icon name="folder" size="sm" /><input autoFocus value={newFolder} onChange={(x) => setNewFolder(x.target.value)} onBlur={() => setNewFolder(null)} onKeyDown={(x) => x.key === 'Escape' && setNewFolder(null)} placeholder="Fx Arbejde/Netto" aria-label="Ny mappe" />
+              <Icon name="folder" size="sm" /><input autoFocus value={newFolder} onChange={(x) => setNewFolder(x.target.value)} onBlur={() => setNewFolder(null)} onKeyDown={(x) => x.key === 'Escape' && setNewFolder(null)} aria-label="Ny mappe" />
             </form>
           )}
           <span className="right">

@@ -149,7 +149,7 @@ export function Inbox() {
             })}
             <button className="mfolder mfolder--add" onClick={() => setEditFolder('new')} title="Ny mappe. Du kan også bede Assist om at lave og fylde mapper."><Icon name="plus" size="sm" /><span>{fl.length ? 'Mappe' : 'Ny mappe'}</span></button>
           </div>
-          {everything.length > 0 && <input className="msearch" type="search" value={q} onChange={(x) => setQ(x.target.value)} placeholder="Søg i alle mails, også sendte og arkiverede" aria-label="Søg i mails" />}
+          {everything.length > 0 && <input className="msearch" type="search" value={q} onChange={(x) => setQ(x.target.value)} placeholder="Søg" aria-label="Søg i mails" />}
           {words.length > 0 ? (
             <div className="msearch__ask"><span className="meta">{rows.length} fundet i alle konti</span>
               <Btn size="sm" variant="text" icon="assist" onClick={() => { queueAssist(`Find i mine mails: ${q.trim()}. Fortæl hvad du fandt, og hvad jeg skal bruge det til.`); go({ screen: 'assist' }); }}>Spørg Assist</Btn></div>
@@ -160,7 +160,7 @@ export function Inbox() {
                   {FILTERS.map(([k, l]) => <button key={k} role="radio" aria-checked={filter === k} className={filter === k ? 'is-active' : ''} onClick={() => setFilter(k)}>{l} <span className="num">{count(k)}</span></button>)}
                 </div>
               ) : fl.some((f) => f.id === box) ? (
-                <div className="mfolderbar"><span className="meta ellipsis">{fl.find((f) => f.id === box)?.description || 'Træk mails herind, eller giv mappen regler, så nye mails havner her af sig selv.'}</span>
+                <div className="mfolderbar"><span className="meta ellipsis">{fl.find((f) => f.id === box)?.description}</span>
                   <Btn size="sm" variant="text" icon="edit" onClick={() => setEditFolder(fl.find((f) => f.id === box) ?? null)}>Mappe og regler</Btn></div>
               ) : <span />}
               <select className="mselect msort" value={sort} onChange={(x) => setSort(x.target.value as Sort)} aria-label="Sortér">{SORTS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
@@ -329,10 +329,10 @@ function FolderSheet({ f, onClose, onSaved, onDeleted }: { f: MailFolder | null;
       <form className="sheet foldersheet" role="dialog" aria-label={f ? `Ret ${f.name}` : 'Ny mappe'} onSubmit={save}>
         <div className="sheet__body">
           <h2>{f ? 'Mappe og regler' : 'Ny mappe'}</h2>
-          <label className="ufield"><span>Navn</span><input autoFocus value={name} onChange={(x) => setName(x.target.value)} placeholder="Fx Kvitteringer, Netto, DJ" /></label>
-          <label className="ufield"><span>Hvad hører til her? (Assist sorterer efter det)</span><input value={desc} onChange={(x) => setDesc(x.target.value)} placeholder="Fx alt om mine DJ-lektioner og bookinger" /></label>
+          <label className="ufield"><span>Navn</span><input autoFocus value={name} onChange={(x) => setName(x.target.value)} /></label>
+          <label className="ufield"><span>Hvad hører til her? (Assist sorterer efter det)</span><input value={desc} onChange={(x) => setDesc(x.target.value)} /></label>
           <div className="frules">
-            <span className="meta">Faste regler: en mail, der passer på én regel, flyttes med det samme. Komma = et af ordene.</span>
+            <span className="meta">Regler · komma = et af ordene</span>
             {rules.map((r, i) => (
               <div className="frule" key={i}>
                 <input value={r.from ?? ''} onChange={(x) => setRule(i, { from: x.target.value })} placeholder="Fra (navn eller mail)" aria-label="Fra" />

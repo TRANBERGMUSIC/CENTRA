@@ -89,16 +89,15 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
           <div className="kv"><span>Forbindelse</span><span className="meta">{status.online ? 'Online' : 'Offline, ændringer gemmes lokalt'}</span></div>
           <div className="kv"><span>Venter på at blive sendt</span><span className="num">{status.pending}</span></div>
           <div className="kv"><span>Sidst synkroniseret</span><span className="num">{status.last ? fmt.hm(new Date(status.last)) : '—'}</span></div>
-          <p className="meta pad-top">Alt indhold krypteres på enheden med en nøgle fra dit password (Argon2id + XChaCha20-Poly1305). Serveren gemmer kun krypterede data.</p>
         </Panel>
         </>) : (
         <Panel title="Synkronisering" className="span-12">
-          <div className="kv"><span>Slået fra<span className="meta block">CENTRA kører på denne computer, og alt gemmes krypteret med en nøgle fra dit password. Sync til iPhone slår til, når din sync-server er sat op (se docs/IPHONE.md).</span></span><span className="meta">Kun denne enhed</span></div>
+          <div className="kv"><span>Slået fra</span><span className="meta">Kun denne enhed</span></div>
         </Panel>
         )}
         <CalTypesPanel />
         <Panel title="Mail" className="span-12">
-          <div className="kv"><span>Vis billeder i mails automatisk<span className="meta block">Billeder hentes fra afsenderens server, når du åbner mailen. Slår du det fra, viser CENTRA en knap i stedet, og afsenderen kan ikke se, at du har læst den. Usynlige sporings-pixels fjernes altid.</span></span>
+          <div className="kv"><span>Vis billeder i mails automatisk</span>
             <label className="checkrow"><input type="checkbox" checked={remoteImagesOn(e)} onChange={(x) => { setRemoteImages(e, x.target.checked); toast({ text: x.target.checked ? 'Billeder vises automatisk' : 'Billeder vises først, når du beder om det' }); }} aria-label="Vis billeder i mails automatisk" /></label></div>
         </Panel>
         {desktop && <BrowserPanel />}
@@ -150,7 +149,7 @@ function DataPanel({ onExport }: { onExport: () => void }) {
           </div>
         );
       })}
-      <div className="kv kv--danger"><span>Slet alt indhold<span className="meta block">Alt ovenfor på én gang. Dit login, dine forbindelser og indstillinger bliver. Skriv SLET for at bekræfte.</span></span>
+      <div className="kv kv--danger"><span>Slet alt indhold<span className="meta block">Skriv SLET for at bekræfte.</span></span>
         <span className="kvacts"><input className="kvinput" value={word} onChange={(x) => setWord(x.target.value)} placeholder="SLET" aria-label="Skriv SLET" style={{ width: 90 }} /><Btn size="sm" variant="primary" disabled={word.trim().toUpperCase() !== 'SLET'} onClick={() => wipe(all, 'Alt indhold')}>Slet alt</Btn></span>
       </div>
     </Panel>
@@ -227,7 +226,7 @@ function CalTypesPanel() {
   const [color, setColor] = useState(SWATCHES[2]);
   return (
     <Panel title="Kalendertyper" className="span-12" count={types.length}>
-      <p className="meta">Aftaler vises i deres types farve. Tryk på farven for at vælge en ny på farvehjulet.</p>
+      
       {types.map((t) => (
         <div key={t.id} className="typerow">
           <label className="typenew__color" style={vars({ '--tc': t.color })} title="Skift farve"><input type="color" value={t.color} onChange={(x) => updateType(e, t.id, { color: x.target.value })} aria-label={`Farve for ${t.name}`} /></label>
@@ -240,7 +239,7 @@ function CalTypesPanel() {
       ))}
       <form className="typerow" onSubmit={(x) => { x.preventDefault(); try { createType(e, name, color); setName(''); } catch (err) { toast({ text: (err as Error).message }); } }}>
         <label className="typenew__color" style={vars({ '--tc': color })} title="Vælg farve"><input type="color" value={color} onChange={(x) => setColor(x.target.value)} aria-label="Farve" /></label>
-        <input className="typenew__name" value={name} onChange={(x) => setName(x.target.value)} placeholder="Ny type, fx Træning" aria-label="Ny type" />
+        <input className="typenew__name" value={name} onChange={(x) => setName(x.target.value)} placeholder="Ny type" aria-label="Ny type" />
         <Btn size="sm" type="submit" disabled={!name.trim()}>Tilføj</Btn>
       </form>
     </Panel>
@@ -307,17 +306,17 @@ function AiPanel() {
           <Btn size="sm" type="submit" disabled={busy || key.trim().length < 20}>Gem</Btn>
           {s.claudeKey && <Btn size="sm" type="button" variant="text" onClick={async () => { if (await ask({ title: 'Fjern Claude-nøglen?', text: 'Assist virker ikke, før du sætter en ny ind.', ok: 'Fjern', danger: true })) save({ claudeKey: '' }); }}>Fjern</Btn>}
         </form></div>
-      <div className="kv"><span>Claude-model<span className="meta block">Automatisk bruger altid Haiku, den billigste (omkring en tyvendedel af Sonnets pris). Under et svar kan du trykke Svar grundigere for at spørge Sonnet.</span></span>
+      <div className="kv"><span>Claude-model</span>
         <select className="kvinput" value={s.modelMode || 'auto'} onChange={(ev) => save({ modelMode: ev.target.value })} aria-label="Claude-model">
           {CLAUDE_MODELS.map(([m, l]) => <option key={m} value={m}>{l}</option>)}
         </select></div>
-      <div className="kv"><span>Lokal model<span className="meta block">Navn i Ollama, fx qwen3:8b eller llama3.1. Hent med: ollama pull {s.localModel}</span></span>
+      <div className="kv"><span>Lokal model</span>
         <input className="kvinput" defaultValue={s.localModel} onBlur={(ev) => ev.target.value.trim() && save({ localModel: ev.target.value.trim() })} aria-label="Lokal model" /></div>
       <div className="kv"><span>Brug den lokale model, når Claude ikke kan nås</span>
         <input type="checkbox" checked={s.fallbackLocal} onChange={(ev) => save({ fallbackLocal: ev.target.checked })} aria-label="Lokal model som reserve" /></div>
-      <div className="kv"><span>Sortér nye mails med AI<span className="meta block">Claude (den hurtige model) læser afsender, emne og et kort uddrag af nye mails og flytter reklamer og nyhedsbreve til "Andet".</span></span>
+      <div className="kv"><span>Sortér nye mails med AI</span>
         <input type="checkbox" checked={s.triage} onChange={(ev) => save({ triage: ev.target.checked })} aria-label="Sortér mails med AI" /></div>
-      <div className="kv"><span>Forbrug og budget<span className="meta block">Hvad Claude har kostet, pr. dag og model, og hvad automatisk modelvalg har sparet.</span></span><Btn size="sm" onClick={() => go({ screen: 'usage' })}>Se forbrug</Btn></div>
+      <div className="kv"><span>Forbrug og budget</span><Btn size="sm" onClick={() => go({ screen: 'usage' })}>Se forbrug</Btn></div>
       <div className="kv"><span>Test forbindelsen</span><Btn size="sm" onClick={test} disabled={busy}>{busy ? 'Tester …' : 'Test'}</Btn></div>
     </Panel>
   );

@@ -54,11 +54,10 @@ export function Goals() {
         {shown.some((x) => finished(x.g, x.s)) && <button className="gsec gsec--btn" onClick={() => setShowDone((v) => !v)} aria-expanded={showDone}>Fuldført <span className="num">{shown.filter((x) => finished(x.g, x.s)).length}</span> <Icon name="chevron-down" size="sm" /></button>}
         {showDone && section('', shown.filter((x) => finished(x.g, x.s)))}
       </div>
-      {cur ? <GoalDetail key={cur.g.id} g={cur.g} s={cur.s} /> : <div className="gdetail"><p className="muted pad">Ingen mål endnu. Lav et med knappen, eller fortæl Assist, hvad du gerne vil nå.</p></div>}
+      {cur ? <GoalDetail key={cur.g.id} g={cur.g} s={cur.s} /> : <div className="gdetail"><p className="muted pad">Ingen mål endnu.</p></div>}
       <aside className="details" aria-label="Detaljer">
         {pending > 0 && <div className="dsec"><div className="dsec__title">Forslag fra Assist</div><SuggestionRows limit={2} /></div>}
         {cur?.g.event && <LinkedEvent id={cur.g.event} />}
-        <div className="dsec"><div className="dsec__title">Med Assist</div><p className="muted small">Fortæl Assist om dine mål med dine egne ord: "Jeg vil løbe 5 km 10 gange i år", "Jeg skal have lavet hjemmesiden inden jul" eller "Spar 10.000 kr inden sommer". Sig "Jeg løb 5 km i dag", så holder Assist styr på resten. <button className="tag" onClick={() => go({ screen: 'assist' })}>Åbn Assist</button></p></div>
       </aside>
       {creating && <NewGoal onClose={() => setCreating(false)} onMade={(nid) => { setCreating(false); go({ screen: 'goals', id: nid }); }} />}
     </main>
@@ -240,12 +239,12 @@ function GoalEdit({ g, onDelete }: { g: Goal; onDelete: () => void }) {
       </div>
       <div className="gedit__grid">
         {g.kind === 'measure' && <>
-          <label className="ufield"><span>Mål</span><input inputMode="decimal" defaultValue={g.target ?? ''} onBlur={(x) => { const n = numIn(x.target.value); if (n) set({ target: n }); }} placeholder="fx 300" /></label>
-          <label className="ufield"><span>Enhed</span><input defaultValue={g.unit ?? ''} onBlur={(x) => set({ unit: x.target.value.trim() })} placeholder="fx km, kr, bøger" /></label>
+          <label className="ufield"><span>Mål</span><input inputMode="decimal" defaultValue={g.target ?? ''} onBlur={(x) => { const n = numIn(x.target.value); if (n) set({ target: n }); }} /></label>
+          <label className="ufield"><span>Enhed</span><input defaultValue={g.unit ?? ''} onBlur={(x) => set({ unit: x.target.value.trim() })} /></label>
         </>}
         {g.kind === 'count' && <>
-          <label className="ufield"><span>Hvor mange gange</span><input inputMode="numeric" defaultValue={g.target ?? ''} onBlur={(x) => { const n = numIn(x.target.value); if (n) set({ target: Math.round(n) }); }} placeholder="fx 10" /></label>
-          <label className="ufield"><span>Hvad er én gang</span><input defaultValue={g.each ?? ''} onBlur={(x) => set({ each: x.target.value.trim() })} placeholder="fx løbe 5 km" /></label>
+          <label className="ufield"><span>Hvor mange gange</span><input inputMode="numeric" defaultValue={g.target ?? ''} onBlur={(x) => { const n = numIn(x.target.value); if (n) set({ target: Math.round(n) }); }} /></label>
+          <label className="ufield"><span>Hvad er én gang</span><input defaultValue={g.each ?? ''} onBlur={(x) => set({ each: x.target.value.trim() })} /></label>
           <label className="ufield"><span>Pr.</span><select value={g.period ?? 'total'} onChange={(x) => set({ period: x.target.value as Period })}>{(['year', 'month', 'week', 'total'] as Period[]).map((p) => <option key={p} value={p}>{p === 'total' ? 'I alt (inden fristen)' : PERIOD_NAMES[p].replace(/^om /, '').replace(/^./, (c) => c.toUpperCase())}</option>)}</select></label>
         </>}
         {g.kind === 'habit' && <label className="ufield"><span>Gange om ugen</span><input inputMode="numeric" defaultValue={g.perWeek ?? 1} onBlur={(x) => { const n = numIn(x.target.value); if (n) set({ perWeek: Math.round(n) }); }} /></label>}
@@ -324,7 +323,6 @@ function NewGoal({ onClose, onMade }: { onClose: () => void; onMade: (id: string
             <label className="ufield"><span>Område</span><input list="goal-areas-new" value={area} onChange={(x) => setArea(x.target.value)} /></label>
             <datalist id="goal-areas-new">{['Privat', 'Arbejde', 'Sundhed', 'Økonomi', 'Projekter', 'Familie', 'Musik'].map((a) => <option key={a} value={a} />)}</datalist>
           </div>
-          <p className="meta">Du kan også bare fortælle Assist om målet med dine egne ord, så sætter den det op.</p>
           <div className="sheet__foot"><span className="push-right" /><Btn type="button" variant="text" onClick={onClose}>Annullér</Btn><Btn type="submit" variant="primary" disabled={!title.trim()}>Lav målet</Btn></div>
         </div>
       </form>

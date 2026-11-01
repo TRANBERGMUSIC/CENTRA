@@ -51,7 +51,7 @@ export function UsageScreen() {
   return (
     <main className="canvas" ref={ref}>
       <div className="titlerow" data-enter>
-        <div><h1>Claude-forbrug</h1><p>Beregnet ud fra Anthropics listepriser i kroner (1 $ = {rate.toLocaleString('da-DK')} kr). Den officielle regning står på din konto hos Anthropic.</p></div>
+        <div><h1>Claude-forbrug</h1></div>
         <div className="actions"><a className="btn btn--secondary" href="https://console.anthropic.com/" target="_blank" rel="noreferrer">Åbn Anthropic-kontoen ↗</a></div>
       </div>
 
@@ -64,16 +64,16 @@ export function UsageScreen() {
 
       <div className="grid12">
         <Panel title="Model og budget" className="span-12">
-          <div className="kv"><span>Model<span className="meta block">Automatisk bruger altid Haiku, den billigste. Vil du have et grundigere svar, så tryk Svar grundigere under svaret (Sonnet).</span></span>
+          <div className="kv"><span>Model</span>
             <select className="kvinput" value={s.modelMode || 'auto'} onChange={(x) => saveAiSettings(e, { modelMode: x.target.value })} aria-label="Model">{CLAUDE_MODELS.map(([m, l]) => <option key={m} value={m}>{l}</option>)}</select></div>
-          <div className="kv"><span>Månedligt budget (kr)<span className="meta block">Når det er brugt, svarer Assist kun med Haiku resten af måneden. 0 = intet loft.</span></span>
+          <div className="kv"><span>Månedligt budget (kr)<span className="meta block">0 = intet loft</span></span>
             <input className="kvinput num" inputMode="numeric" defaultValue={budget || ''} placeholder="0" onBlur={(x) => saveAiSettings(e, { budgetDkk: Math.max(0, Number(x.target.value.replace(',', '.')) || 0) })} aria-label="Budget i kroner" /></div>
           {budget > 0 && <div className="budgetbar"><Progress ratio={monthDkk / budget} focus={monthDkk > budget * 0.8} /><span className="meta num">{kr(monthDkk)} af {kr(budget, { short: true })}{monthDkk >= budget ? ' · budgettet er brugt, Assist bruger Haiku' : ''}</span></div>}
           <div className="kv"><span>Kurs (kr pr. dollar)</span><input className="kvinput num" inputMode="decimal" defaultValue={String(rate).replace('.', ',')} onBlur={(x) => { const v = Number(x.target.value.replace(',', '.')); if (v > 0) saveAiSettings(e, { usdDkk: v }); }} aria-label="Kurs" /></div>
         </Panel>
 
         <Panel title="Pr. dag" className="span-7" count="seneste 30 dage">
-          {rows.length ? <><MonthBars bars={bars} /><ul className="legend legend--row">{MODEL_ORDER.map((m) => <li key={m}><i style={{ background: `var(--viz-${MODEL_SLOT[m] + 1})` }} /><span>{MODEL_NAMES[m]}</span></li>)}</ul></> : <p className="muted">Intet forbrug endnu. Det dukker op her, så snart du bruger Assist.</p>}
+          {rows.length ? <><MonthBars bars={bars} /><ul className="legend legend--row">{MODEL_ORDER.map((m) => <li key={m}><i style={{ background: `var(--viz-${MODEL_SLOT[m] + 1})` }} /><span>{MODEL_NAMES[m]}</span></li>)}</ul></> : <p className="muted">Intet forbrug endnu.</p>}
         </Panel>
         <Panel title="Hvad pengene går til" className="span-5" count="denne måned">
           {byFeature.length ? <Donut data={byFeature} center={kr(monthDkk)} sub="denne måned" /> : <p className="muted">Intet endnu.</p>}
@@ -87,7 +87,6 @@ export function UsageScreen() {
                 <td className="num meta">{r.m.includes('haiku') ? '0,10 / 0,50 $' : r.m.includes('sonnet') ? '2 / 10 $' : '4 / 20 $'}</td></tr>
             ))}</tbody>
           </table>
-          <p className="meta pad-top">Haiku koster omkring en tyvendedel af Sonnet. Sonnet bruges kun, når du selv beder om det. <Btn size="sm" variant="text" onClick={() => go({ screen: 'assist' })}>Åbn Assist</Btn></p>
         </Panel>
         <ClaudeSpend />
       </div>
@@ -165,9 +164,8 @@ export function ClaudeSpend() {
             );
           })}
         </ul>
-      ) : <p className="muted">{log.length ? 'Intet af den slags endnu.' : 'Intet brugt endnu. Hver gang CENTRA bruger Claude (Assist, kvitteringer, udlæg, mailsortering), kommer det på listen her med pris.'}</p>}
+      ) : <p className="muted">{log.length ? 'Intet af den slags endnu.' : 'Intet brugt endnu.'}</p>}
       {list.length > shown && <Btn size="sm" variant="text" onClick={() => setShown((n) => n + 30)}>Vis flere ({list.length - shown})</Btn>}
-      <p className="meta">Beregnet ud fra Anthropics listepriser. Den officielle regning står på din konto hos Anthropic.</p>
     </Panel>
   );
 }

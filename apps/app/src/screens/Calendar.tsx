@@ -74,17 +74,59 @@ function WeekView({ all, types, onEdit, onNew }: ViewProps) {
   const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
   const events = useMemo(() => occurrences(all, new Date(monday.getTime() - DAY * 30), addDays(monday, 7)), [all, monday.getTime()]);
   const H0 = 5, H1 = 24;
+
+  // Two fingers sideways on the trackpad (or a finger on a touch screen), anywhere on the week: the
+  // week follows, and past a point the next or previous one slides in, like the Mac's Calendar.
+  const grid = useRef<HTMLDivElement>(null);
+  const swipe = useRef({ dx: 0, lock: 0, timer: 0 as unknown as ReturnType<typeof setTimeout> });
+  const follow = (dx: number) => { if (!reduced() && grid.current) gsap.set(grid.current.querySelectorAll('.week__day'), { x: dx * 0.5, opacity: 1 - Math.min(0.35, Math.abs(dx) / 900) }); };
+  const settle = () => { if (grid.current) gsap.to(grid.current.querySelectorAll('.week__day'), { x: 0, opacity: 1, duration: 0.4, ease: 'back.out(1.3)', clearProps: 'transform,opacity' }); };
+  const go = (dir: 1 | -1) => { if (grid.current) gsap.set(grid.current.querySelectorAll('.week__day'), { clearProps: 'transform,opacity' }); setWeek((w) => w + dir); };
+  useEffect(() => {
+    const el = grid.current;
+    if (!el) return;
+    const onWheel = (ev: WheelEvent) => {
+      if (Math.abs(ev.deltaX) <= Math.abs(ev.deltaY) || ev.ctrlKey) return;
+      ev.preventDefault();
+      const sw = swipe.current;
+      if (performance.now() < sw.lock) return; // the trackpad's glide after a swipe that already went
+      sw.dx -= ev.deltaX;
+      clearTimeout(sw.timer);
+      if (Math.abs(sw.dx) > 140) { const dir = sw.dx < 0 ? 1 : -1; sw.dx = 0; sw.lock = performance.now() + 450; go(dir); return; }
+      follow(sw.dx);
+      sw.timer = setTimeout(() => { sw.dx = 0; settle(); }, 140);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const touch = useRef<{ x: number; y: number; t: number; side?: boolean } | null>(null);
+  const onTouchStart = (ev: React.TouchEvent) => { const p = ev.touches[0]; touch.current = { x: p.clientX, y: p.clientY, t: performance.now() }; };
+  const onTouchMove = (ev: React.TouchEvent) => {
+    const t = touch.current, p = ev.touches[0];
+    if (!t) return;
+    const dx = p.clientX - t.x, dy = p.clientY - t.y;
+    if (t.side === undefined && Math.hypot(dx, dy) > 10) t.side = Math.abs(dx) > Math.abs(dy) * 1.2;
+    if (t.side) follow(dx);
+  };
+  const onTouchEnd = (ev: React.TouchEvent) => {
+    const t = touch.current, p = ev.changedTouches[0];
+    touch.current = null;
+    if (!t?.side) return;
+    const dx = p.clientX - t.x, v = dx / Math.max(1, performance.now() - t.t);
+    if (Math.abs(dx) > 120 || Math.abs(v) > 0.45) go(dx < 0 ? 1 : -1); else settle();
+  };
   const f = (d: Date, day: Date) => Math.min(1, Math.max(0, ((d.getTime() - day.getTime()) / 60000 - H0 * 60) / ((H1 - H0) * 60)));
   return (
     <main className="canvas" ref={ref}>
-      <div className="titlerow" data-enter><div><h1>Uge {weekNo(monday)}</h1><p>{fmt.dayLabel(days[0])} – {fmt.dayLabel(days[6]).toLowerCase()}. {all.length ? 'Klik på en aftale for at rette den, dobbeltklik i en dag for at oprette.' : 'Tom endnu. Opret en aftale, tilknyt din Google- eller iCloud-kalender under Forbindelser, eller fortæl Assist om din arbejdstid.'}</p></div>
+      <div className="titlerow" data-enter><div><h1>Uge {weekNo(monday)}</h1><p>{fmt.dayLabel(days[0])} – {fmt.dayLabel(days[6]).toLowerCase()}</p></div>
         <div className="actions">
           <Btn size="sm" icon="plus" onClick={() => onNew(nextHour(now))}>Ny aftale</Btn>
           <Btn size="sm" variant="text" icon="chevron-left" aria-label="Forrige uge" onClick={() => setWeek((w) => w - 1)} />
           <Btn size="sm" onClick={() => setWeek(0)} disabled={week === 0}>Denne uge</Btn>
           <Btn size="sm" variant="text" aria-label="Næste uge" onClick={() => setWeek((w) => w + 1)}><span className="flip-x"><Icon name="chevron-left" size="sm" /></span></Btn>
         </div></div>
-      <div className="week" data-enter>
+      <div className="week" data-enter ref={grid} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
         <div className="week__hours meta num">{Array.from({ length: Math.floor((H1 - H0) / 2) + 1 }, (_, i) => H0 + i * 2).map((h) => <span key={h} style={vars({ '--at': (h - H0) / (H1 - H0) })}>{String(h).padStart(2, '0')}</span>)}</div>
         {days.map((d) => {
           const isToday = sameDay(d, now);
@@ -163,26 +205,34 @@ function DayView({ all, types, onEdit, onNew }: ViewProps) {
 
   // Swipe sideways for the day before or after. The day follows the finger; let go past a third of
   // the way (or with a flick) and the next day slides in, otherwise it springs back.
-  const touch = useRef<{ x: number; y: number; t: number; side?: boolean } | null>(null);
-  const onTouchStart = (ev: React.TouchEvent) => { const p = ev.touches[0]; touch.current = { x: p.clientX, y: p.clientY, t: performance.now() }; };
+  // Anywhere on the day (the hours, the events, the label) swipes days; on the week strip it swipes weeks.
+  const touch = useRef<{ x: number; y: number; t: number; side?: boolean; strip: boolean } | null>(null);
+  const moving = () => (touch.current?.strip ? Array.from(week.current?.querySelectorAll('.calm__d') ?? []) : [grid.current]).filter(Boolean) as Element[];
+  const onTouchStart = (ev: React.TouchEvent) => {
+    if ((ev.target as HTMLElement).closest('.calm__actions, .calm__nav')) return;
+    const p = ev.touches[0];
+    touch.current = { x: p.clientX, y: p.clientY, t: performance.now(), strip: !!(ev.target as HTMLElement).closest('.calm__week') };
+  };
   const onTouchMove = (ev: React.TouchEvent) => {
     const t = touch.current, p = ev.touches[0];
-    if (!t || !grid.current) return;
+    if (!t) return;
     const dx = p.clientX - t.x, dy = p.clientY - t.y;
     if (t.side === undefined && Math.hypot(dx, dy) > 10) t.side = Math.abs(dx) > Math.abs(dy) * 1.2;
     if (!t.side || reduced()) return;
-    gsap.set(grid.current, { x: dx, opacity: 1 - Math.min(0.5, Math.abs(dx) / 700) });
+    gsap.set(moving(), { x: t.strip ? dx * 0.6 : dx, opacity: 1 - Math.min(0.5, Math.abs(dx) / 700) });
   };
   const onTouchEnd = (ev: React.TouchEvent) => {
     const t = touch.current, p = ev.changedTouches[0];
+    if (!t?.side) { touch.current = null; return; }
+    const els = moving();
     touch.current = null;
-    if (!t?.side || !grid.current) return;
     const dx = p.clientX - t.x, v = dx / Math.max(1, performance.now() - t.t);
-    if (Math.abs(dx) > innerWidth / 3 || Math.abs(v) > 0.45) {
+    const step = t.strip ? 7 : 1;
+    if (Math.abs(dx) > innerWidth / (t.strip ? 4 : 3) || Math.abs(v) > 0.45) {
       const dir = dx < 0 ? 1 : -1;
-      if (reduced()) { setSel((d) => addDays(d, dir)); return; }
-      gsap.to(grid.current, { x: -dir * innerWidth * 0.6, opacity: 0, duration: 0.16, ease: 'power2.in', onComplete: () => setSel((d) => addDays(d, dir)) });
-    } else gsap.to(grid.current, { x: 0, opacity: 1, duration: 0.45, ease: 'back.out(1.4)', clearProps: 'transform,opacity' });
+      if (reduced() || t.strip) { gsap.set(els, { clearProps: 'transform,opacity' }); setSel((d) => addDays(d, dir * step)); return; }
+      gsap.to(els, { x: -dir * innerWidth * 0.6, opacity: 0, duration: 0.16, ease: 'power2.in', onComplete: () => setSel((d) => addDays(d, dir)) });
+    } else gsap.to(els, { x: 0, opacity: 1, duration: 0.45, ease: 'back.out(1.4)', clearProps: 'transform,opacity' });
   };
 
   // A new day slides in from the side you went to; a new week's days follow; the circle glides.
@@ -193,24 +243,30 @@ function DayView({ all, types, onEdit, onNew }: ViewProps) {
     dirRef.current = 0;
     if (dir) slideIn([grid.current, ref.current?.querySelector('.calm__label'), ref.current?.querySelector('.calm__allday')].filter(Boolean) as Element[], dir, 56, 0.4);
     const weekChanged = lastMonday.current !== monday.getTime();
+    // The circle goes where the day's number sits in the layout (not where an animation has it right now).
+    const box = week.current, pill = box?.querySelector<HTMLElement>('.calm__pill'), b = box?.querySelector<HTMLElement>('.calm__d.is-sel b');
+    if (box && pill && b) {
+      let x = 0, y = 0;
+      for (let n: HTMLElement | null = b; n && n !== box; n = n.offsetParent as HTMLElement | null) { x += n.offsetLeft; y += n.offsetTop; }
+      const to = { x, y, opacity: 1 };
+      pill.classList.toggle('is-today', sameDay(sel, new Date()));
+      if (weekChanged && pill.dataset.on && !reduced()) {
+        // A new week's numbers slide in; the circle waits at its place and fades in as they arrive.
+        gsap.killTweensOf(pill); gsap.set(pill, { x, y, opacity: 0 }); gsap.to(pill, { opacity: 1, duration: 0.2, delay: 0.24, ease: 'power2.out' });
+      } else if (!pill.dataset.on || reduced() || weekChanged) { gsap.killTweensOf(pill); gsap.set(pill, to); pill.dataset.on = '1'; }
+      else gsap.to(pill, { ...to, duration: 0.42, ease: 'expo.out', overwrite: true });
+    }
     if (weekChanged) {
       const wdir = Math.sign(monday.getTime() - lastMonday.current);
       lastMonday.current = monday.getTime();
       if (!reduced()) gsap.fromTo(week.current!.querySelectorAll('.calm__d'), { x: wdir * 24, opacity: 0 }, { x: 0, opacity: 1, duration: 0.34, ease: 'expo.out', stagger: wdir * 0.018, clearProps: 'transform,opacity' });
     }
-    const box = week.current, pill = box?.querySelector<HTMLElement>('.calm__pill'), b = box?.querySelector<HTMLElement>('.calm__d.is-sel b');
-    if (!box || !pill || !b) return;
-    const bx = b.getBoundingClientRect(), wx = box.getBoundingClientRect();
-    const to = { x: bx.left - wx.left, y: bx.top - wx.top, opacity: 1 };
-    pill.classList.toggle('is-today', sameDay(sel, new Date()));
-    if (!pill.dataset.on || reduced() || weekChanged) { gsap.set(pill, to); pill.dataset.on = '1'; }
-    else gsap.to(pill, { ...to, duration: 0.42, ease: 'expo.out', overwrite: true });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel.getTime()]);
 
   const label = sameDay(sel, now) ? 'I dag' : sameDay(sel, addDays(now, 1)) ? 'I morgen' : sameDay(sel, addDays(now, -1)) ? 'I går' : '';
   return (
-    <main className="canvas calm" ref={ref}>
+    <main className="canvas calm" ref={ref} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
       <div className="calm__head" ref={head}>
       <div className="calm__top" data-enter>
         <h1>{sel.toLocaleDateString('da-DK', { month: 'long' }).replace(/^./, (c) => c.toUpperCase())} <span className="calm__year">{sel.getFullYear()}</span></h1>
@@ -235,7 +291,6 @@ function DayView({ all, types, onEdit, onNew }: ViewProps) {
       {allDay.length > 0 && <div className="calm__allday">{allDay.map((x) => <button key={x.id} style={vars({ '--ev': eventColor(types, x as any) })} onClick={() => onEdit(x)}>{x.title}</button>)}</div>}
       </div>
       <div className="calm__grid" ref={grid} style={vars({ '--hour': HOUR + 'px' })}
-        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}
         onClick={(ev) => {
           if (!(ev.target as HTMLElement).classList.contains('calm__slots')) return;
           const r = (ev.target as HTMLElement).getBoundingClientRect();

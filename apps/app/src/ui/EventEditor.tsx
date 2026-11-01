@@ -132,7 +132,7 @@ function TypePicker({ types, value, onChange, onCreate }: { types: CalType[]; va
       {adding && (
         <div className="typenew">
           <label className="typenew__color" style={vars({ '--tc': color })} title="Vælg farve"><input type="color" value={color} onChange={(x) => setColor(x.target.value)} aria-label="Farve" /></label>
-          <input className="typenew__name" autoFocus value={name} onChange={(x) => setName(x.target.value)} placeholder="Fx Træning, Familie, Musik" aria-label="Navn på typen"
+          <input className="typenew__name" autoFocus value={name} onChange={(x) => setName(x.target.value)} aria-label="Navn på typen"
             onKeyDown={(x) => { if (x.key === 'Enter') { x.preventDefault(); if (name.trim()) { onCreate(name, color); setAdding(false); setName(''); } } if (x.key === 'Escape') { x.stopPropagation(); setAdding(false); } }} />
           <Btn type="button" size="sm" variant="primary" disabled={!name.trim()} onClick={() => { onCreate(name, color); setAdding(false); setName(''); }}>Tilføj</Btn>
         </div>

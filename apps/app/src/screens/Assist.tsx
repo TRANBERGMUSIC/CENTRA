@@ -61,7 +61,7 @@ export function SuggestionRows({ limit }: { limit?: number }) {
     });
   }
 
-  if (!shown.length) return <p className="muted">Ingen forslag lige nu. Assist foreslår kun noget, når den har et konkret grundlag.</p>;
+  if (!shown.length) return <p className="muted">Ingen forslag lige nu.</p>;
   return (
     <div className="sparkhost">
       <ClickSpark ref={spark} sparkColor="#C9683A" sparkCount={9} sparkRadius={22} sparkSize={9} duration={420} layer="front">
@@ -254,7 +254,7 @@ export function Assist() {
   return (
     <main className="canvas assist" ref={ref}>
       <div className="titlerow" data-enter>
-        <div><h1>Assist</h1><p>Skriv eller tal. Assist husker det vigtige, lægger aftaler i kalenderen, skriver noter og holder styr på dine mål. Alt kan fortrydes.</p></div>
+        <div><h1>Assist</h1></div>
         <div className="actions">
           <button className="tag modelpill" onClick={() => go({ screen: 'usage' })} title="Se forbrug">{ai.provider === 'claude' ? (ai.claudeKey ? (ai.modelMode === 'auto' ? 'Automatisk model' : MODEL_NAMES[ai.modelMode] ?? 'Claude') + ' · ' + kr(spentThisMonth(e) * (ai.usdDkk || 6.9)) + ' i ' + new Date().toLocaleDateString('da-DK', { month: 'long' }) : 'Ikke forbundet') : 'Lokal · ' + ai.localModel}</button>
           {log.length > 0 && <Btn size="sm" icon="plus" onClick={() => setSel(e.create('chat', { at: new Date().toISOString(), messages: [], log: [] }))}>Ny samtale</Btn>}
@@ -265,12 +265,11 @@ export function Assist() {
           onDragOver={(ev) => { if (ready && [...ev.dataTransfer.types].includes('Files')) { ev.preventDefault(); setDrag(true); } }}
           onDragLeave={(ev) => { if (!ev.currentTarget.contains(ev.relatedTarget as Node)) setDrag(false); }}
           onDrop={(ev) => { if (!ready) return; ev.preventDefault(); setDrag(false); void addPics(ev.dataTransfer.files); }}>
-          {drag && <div className="chat__drop" aria-hidden="true"><Icon name="camera" /><span>Slip billedet, så kigger Assist på det</span></div>}
+          {drag && <div className="chat__drop" aria-hidden="true"><Icon name="camera" /><span>Slip billedet</span></div>}
           <div className="chat__log" ref={scroller} aria-live="polite">
             {!ready ? <ConnectAi /> : log.length === 0 && !busy ? (
               <div className="chat__hello">
-                <p className="chat__lead">Hej Willads. Fortæl mig om din hverdag, så sætter jeg CENTRA op efter dig.</p>
-                <p className="muted">Fx: "Jeg arbejder i Netto fra 06 til 16 tirsdag til fredag, men om torsdagen har jeg fri kl. 15." Så husker jeg det og lægger det i kalenderen.</p>
+                <p className="chat__lead">Hej Willads.</p>
                 <div className="chips">
                   {STARTERS.map(([label, prompt, direct]) => (
                     <button key={label} className="tag" onClick={() => { if (direct) void send(prompt); else { setText(prompt); base.current = prompt.trim(); box.current?.focus(); } }}>{label}</button>
@@ -361,7 +360,7 @@ function Feedback({ chat, index }: { chat: Chat; index: number }) {
   if (item.rating) return <span className="fb fb--done">{item.rating === 'up' ? 'Du kunne lide svaret' : 'Feedback givet'}</span>;
   if (asking) return (
     <form className="fb__ask" onSubmit={(x) => { x.preventDefault(); rate('down', note); setAsking(false); }}>
-      <input autoFocus value={note} onChange={(x) => setNote(x.target.value)} placeholder="Hvad skulle være anderledes? Fx: kortere, uden lister, mere direkte" aria-label="Hvad skulle være anderledes" />
+      <input autoFocus value={note} onChange={(x) => setNote(x.target.value)} placeholder="Hvad skulle være anderledes?" aria-label="Hvad skulle være anderledes" />
       <Btn size="sm" type="submit" variant="primary">Gem</Btn>
       <Btn size="sm" type="button" variant="text" onClick={() => setAsking(false)}>Annullér</Btn>
     </form>
@@ -433,7 +432,7 @@ function Memory() {
             </>)}
           </li>
         ))}</ul>
-      ) : <p className="muted">Intet endnu. Alt, du fortæller Assist om dig selv, kommer til at stå her, og du kan rette eller slette det.</p>}
+      ) : <p className="muted">Intet endnu.</p>}
     </Panel>
   );
 }
@@ -478,12 +477,12 @@ function ConnectAi() {
   return (
     <div className="chat__hello">
       <p className="chat__lead">Forbind Assist til Claude</p>
-      <p className="muted">Indsæt en API-nøgle fra console.anthropic.com (Settings → API keys). Den gemmes krypteret i CENTRA sammen med dine andre data og sendes kun til Anthropic.</p>
+      <p className="muted">console.anthropic.com → Settings → API keys</p>
       <form className="connect" onSubmit={save}>
         <label className="ufield"><span>Claude API-nøgle</span><input type="password" autoComplete="off" spellCheck={false} placeholder="sk-ant-…" value={key} onChange={(ev) => setKey(ev.target.value)} /></label>
         <Btn type="submit" variant="primary" disabled={busy || key.trim().length < 20}>{busy ? 'Tester …' : 'Forbind'}</Btn>
       </form>
-      <p className="meta">Eller kør en model lokalt på din Mac med Ollama (gratis, intet forlader computeren): <button className="tag" disabled={busy} onClick={local}>Brug lokal model</button></p>
+      <p className="meta"><button className="tag" disabled={busy} onClick={local}>Brug lokal model</button></p>
       {err && <p className="unlock__error" role="alert">{err}</p>}
     </div>
   );

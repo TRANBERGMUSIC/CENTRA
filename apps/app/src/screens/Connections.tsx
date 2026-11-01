@@ -40,10 +40,10 @@ export function Connections() {
 
   return (
     <main className="canvas" ref={ref}>
-      <div className="titlerow" data-enter><div><h1>Forbindelser</h1><p>Saml dine mails og kalendere i CENTRA. Adgangskoder gemmes krypteret med dit CENTRA-password og bruges kun til at hente og sende for dig.</p></div></div>
+      <div className="titlerow" data-enter><div><h1>Forbindelser</h1></div></div>
       <div className="grid12">
         <Panel title="Mail" className="span-12" count={accts.length} aside={<Btn size="sm" icon="plus" className="push-right" onClick={() => setAdding('mail')}>Tilføj mailkonto</Btn>}>
-          {!mailAvailable() && <p className="muted">Mail virker kun i CENTRA-appen på din Mac. På telefonen og i browseren kan du se mails, der allerede er hentet, når sync slås til.</p>}
+          {!mailAvailable() && <p className="muted">Mail hentes kun i CENTRA-appen.</p>}
           {accts.length ? (
             <ul className="rows">{accts.map((a) => (
               <li key={a.id} className="memrow">
@@ -54,7 +54,7 @@ export function Connections() {
                 <Btn size="sm" variant="text" icon="x" aria-label={`Fjern ${a.name}`} onClick={() => removeAcct(a)} />
               </li>
             ))}</ul>
-          ) : <p className="muted">Ingen mailkonti endnu. Tilføj Gmail, iCloud, one.com, Simply eller en anden IMAP-konto, så samles det hele i din indbakke.</p>}
+          ) : <p className="muted">Ingen mailkonti endnu.</p>}
         </Panel>
 
         <Panel title="Kalendere" className="span-12" count={feeds.length} aside={<Btn size="sm" icon="plus" className="push-right" onClick={() => setAdding('cal')}>Tilføj kalender</Btn>}>
@@ -68,7 +68,7 @@ export function Connections() {
                 <Btn size="sm" variant="text" icon="x" aria-label={`Fjern ${f.name}`} onClick={async () => { if (await ask({ title: `Fjern kalenderen ${f.name}?`, text: 'Dens aftaler forsvinder fra CENTRA.', ok: 'Fjern', danger: true })) { removeFeed(e, f.id); toast({ text: `${f.name} er fjernet` }); } }} />
               </li>
             ))}</ul>
-          ) : <p className="muted">Ingen kalendere endnu. Tilføj din Google-, iCloud- eller Outlook-kalender med dens hemmelige iCal-adresse. Dine egne aftaler i CENTRA ligger der allerede.</p>}
+          ) : <p className="muted">Ingen kalendere endnu.</p>}
         </Panel>
 
         <Panel title="LunchHub" className="span-12" count={lh.length} aside={!lh.length ? <Btn size="sm" icon="plus" className="push-right" onClick={() => setAdding('lh')}>Forbind LunchHub</Btn> : undefined}>
@@ -82,11 +82,11 @@ export function Connections() {
                 <Btn size="sm" variant="text" icon="x" aria-label={`Fjern ${c.name}`} onClick={async () => { if (await ask({ title: 'Fjern LunchHub fra CENTRA?', text: 'Henvendelserne forsvinder her, men bliver i LunchHub.', ok: 'Fjern', danger: true })) { removeLunchHub(e, c.id); toast({ text: 'LunchHub er fjernet' }); } }} />
               </li>
             ))}</ul>
-          ) : <p className="muted">Få henvendelserne fra frajorden.dk, smagssans.dk og bord.dk ind i din indbakke her. Svarer du, eller arkiverer du en, bliver den også markeret i LunchHub.</p>}
+          ) : <p className="muted">Ikke forbundet.</p>}
         </Panel>
 
         <Panel title="Assist" className="span-12">
-          <div className="kv"><span>{ai.provider === 'claude' ? (ai.claudeKey ? 'Claude er forbundet' : 'Claude er ikke forbundet') : `Lokal model: ${ai.localModel}`}<span className="meta block">Assist kan læse og søge i dine mails og kalendere, lave svarudkast og holde øje med bestemte mails. Den sender aldrig noget uden dig.</span></span>
+          <div className="kv"><span>{ai.provider === 'claude' ? (ai.claudeKey ? 'Claude er forbundet' : 'Claude er ikke forbundet') : `Lokal model: ${ai.localModel}`}</span>
             <Btn size="sm" onClick={() => go({ screen: 'settings' })}>Indstillinger</Btn></div>
         </Panel>
 
@@ -198,9 +198,8 @@ function AddCalendar({ onClose }: { onClose: () => void }) {
       <form className="sheet" role="dialog" aria-label="Tilføj kalender" onSubmit={save}>
         <div className="sheet__body">
           <h2>Tilføj kalender</h2>
-          <p className="muted small">Indsæt kalenderens hemmelige iCal-adresse. Den hentes hvert kvarter og vises i CENTRA. Ret aftalerne i den kalender, de kommer fra.</p>
           <details className="guides"><summary>Sådan finder du adressen</summary>{FEED_GUIDES.map(([t, g]) => <p key={t} className="small"><b>{t}:</b> {g}</p>)}</details>
-          <label className="ufield"><span>Navn</span><input value={name} onChange={(x) => setName(x.target.value)} placeholder="Fx Google privat" /></label>
+          <label className="ufield"><span>Navn</span><input value={name} onChange={(x) => setName(x.target.value)} /></label>
           <label className="ufield"><span>iCal-adresse</span><input required value={url} onChange={(x) => setUrl(x.target.value)} placeholder="https://… eller webcal://…" spellCheck={false} /></label>
           {err && <p className="unlock__error" role="alert">{err}</p>}
           <div className="sheet__foot"><span className="push-right" /><Btn type="button" variant="text" onClick={onClose}>Annullér</Btn><Btn type="submit" variant="primary" disabled={busy || !/^(https|webcal):\/\//.test(url.trim())}>{busy ? 'Henter …' : 'Tilføj'}</Btn></div>
@@ -236,7 +235,6 @@ function AddLunchHub({ onClose }: { onClose: () => void }) {
       <form className="sheet" role="dialog" aria-label="Forbind LunchHub" onSubmit={save}>
         <div className="sheet__body">
           <h2>Forbind LunchHub</h2>
-          <p className="muted small">Henvendelser fra hjemmesiderne kommer ind i din indbakke i CENTRA og hentes automatisk hvert minut. Du ser kun de virksomheder, du har indbakke-adgang til i LunchHub.</p>
           <details className="guides" open><summary>Sådan får du en app-nøgle</summary>
             <p className="small">Log ind på LunchHub, åbn din profil og vælg <b>Forbind CENTRA</b> → <b>Lav app-nøgle</b>. Kopiér nøglen (den starter med <code>lh_app_</code>) og sæt den ind her. Den vises kun én gang, og du kan slette den i LunchHub når som helst.</p>
           </details>
