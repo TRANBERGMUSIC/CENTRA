@@ -8,5 +8,10 @@
   "permissions": [
     "core:event:default",
     "core:window:allow-start-dragging"
+  ],
+  "platforms": [
+    "macOS",
+    "windows",
+    "linux"
   ]
 }

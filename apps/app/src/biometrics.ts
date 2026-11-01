@@ -4,6 +4,7 @@
  * throws it away, so the password is needed again. Everything here is a no-op outside the Mac app.
  */
 import { openWithKey, type Session } from './session.ts';
+import { RelayError } from '@centra/sync';
 
 const desktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 const invoke = async <T,>(cmd: string, args?: Record<string, unknown>) => (await import('@tauri-apps/api/core')).invoke<T>(cmd, args);
@@ -40,6 +41,9 @@ export function bioProblem(code: string, name: string): string | null {
     case 'missing': return `${name}-nøglen findes ikke længere. Log ind med password, og slå ${name} til igen under Indstillinger.`;
     case 'not-enrolled': return `Der er ikke sat et fingeraftryk op på Mac'en. Gør det under Systemindstillinger → Touch ID og adgangskode.`;
     case 'unavailable': return `${name} er ikke tilgængelig lige nu (fx med låget lukket). Brug dit password.`;
+    case 'need-password': return `Første gang med sync skal du logge ind med dit password. Derefter virker ${name} igen.`;
+    case 'relay': return `Kunne ikke nå sync-serveren. Prøv igen, eller brug dit password.`;
+    case 'relay-auth': return `Dit password er skiftet på en anden enhed. Log ind med det nye. ${name} virker igen bagefter.`;
     default: return `${name} virkede ikke (${code}). Brug dit password.`;
   }
 }
@@ -55,5 +59,11 @@ export async function bioUnlock(user: string): Promise<Session> {
     throw new Error(code);
   }
   try { return await openWithKey(u, key); }
-  catch { await bioDisable(user); throw new Error('missing'); }
+  catch (e) {
+    // The sync server didn't answer, or wants the password once: the finger and the key are still fine.
+    if (e instanceof RelayError) throw new Error(e.code === 'auth' ? 'relay-auth' : 'relay');
+    if ((e as Error)?.message === 'need-password') throw e;
+    await bioDisable(user);
+    throw new Error('missing');
+  }
 }

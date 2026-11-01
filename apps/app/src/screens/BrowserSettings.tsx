@@ -6,7 +6,8 @@ import { ask } from '../ui/Confirm.tsx';
 import { browserSettings, saveBrowserSettings, activeVpn, vpnWire, wgEndpoint, openLink, type BrowserSettings, type VpnProfile, type VpnKind } from '../open.ts';
 
 const KIND_NAME: Record<VpnKind, string> = { wireguard: 'WireGuard', socks5: 'SOCKS5', http: 'HTTP-proxy' };
-const desktop = () => '__TAURI_INTERNALS__' in window;
+import { desktop as desktopApp } from '../platform.ts';
+const desktop = () => desktopApp;
 const rid = () => 'vpn-' + Math.random().toString(36).slice(2, 10);
 
 /** Browser: where links open, private mode, search, and your VPNs (any number; one in use at a time). */

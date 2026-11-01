@@ -9,3 +9,4 @@ apps/app/android/
 services/relay/data/
 e2e-shots/
 *.key
+.wrangler/

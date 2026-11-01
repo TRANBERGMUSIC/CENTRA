@@ -12,16 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["unstable", "macos-proxy"] }
-# The browser's VPN relay (see src/browser/relay.rs)
-tokio = { version = "1", features = ["net", "io-util", "time", "rt", "macros", "sync"] }
-# WireGuard for the browser (see src/browser/wg.rs): the protocol, and a TCP/IP stack inside the tunnel
-boringtun = { version = "0.7", default-features = false }
-smoltcp = { version = "0.12", default-features = false, features = ["std", "log", "medium-ip", "proto-ipv4", "proto-ipv6", "proto-dns", "socket-tcp", "socket-udp", "socket-dns"] }
-rand_core = { version = "0.6", features = ["getrandom"] }
-tauri-plugin-updater = "2"
-tauri-plugin-process = "2"
-tauri-plugin-single-instance = "2"
+tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -36,6 +27,21 @@ minisign-verify = "0.3"
 base64 = "0.23"
 flate2 = "1"
 tar = "0.4"
+
+# Mac and Windows only: the in-app browser, app updates, one running copy.
+# (The iPhone app is built from the same code without these; see docs/IPHONE.md.)
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+# Several webviews in one window (the browser's toolbar + page) and a proxy per webview (the VPN)
+tauri = { version = "2", features = ["unstable", "macos-proxy"] }
+# The browser's VPN relay (see src/browser/relay.rs)
+tokio = { version = "1", features = ["net", "io-util", "time", "rt", "macros", "sync"] }
+# WireGuard for the browser (see src/browser/wg.rs): the protocol, and a TCP/IP stack inside the tunnel
+boringtun = { version = "0.7", default-features = false }
+smoltcp = { version = "0.12", default-features = false, features = ["std", "log", "medium-ip", "proto-ipv4", "proto-ipv6", "proto-dns", "socket-tcp", "socket-udp", "socket-dns"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+tauri-plugin-single-instance = "2"
 
 # Touch ID unlock (see src/biometry): LocalAuthentication for the finger, the login keychain for the key
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -8,6 +8,8 @@
  *                      on the next launch. Native changes still go through TestFlight / Play.
  *  Web:                GitHub Pages serves the newest build; version.json tells an open tab to reload.
  */
+import { desktop, mobileApp } from './platform.ts';
+
 declare const __APP_VERSION__: string;
 declare const __GITHUB_REPOSITORY__: string;
 declare const __WEB_VERSION__: number;
@@ -19,7 +21,7 @@ export const WEB_VERSION = Number(__WEB_VERSION__);
 const latest = (file: string) => `https://github.com/${REPO}/releases/latest/download/${file}`;
 
 export type Platform = 'desktop' | 'mobile' | 'web';
-export const platform: Platform = '__TAURI_INTERNALS__' in window ? 'desktop' : (window as any).Capacitor?.isNativePlatform?.() ? 'mobile' : 'web';
+export const platform: Platform = desktop ? 'desktop' : mobileApp || (window as any).Capacitor?.isNativePlatform?.() ? 'mobile' : 'web';
 
 export type Update = { version: string; notes?: string; install: () => Promise<void> };
 
@@ -38,6 +40,8 @@ export async function checkForUpdate(): Promise<Update | null> {
       if (!u) return null;
       return { version: u.version, notes: u.body, install: async () => { await u.downloadAndInstall(); await relaunch(); } };
     }
+    // The iPhone app gets new versions through TestFlight, and interface updates like the Mac (webupdate.ts).
+    if (platform === 'mobile' && mobileApp) return null;
     if (platform === 'mobile') {
       const { CapacitorHttp } = await import('@capacitor/core');
       const { CapacitorUpdater } = await import('@capgo/capacitor-updater');

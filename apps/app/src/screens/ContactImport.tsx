@@ -8,7 +8,7 @@ import { parseVCards, fromMac, plan, apply, type Planned, type MacContact, type 
 import { shrinkImage } from '../ai/receipt.ts';
 import { openExternal } from '../open.ts';
 
-const desktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+import { desktop } from '../platform.ts';
 
 /** data: URL → a small JPEG (photos from a vCard can be several MB). */
 async function shrinkDataUrl(url: string) {

@@ -1,14 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "CENTRA main window",
+  "description": "CENTRA main window (Mac and iPhone)",
   "windows": [
     "main"
   ],
   "permissions": [
     "core:default",
-    "updater:default",
-    "process:allow-restart",
     {
       "identifier": "opener:allow-open-url",
       "allow": [

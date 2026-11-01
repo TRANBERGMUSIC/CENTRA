@@ -1,6 +1,8 @@
 use tauri::Manager;
 
 mod biometry;
+// The in-app browser (several webviews in one window, VPN) exists in the Mac and Windows app only.
+#[cfg(desktop)]
 mod browser;
 mod contacts;
 mod lunchhub;
@@ -14,7 +16,10 @@ pub fn run() {
     let builtin = context.set_assets(Box::new(webupdate::NoAssets));
     context.set_assets(Box::new(webupdate::LiveAssets::new(builtin)));
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    let builder = builder
         // A second launch focuses the running window instead of opening another copy.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
@@ -24,9 +29,7 @@ pub fn run() {
         // Auto-update from GitHub Releases (latest.json, minisign-verified) and relaunch after install.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        // Links (opsig, guides, mailto:, tel:, sms:) open in the browser / Mail / Messages.
-        .plugin(tauri_plugin_opener::init())
-        // Mail (IMAP/SMTP) and calendar feeds: the web layer can't open sockets, so Rust does it.
+        .manage(browser::Browser::default())
         .invoke_handler(tauri::generate_handler![
             mail::mail_test, mail::mail_fetch, mail::mail_update, mail::mail_send, mail::fetch_calendar, mail::mail_body, mail::mail_part, mail::mail_save_part,
             webupdate::web_ready, webupdate::web_info, webupdate::web_update_check, webupdate::session_stash, webupdate::session_take,
@@ -35,13 +38,30 @@ pub fn run() {
             lunchhub::lunchhub_request,
             browser::browser_open, browser::browser_state, browser::browser_go, browser::browser_nav, browser::browser_toggle,
             browser::browser_clear, browser::browser_external, browser::browser_reveal, browser::browser_vpn_test
-        ])
-        .manage(browser::Browser::default())
+        ]);
+
+    // The iPhone app: the same commands without the browser (links open in Safari).
+    #[cfg(mobile)]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        mail::mail_test, mail::mail_fetch, mail::mail_update, mail::mail_send, mail::fetch_calendar, mail::mail_body, mail::mail_part, mail::mail_save_part,
+        webupdate::web_ready, webupdate::web_info, webupdate::web_update_check, webupdate::session_stash, webupdate::session_take,
+        biometry::bio_kind, biometry::bio_enable, biometry::bio_unlock, biometry::bio_disable,
+        contacts::contacts_fetch, contacts::contacts_status,
+        lunchhub::lunchhub_request
+    ]);
+
+    builder
+        // Links (opsig, guides, mailto:, tel:, sms:) open in the browser / Mail / Messages.
+        .plugin(tauri_plugin_opener::init())
         // Choose the interface (installed fast update or the built-in one) before the window opens.
         .setup(|app| {
             webupdate::init(app);
             if let Some(cfg) = app.config().app.windows.iter().find(|w| w.label == "main").cloned() {
-                tauri::WebviewWindowBuilder::from_config(app.handle(), &cfg)?.build()?;
+                // The interface reads which system it runs on (the iPhone app has no in-app browser,
+                // app updates come through TestFlight there) before any of its own code runs.
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &cfg)?
+                    .initialization_script(&format!("window.__CENTRA_OS = {:?};", std::env::consts::OS))
+                    .build()?;
             }
             Ok(())
         })

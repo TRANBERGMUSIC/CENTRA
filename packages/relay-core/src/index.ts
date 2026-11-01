@@ -48,7 +48,7 @@ export type RelayOptions = {
   sleep?: (ms: number) => Promise<void>;
 };
 
-const LIMITS = { frame: 4_000_000, body: 1_500_000, envsPerPush: 500, pull: 2000, msgsPerSecond: 40, burst: 120 };
+const LIMITS = { frame: 4_000_000, body: 1_500_000, envsPerPush: 500, pull: 2000, pullBytes: 3_000_000, msgsPerSecond: 40, burst: 120 };
 const FREE_TRIES = 5;
 
 export const normalizeUser = (u: unknown) => (typeof u === 'string' ? u.trim().toLowerCase() : '');
@@ -123,7 +123,18 @@ export class RelayCore {
         }
         case 'pull': {
           const after = Number.isSafeInteger(m.after) && m.after >= 0 ? m.after : 0;
-          return conn.send({ type: 'envs', rid, envs: await store.list(after, LIMITS.pull) });
+          // A few MB per answer (photos make envelopes big); the device asks again from where this ended.
+          const envs: Envelope[] = [];
+          let bytes = 0, cursor = after, more = false;
+          while (!more) {
+            const page = await store.list(cursor, 50);
+            for (const e of page) {
+              if (envs.length && (bytes + e.body.length > LIMITS.pullBytes || envs.length >= LIMITS.pull)) { more = true; break; }
+              envs.push(e); bytes += e.body.length; cursor = e.seq ?? cursor + 1;
+            }
+            if (page.length < 50) break;
+          }
+          return conn.send({ type: 'envs', rid, envs, more });
         }
         case 'password': {
           const acc = await store.getAccount();

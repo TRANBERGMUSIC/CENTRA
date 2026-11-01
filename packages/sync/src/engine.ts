@@ -22,6 +22,28 @@ export type EngineOptions = {
   flushMs?: number;
 };
 
+/**
+ * Size limits that keep every frame well inside what the relay accepts (an envelope body may be
+ * 1.5 MB of base64, a frame 4 MB): changes are sealed in envelopes of at most ~700 kB of JSON, and
+ * pushed in batches of at most ~2 MB.
+ */
+export const ENVELOPE_JSON_MAX = 700_000;
+const PUSH_BYTES_MAX = 2_000_000;
+const PUSH_COUNT_MAX = 400;
+
+/** Splits changes into groups whose JSON stays under `max` (a single bigger change gets its own group). */
+export function chunkChanges(changes: Change[], max = ENVELOPE_JSON_MAX): Change[][] {
+  const out: Change[][] = [];
+  let cur: Change[] = [], size = 2;
+  for (const c of changes) {
+    const s = JSON.stringify(c).length + 1;
+    if (cur.length && size + s > max) { out.push(cur); cur = []; size = 2; }
+    cur.push(c); size += s;
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
 export type Record_ = { id: string; type: string } & Record<string, unknown>;
 type Listener = (ids: Set<string>, origin: 'local' | 'remote') => void;
 
@@ -55,9 +77,15 @@ export class SyncEngine {
 
   /* ------------------------------------------------------------------ lifecycle */
 
-  async start(): Promise<void> {
+  /**
+   * `compact`: the first time this device's data goes to a server (it ran without one before), the
+   * outbox holds every change ever made. It is replaced by the current state, with the same clocks,
+   * so the upload is as small as the data itself.
+   */
+  async start(opts: { compact?: boolean } = {}): Promise<void> {
     const snap = await this.o.store.load();
     if (snap) this.restore(snap);
+    if (opts.compact) this.compactOutbox();
     this.unsub.push(this.o.relay.subscribe((env) => this.receive([env])));
     this.unsub.push(this.o.relay.onOpen(() => void this.catchUp()));
     this.started = true;
@@ -72,11 +100,40 @@ export class SyncEngine {
     this.started = false;
   }
 
-  /** Pull everything after our cursor, then push the outbox. */
+  /** Pull everything after our cursor (page by page, the relay sends a few MB at a time), then push the outbox. */
   async catchUp(): Promise<void> {
-    const envs = await this.o.relay.pull(this.cursor);
-    this.receive(envs);
+    for (let page = 0; page < 100_000; page++) {
+      const before = this.cursor;
+      const envs = await this.o.relay.pull(this.cursor);
+      this.receive(envs);
+      if (!envs.length || this.cursor === before) break;
+    }
     await this.pushOutbox();
+  }
+
+  /** Replaces the outbox with the current state (see start). Deleted records are left out. */
+  compactOutbox(): void {
+    const changes: Change[] = [];
+    const gone = new Set<string>();
+    for (const [id, e] of this.entities) {
+      if (e.f[DELETED]?.v === true) { gone.add(id); continue; }
+      for (const [f, fs] of Object.entries(e.f)) changes.push({ k: 'set', e: id, t: e.t, f, v: fs.v, h: fs.h });
+    }
+    for (const [id, d] of this.docs) {
+      if (gone.has(id)) continue;
+      changes.push({ k: 'doc', e: id, t: this.docTypes.get(id) ?? 'note', u: b64.encode(Y.encodeStateAsUpdate(d)) });
+    }
+    this.outbox = [];
+    this.pending = [];
+    for (const group of chunkChanges(changes)) this.outbox.push(this.seal(group));
+    this.scheduleSave();
+  }
+
+  private seal(changes: Change[]): Envelope {
+    const id = randomId(12);
+    const keyId = this.o.keys.current;
+    this.seen.add(id);
+    return { id, device: this.device, keyId, body: sealJson(changes, this.o.keys.get(keyId), `env:${id}`) };
   }
 
   /* ------------------------------------------------------------------ records (LWW per field) */
@@ -219,33 +276,59 @@ export class SyncEngine {
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = null;
     if (this.pending.length) {
-      const id = randomId(12);
-      const keyId = this.o.keys.current;
-      const env: Envelope = { id, device: this.device, keyId, body: sealJson(this.pending, this.o.keys.get(keyId), `env:${id}`) };
+      for (const group of chunkChanges(this.pending)) this.outbox.push(this.seal(group));
       this.pending = [];
-      this.seen.add(id);
-      this.outbox.push(env);
       this.scheduleSave();
     }
     await this.pushOutbox();
   }
 
+  /** Envelopes the relay refused on their own (too big or malformed); kept here so the outbox never jams. */
+  readonly refused: Envelope[] = [];
+
+  private nextBatch(): Envelope[] {
+    const batch: Envelope[] = [];
+    let bytes = 0;
+    for (const e of this.outbox) {
+      if (batch.length && (bytes + e.body.length > PUSH_BYTES_MAX || batch.length >= PUSH_COUNT_MAX)) break;
+      batch.push(e); bytes += e.body.length;
+    }
+    return batch;
+  }
+
+  private sent(batch: Envelope[]) {
+    const ids = new Set(batch.map((e) => e.id));
+    this.outbox = this.outbox.filter((e) => !ids.has(e.id));
+    this.lastSyncedAt = Date.now();
+    this.scheduleSave();
+  }
+
   private async pushOutbox() {
     if (!this.started || this.pushing || !this.outbox.length || !this.o.relay.connected) return;
     this.pushing = true;
+    let retry = false;
     try {
-      const batch = [...this.outbox];
-      await this.o.relay.push(batch);
-      const sent = new Set(batch.map((e) => e.id));
-      this.outbox = this.outbox.filter((e) => !sent.has(e.id));
-      this.lastSyncedAt = Date.now();
-      this.scheduleSave();
+      while (this.outbox.length && this.o.relay.connected) {
+        const batch = this.nextBatch();
+        try {
+          await this.o.relay.push(batch);
+          this.sent(batch);
+        } catch (err) {
+          if ((err as { code?: string })?.code !== 'bad-envelopes') throw err;
+          // One bad envelope must not hold the rest back: send them one by one, set the refused aside.
+          for (const env of batch) {
+            try { await this.o.relay.push([env]); }
+            catch (e) { if ((e as { code?: string })?.code !== 'bad-envelopes') throw e; this.refused.push(env); }
+            this.sent([env]);
+          }
+        }
+      }
     } catch {
-      // stays in the outbox; retried on the next flush or reconnect
+      retry = true; // stays in the outbox; retried shortly, on the next flush or on reconnect
     } finally {
       this.pushing = false;
     }
-    if (this.outbox.length && this.o.relay.connected) setTimeout(() => void this.pushOutbox(), 500);
+    if (retry && this.outbox.length && this.o.relay.connected) setTimeout(() => void this.pushOutbox(), 500);
   }
 
   /* ------------------------------------------------------------------ persistence */

@@ -4,7 +4,7 @@ import { reduced, gsap, useGSAP } from '../motion.ts';
 import { Aura } from '../ui/Logo.tsx';
 import { Icon } from '../ui/Icon.tsx';
 import { bioKind, bioIsOn, bioUnlock, bioProblem, BIO_NAME, type BioKind } from '../biometrics.ts';
-import { DEFAULT_USER, explain, lookUp, recover, signIn, type Lookup, type Session, type Step } from '../session.ts';
+import { DEFAULT_USER, canCreateHere, explain, lookUp, recover, signIn, type Lookup, type Session, type Step } from '../session.ts';
 import DecryptedText from '../bits/DecryptedText.jsx';
 
 type Mode = 'login' | 'create' | 'recover';
@@ -102,8 +102,9 @@ export function Unlock({ onReady, notice }: { onReady: (s: Session) => void; not
       }
       setStep('Forbinder');
       const look = pending ?? (await lookUp(user));
-      if (!look.pre.exists && mode === 'login') {
+      if (!look.pre.exists && mode === 'login' && !look.migrate) {
         if (!look.pre.canRegister) { look.relay.close(); throw new Error('not-allowed'); }
+        if (!canCreateHere()) { look.relay.close(); throw new Error('mac-first'); }
         setPending(look); setStep(null); setMode('create'); setPw2('');
         setInfo('Første gang: vælg dit password. Det gemmes ingen steder og låser dine data op.');
         return;
@@ -160,7 +161,7 @@ export function Unlock({ onReady, notice }: { onReady: (s: Session) => void; not
 }
 
 /** Shown once after the account is created: the only way back in if the password is forgotten. */
-export function RecoveryCode({ code, onDone }: { code: string; onDone: () => void }) {
+export function RecoveryCode({ code, onDone, replaced }: { code: string; onDone: () => void; replaced?: boolean }) {
   const [saved, setSaved] = useState(false);
   const download = () => {
     const a = document.createElement('a');
@@ -173,6 +174,7 @@ export function RecoveryCode({ code, onDone }: { code: string; onDone: () => voi
     <main className="unlock">
       <div className="unlock__card unlock__card--wide">
         <h1 className="unlock__title">Din gendannelsesnøgle</h1>
+        {replaced && <p className="unlock__info" role="status">Din konto er nu lagt op på din sync-server, så din iPhone kan logge ind. Derfor har du fået en ny gendannelsesnøgle. Den gamle virker ikke længere.</p>}
         <p className="muted">Hvis du glemmer dit password, er denne nøgle den eneste måde at komme ind på igen. Dine data er krypteret, så ingen andre kan hjælpe, heller ikke CENTRA. Den vises kun nu.</p>
         <code className="recovery" aria-label="Gendannelsesnøgle">{code}</code>
         <div className="unlock__row">

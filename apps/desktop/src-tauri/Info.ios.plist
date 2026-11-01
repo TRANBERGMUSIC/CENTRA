@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Merged into the iPhone app by Tauri (scripts/ios-testflight.sh also sets these on the generated project). -->
+  <!-- Standard encryption of your own data only: no export paperwork for each TestFlight build. -->
+  <key>ITSAppUsesNonExemptEncryption</key>
+  <false/>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>CENTRA bruger mikrofonen, når du taler til Assist.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>CENTRA laver din tale om til tekst, så Assist kan forstå den.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>CENTRA bruger kameraet, når du tager et billede af en kvittering eller noget, du vil gemme.</string>
+  <key>NSPhotoLibraryUsageDescription</key>
+  <string>CENTRA henter billeder, du vælger, så Assist kan se dem, eller du kan gemme dem under Billeder.</string>
+  <key>NSFaceIDUsageDescription</key>
+  <string>CENTRA bruger Face ID til at låse dine data op.</string>
+</dict>
+</plist>

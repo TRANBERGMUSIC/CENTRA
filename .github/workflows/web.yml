@@ -1,4 +1,4 @@
-# Fast interface update for the Mac app: about a minute from push to the app, no native build.
+# Fast interface update for the Mac and iPhone app: about a minute from push to the app, no native build.
 #
 # Builds the web interface, packs it as web.tar.gz, signs it with the same key as the app updates
 # (TAURI_SIGNING_PRIVATE_KEY) and puts it on the GitHub release tagged "web" together with web.json.
@@ -8,7 +8,7 @@ name: Web update
 on:
   push:
     branches: [main]
-    paths: ['apps/app/**', 'packages/**', 'package-lock.json', '.github/workflows/web.yml']
+    paths: ['apps/app/**', 'packages/**', 'package-lock.json', 'scripts/relay-url.sh', '.github/workflows/web.yml']
   workflow_dispatch:
 
 permissions:
@@ -30,10 +30,16 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci --no-audit --no-fund
       - name: Build
-        env: { VITE_RELAY_URL: '${{ vars.CENTRA_RELAY_URL }}' }
+        env:
+          CENTRA_RELAY_URL: ${{ vars.CENTRA_RELAY_URL }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           echo "WEB_VERSION=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
           export WEB_VERSION=$(git log -1 --format=%ct)
+          # Sync with the iPhone: on when the sync server (Cloudflare) exists, the same as the full builds.
+          export VITE_RELAY_URL=$(bash scripts/relay-url.sh --ensure)
+          if [ -n "$VITE_RELAY_URL" ]; then export VITE_SYNC=on; echo "Sync: $VITE_RELAY_URL"; else echo "Sync: fra (ingen sync-server)"; fi
           npm run build -w @centra/design-system
           npm run build -w @centra/app
           cat apps/app/dist/web-version.json

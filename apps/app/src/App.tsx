@@ -66,7 +66,7 @@ export function App() {
     sessionStorage.removeItem('centra.lockReason');
     return <Unlock notice={notice} onReady={open} />;
   }
-  if (showCode) return <RecoveryCode code={showCode} onDone={() => { setShowCode(null); session.recoveryCode = undefined; }} />;
+  if (showCode) return <RecoveryCode code={showCode} replaced={!session.created} onDone={() => { setShowCode(null); session.recoveryCode = undefined; }} />;
   return (
     <SessionProvider value={session}>
       <ToastHost>

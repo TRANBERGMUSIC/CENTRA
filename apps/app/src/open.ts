@@ -5,11 +5,14 @@
  */
 import type { SyncEngine } from '@centra/sync';
 
-const desktop = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+import { desktop as desktopApp, native } from './platform.ts';
 
-/** Opens a link outside CENTRA: in the Mac app through the system (browser, Mail, System Settings), else a new tab. */
+/** The in-app browser (with VPN) is in the Mac app; on the iPhone links open in Safari. */
+const desktop = () => desktopApp;
+
+/** Opens a link outside CENTRA: in the app through the system (Safari, Mail, Phone, System Settings), else a new tab. */
 export async function openExternal(url: string) {
-  if (desktop()) {
+  if (native) {
     const { openUrl } = await import('@tauri-apps/plugin-opener');
     return openUrl(url);
   }

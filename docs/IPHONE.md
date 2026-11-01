@@ -1,16 +1,57 @@
-# iPhone-app (når du har en Apple Developer-konto)
+# CENTRA på iPhone, synkroniseret med Mac'en
 
-Indtil da: åbn web-versionen i Safari → Del → **Føj til hjemmeskærm**. Så kører den i fuld skærm med eget ikon.
+iPhone-appen er den samme app som på Mac'en (Tauri), bare uden den indbyggede browser: links åbner i Safari. Mac og iPhone synkroniserer gennem din egen sync-server på Cloudflare. Serveren ser kun krypterede data. Nøglen kommer fra dit password og forlader aldrig dine enheder.
 
-Når du har en betalt Apple Developer-konto (99 $ om året), bygger GitHub selv iPhone-appen og lægger den på TestFlight ved hvert push:
+## Det skal sættes op én gang
 
-1. **App Store Connect** → Brugere og adgang → Integrationer → App Store Connect API → opret en nøgle med rollen *App Manager*. Download `.p8`-filen.
-2. Opret appen i App Store Connect med bundle-id **dk.tranberg.centra**.
-3. Tilføj på github.com/TRANBERGMUSIC/CENTRA → Settings → Secrets → Actions:
-   - `APP_STORE_CONNECT_API_KEY`: hele indholdet af `.p8`-filen
-   - `APP_STORE_CONNECT_KEY_ID`: nøglens id
-   - `APP_STORE_CONNECT_ISSUER_ID`: issuer-id (står øverst på siden)
-   - `APPLE_TEAM_ID`: dit team-id (developer.apple.com → Membership)
-4. Push. Jobbet `ios` slår selv til, og appen dukker op i TestFlight på din iPhone.
+**Cloudflare (sync-serveren)**
+1. dash.cloudflare.com → Workers & Pages. Vælg et *workers.dev subdomain*, hvis du bliver spurgt.
+2. My Profile → API Tokens → Create Token → skabelonen **Edit Cloudflare Workers** → Create. Kopiér nøglen.
+3. Kopiér dit **Account ID**. Det står på forsiden af Workers & Pages.
 
-Det er ikke testet endnu, fordi det kræver kontoen.
+**Apple**
+1. developer.apple.com/account → Membership details: skriv dit **Team ID** ned.
+2. Identifiers → + → App IDs → App → Bundle ID (Explicit): `dk.tranberg.centra`.
+3. appstoreconnect.apple.com → Apps → + → New App:
+   - Platform: iOS
+   - Navn: CENTRA (eller CENTRA Tranberg)
+   - Bundle ID: `dk.tranberg.centra`
+   - SKU: `centra`
+4. Users and Access → Integrations → App Store Connect API → Team Keys → +:
+   - Navn: GitHub
+   - Adgang: **Admin**. Det kræves, for at bygget selv kan lave signeringscertifikatet.
+   - Download .p8-filen (kan kun hentes én gang). Gem den i `CENTRA-noegler`.
+   - Skriv **Key ID** og **Issuer ID** ned.
+
+**GitHub** → repo → Settings → Secrets and variables → Actions → New repository secret:
+
+| Secret | Værdi |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare-nøglen |
+| `CLOUDFLARE_ACCOUNT_ID` | Account ID |
+| `APPLE_TEAM_ID` | Team ID |
+| `APPLE_API_KEY_ID` | Key ID |
+| `APPLE_API_ISSUER` | Issuer ID |
+| `APPLE_API_KEY_P8` | hele indholdet af .p8-filen, også BEGIN- og END-linjerne |
+
+## Hvad der sker, når du pusher
+
+- **relay** lægger sync-serveren op på Cloudflare (`centra-relay.<subdomæne>.workers.dev`). Når den findes, bygges alle apps med sync slået til.
+- **desktop** bygger Mac-appen.
+- **ios** bygger iPhone-appen og sender den til TestFlight. Første gang tager det 20–40 minutter, og derefter 10–30 minutter, før den dukker op i TestFlight. Fejler bygget, ligger slutningen af loggen som `iphone-build-fejl.txt` på udgivelsen.
+- Ændringer i grænsefladen når både Mac og iPhone på et minut (web.yml), uden et nyt TestFlight-byg.
+
+## Første gang
+
+1. **Mac'en først:** opdatér og log ind. Din konto og alle data lægges krypteret op. Du får en ny gendannelsesnøgle, fordi serveren skal kende den. Gem den. Den gamle virker ikke længere.
+2. **iPhonen:** installér TestFlight fra App Store. I App Store Connect → TestFlight → Internal Testing laver du en gruppe og tilføjer dig selv. Installér CENTRA fra TestFlight, og log ind som Tranberg med dit password.
+
+Logger iPhonen ind, før Mac'en har lagt kontoen op, siger den det og opretter ikke en ny, tom konto.
+
+## Det virker kun på Mac'en
+
+- Den indbyggede browser med VPN
+- Import fra Kontakter-appen
+- Touch ID
+
+Mail, kalender-feeds, LunchHub, Assist, noter, mål, udlæg og billeder virker begge steder.

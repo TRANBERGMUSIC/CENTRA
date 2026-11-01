@@ -8,7 +8,8 @@
  *  - The cached account record is the wrapped (encrypted) form, so it is safe at rest; it lets the
  *    app open offline with the same password.
  */
-import { ready, wipe, subKey, type KeyRing } from '@centra/crypto';
+import { ready, wipe, subKey, sealJson, openJson, type KeyRing } from '@centra/crypto';
+import { OS } from './platform.ts';
 import {
   SyncEngine, WsRelay, NullRelay, IndexedDbStore, EncryptedStore, RelayError, createAccount, passwordSecrets, unlock, changePassword as rewrap,
   recoverWithCode, newRecovery, rotateContentKey, absorbKeys, normalizeUser, unlockWithAk, type AccountPublic, type DeviceRecord, type Prelogin,
@@ -17,10 +18,16 @@ import {
 export const DEFAULT_USER = 'Tranberg';
 
 /**
- * Sync with other devices. Off for now: CENTRA runs fully on this computer, encrypted, with the
- * same engine; build with VITE_SYNC=on (and a relay) to switch it on — nothing else changes.
+ * Sync between the Mac and the iPhone through the relay (Cloudflare). Builds get VITE_SYNC=on when
+ * a relay exists; without one CENTRA runs fully on this computer, encrypted, with the same engine.
  */
-export const SYNC = import.meta.env.VITE_SYNC === 'on';
+export const SYNC = import.meta.env.VITE_SYNC === 'on' && !!import.meta.env.VITE_RELAY_URL;
+
+/**
+ * Where a brand-new account may be made. With sync on, only on the Mac: the Mac holds the data, so
+ * a phone that got there first would otherwise create an empty account the Mac then can't use.
+ */
+export const canCreateHere = () => !SYNC || OS === 'macos';
 type AnyRelay = WsRelay | NullRelay;
 
 export type Session = {
@@ -76,6 +83,8 @@ const MESSAGES: Record<string, string> = {
   exists: 'Kontoen findes allerede. Log ind i stedet.',
   'wrong-recovery-code': 'Gendannelsesnøglen passer ikke.',
   offline: 'Kan ikke nå CENTRA-serveren, og kontoen er ikke åbnet på denne enhed før.',
+  'mac-first': 'Din konto er ikke lagt op på serveren endnu. Åbn CENTRA på din Mac og log ind dér først. Så kommer dine data op, og du kan logge ind her.',
+  'other-account': 'Serveren har en anden CENTRA-konto end den, dine data på denne enhed er låst med. Intet er ændret eller slettet.',
   timeout: 'Serveren svarer ikke. Prøv igen.',
   closed: 'Forbindelsen blev afbrudt. Prøv igen.',
 };
@@ -88,7 +97,8 @@ export function explain(e: unknown): string {
 }
 
 export type Step = 'Forbinder' | 'Låser op' | 'Opretter konto' | 'Synkroniserer';
-export type Lookup = { relay: AnyRelay; pre: Prelogin & { offline?: boolean }; user: string };
+/** `migrate`: the server has no account yet, but this device has one from before sync: it goes up as it is. */
+export type Lookup = { relay: AnyRelay; pre: Prelogin & { offline?: boolean }; user: string; migrate?: boolean };
 
 /** Finds the account (online, or from this device's cache when offline). */
 export async function lookUp(userInput: string): Promise<Lookup> {
@@ -104,7 +114,8 @@ export async function lookUp(userInput: string): Promise<Lookup> {
   try {
     const pre = await relay.prelogin(3500);
     if (pre.exists) localStorage.setItem(preKey(user), JSON.stringify(pre));
-    return { relay, pre, user };
+    const migrate = !pre.exists && pre.canRegister && !!localStorage.getItem(cacheKey(user));
+    return { relay, pre, user, migrate };
   } catch {
     const cached = localStorage.getItem(preKey(user));
     if (cached) return { relay, pre: { ...JSON.parse(cached), offline: true }, user };
@@ -114,17 +125,41 @@ export async function lookUp(userInput: string): Promise<Lookup> {
 }
 
 /** Logs in with the password (online or offline), or creates the account the very first time. */
-export async function signIn({ relay, pre, user }: Lookup, password: string, onStep: (s: Step) => void): Promise<Session> {
+export async function signIn({ relay, pre, user, migrate }: Lookup, password: string, onStep: (s: Step) => void): Promise<Session> {
   onStep('Låser op');
   await new Promise((r) => setTimeout(r, 20)); // let the UI paint before Argon2id blocks
-  let account: AccountPublic, keys: KeyRing, ak: Uint8Array, created = false, recoveryCode: string | undefined;
+  let account: AccountPublic, keys: KeyRing, ak: Uint8Array, created = false, recoveryCode: string | undefined, auth: string;
+
+  if (migrate && relay instanceof WsRelay) {
+    // First time with sync: this device's account (made before there was a server) is registered on
+    // the server exactly as it is, so the same password and the data already here keep working.
+    // The server needs proof of a recovery key, and the old one only exists on paper: a new one is
+    // made (and shown once); the old one stops working.
+    account = JSON.parse(localStorage.getItem(cacheKey(user))!);
+    const s = passwordSecrets(password, account.kdf);
+    try {
+      localGuard.check();
+      try { ({ keys, ak } = unlock(account, s.enc)); } catch (e) { localGuard.fail(); throw e; }
+      localGuard.reset();
+    } catch (e) { relay.close(); throw e; } finally { wipe(s.enc); }
+    onStep('Opretter konto');
+    const r = newRecovery(ak);
+    account = { ...account, recovery: r.recovery };
+    try { await relay.register(account, s.auth, r.recoveryAuth); } catch (e) { relay.close(); throw e; }
+    recoveryCode = r.code;
+    auth = s.auth;
+    onStep('Synkroniserer');
+    return openSession(relay, user, account, keys, ak, false, recoveryCode, auth, true);
+  }
 
   if (!pre.exists) {
     if (!pre.canRegister) throw new Error('not-allowed');
+    if (!canCreateHere()) throw new Error('mac-first');
     onStep('Opretter konto');
     const a = createAccount(password);
     if (relay instanceof WsRelay) await relay.register(a.account, a.auth, a.recoveryAuth);
     ({ account, keys, ak, recoveryCode } = a);
+    auth = a.auth;
     created = true;
   } else {
     const s = passwordSecrets(password, pre.kdf!);
@@ -140,7 +175,9 @@ export async function signIn({ relay, pre, user }: Lookup, password: string, onS
       } else {
         account = (await (relay as WsRelay).login(s.auth)).account;
         ({ keys, ak } = unlock(account, s.enc));
+        sameAccount(user, account);
       }
+      auth = s.auth;
     } catch (e) {
       relay.close();
       throw e;
@@ -149,16 +186,45 @@ export async function signIn({ relay, pre, user }: Lookup, password: string, onS
     }
   }
   onStep('Synkroniserer');
-  return openSession(relay, user, account, keys, ak, created, recoveryCode);
+  return openSession(relay, user, account, keys, ak, created, recoveryCode, auth);
+}
+
+/**
+ * The server's account must be the one this device's data was written with. (It can only differ if
+ * another device made a new account before this one went up: then the data here stays untouched.)
+ */
+function sameAccount(user: string, server: AccountPublic) {
+  const cached = localStorage.getItem(cacheKey(user));
+  if (!cached) return;
+  const mine = (JSON.parse(cached) as AccountPublic).keys?.[0]?.keyId;
+  if (mine && server.keys?.[0]?.keyId && mine !== server.keys[0].keyId) throw new Error('other-account');
+}
+
+/**
+ * The server login value, kept encrypted under the account key, so an unlock with Touch ID / Face ID
+ * or after an update (which opens the account key without the password) can log in to sync too.
+ * It proves the password to the server but cannot decrypt anything, and it only opens with the key.
+ */
+const authKey = (u: string) => `centra.auth.${u}`;
+function keepAuth(user: string, ak: Uint8Array, auth: string) {
+  const k = subKey(ak, 'auth/v1');
+  try { localStorage.setItem(authKey(user), sealJson({ auth }, k, `auth:${user}`)); } finally { wipe(k); }
+}
+function keptAuth(user: string, ak: Uint8Array): string | null {
+  const sealed = localStorage.getItem(authKey(user));
+  if (!sealed) return null;
+  const k = subKey(ak, 'auth/v1');
+  try { return openJson<{ auth: string }>(sealed, k, `auth:${user}`).auth; } catch { return null; } finally { wipe(k); }
 }
 
 /** Everything after the keys are open: local store, sync engine and the session's actions. */
-async function openSession(relay: AnyRelay, user: string, account: AccountPublic, keys: KeyRing, ak: Uint8Array, created: boolean, recoveryCode?: string): Promise<Session> {
+async function openSession(relay: AnyRelay, user: string, account: AccountPublic, keys: KeyRing, ak: Uint8Array, created: boolean, recoveryCode?: string, auth?: string, firstUpload = false): Promise<Session> {
   const remember = () => {
     localStorage.setItem(cacheKey(user), JSON.stringify(account));
     localStorage.setItem(preKey(user), JSON.stringify({ exists: true, kdf: account.kdf, recovery: account.recovery, canRegister: false }));
   };
   remember();
+  if (auth && SYNC) keepAuth(user, ak, auth);
   localStorage.setItem('centra.lastUser', user);
 
   // Keys rotated on another device (after it logged a device out) arrive here.
@@ -168,7 +234,7 @@ async function openSession(relay: AnyRelay, user: string, account: AccountPublic
 
   const device = deviceId();
   const engine = new SyncEngine({ device, keys, store: new EncryptedStore(new IndexedDbStore(`${user}:${device}`), storeKey), relay });
-  await engine.start();
+  await engine.start({ compact: firstUpload });
   purgeSampleData(engine);
 
   const verify = (pw: string) => {
@@ -185,6 +251,7 @@ async function openSession(relay: AnyRelay, user: string, account: AccountPublic
       if (relay instanceof WsRelay) await relay.changePassword(oldAuth, w);
       account = { ...account, kdf: w.kdf, wrappedAK: w.wrappedAK };
       remember();
+      if (SYNC) keepAuth(user, ak, w.auth);
     },
     async newRecoveryCode(current) {
       const a = verify(current);
@@ -199,7 +266,7 @@ async function openSession(relay: AnyRelay, user: string, account: AccountPublic
       await invoke('bio_enable', { user, key: Array.from(ak) });
     },
     async stash() {
-      if (!('__TAURI_INTERNALS__' in window) || SYNC) return false;
+      if (!('__TAURI_INTERNALS__' in window)) return false;
       const { invoke } = await import('@tauri-apps/api/core');
       await invoke('session_stash', { user, key: Array.from(ak) });
       return true;
@@ -222,14 +289,26 @@ export async function openWithKey(userIn: string, raw: number[] | Uint8Array): P
   const look = await lookUp(userIn);
   const cached = localStorage.getItem(cacheKey(look.user));
   if (!cached) { wipe(ak); throw new Error('offline'); }
-  const account = JSON.parse(cached) as AccountPublic;
-  const { keys } = unlockWithAk(account, ak); // throws if the key does not fit this account
+  let account = JSON.parse(cached) as AccountPublic;
+  let { keys } = unlockWithAk(account, ak); // throws if the key does not fit this account
+  if (look.relay instanceof WsRelay) {
+    // Sync needs the server login too: the kept login value, opened with this key.
+    const auth = keptAuth(look.user, ak);
+    // No kept login yet (the first time with sync): the password is needed once.
+    if (!auth || look.migrate) { look.relay.close(); wipe(ak); throw new Error('need-password'); }
+    if (look.pre.offline) look.relay.loginWhenOnline(auth);
+    else {
+      try { account = (await look.relay.login(auth)).account; } catch (e) { look.relay.close(); wipe(ak); throw e; }
+      sameAccount(look.user, account);
+      ({ keys } = unlockWithAk(account, ak));
+    }
+  }
   return openSession(look.relay, look.user, account, keys, ak, false);
 }
 
 /** After an update reloads the window: the Mac app hands back the key it held (in memory, at most a minute). */
 export async function resumeAfterUpdate(): Promise<Session | null> {
-  if (!('__TAURI_INTERNALS__' in window) || SYNC) return null;
+  if (!('__TAURI_INTERNALS__' in window)) return null;
   try {
     const { invoke } = await import('@tauri-apps/api/core');
     const got = await invoke<[string, number[]] | null>('session_take');

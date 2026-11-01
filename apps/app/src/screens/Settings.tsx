@@ -5,6 +5,7 @@ import { useEngine, useList, useRoute, useSession, useSyncStatus, fmt } from '..
 import { Btn, Panel } from '../ui/primitives.tsx';
 import { ask } from '../ui/Confirm.tsx';
 import { BrowserPanel } from './BrowserSettings.tsx';
+import { desktop, ios, native } from '../platform.ts';
 import { useToast } from '../ui/Shell.tsx';
 import { useScreenEnter } from '../motion.ts';
 import { APP_VERSION, WEB_VERSION, REPO, checkForUpdate, platform, type Update } from '../updater.ts';
@@ -60,11 +61,13 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
           </div>
         </Panel>
         <Panel title="Opdateringer" className="span-7">
-          <div className="kv"><span>Version</span><span className="num">{APP_VERSION} · {platform === 'desktop' ? 'desktop-app' : platform === 'mobile' ? 'mobil-app' : 'web'}</span></div>
-          <div className="kv"><span>Grænseflade<span className="meta block">{platform === 'desktop' ? 'Opdateres for sig selv på under et minut, uden ny app' : 'Bygget'}</span></span><span className="num">{new Date(WEB_VERSION * 1000).toLocaleString('da-DK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>
+          <div className="kv"><span>Version</span><span className="num">{APP_VERSION} · {platform === 'desktop' ? 'Mac-app' : ios ? 'iPhone-app' : platform === 'mobile' ? 'mobil-app' : 'web'}</span></div>
+          <div className="kv"><span>Grænseflade<span className="meta block">{native ? 'Opdateres for sig selv på under et minut, uden ny app' : 'Bygget'}</span></span><span className="num">{new Date(WEB_VERSION * 1000).toLocaleString('da-DK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>
+          {ios ? <div className="kv"><span>Ny app-version<span className="meta block">Kommer i TestFlight, når du pusher en ændring af den indbyggede del</span></span><span className="meta">TestFlight</span></div> : <>
           <div className="kv"><span>Kilde</span><span className="meta">github.com/{REPO}/releases</span></div>
           <div className="kv"><span>{update === 'none' ? 'Du har den nyeste version' : update === 'error' ? 'Kunne ikke tjekke. Enten er du offline, eller den nyeste udgivelse på GitHub mangler sin opdateringsfil (latest.json).' : update === 'checking' ? 'Søger …' : update && typeof update === 'object' ? `Version ${update.version} er klar` : 'Søger automatisk ved start, hvert kvarter og når vinduet får fokus'}</span>
             {update && typeof update === 'object' ? <Btn variant="primary" size="sm" onClick={() => update.install()}>Installér og genstart</Btn> : <Btn size="sm" onClick={check}>Søg nu</Btn>}</div>
+          </>}
         </Panel>
         {session.sync ? (<>
         <Panel title="Enheder" className="span-7" count={devices.filter((d) => !d.revoked).length}>
@@ -89,14 +92,14 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
         </Panel>
         </>) : (
         <Panel title="Synkronisering" className="span-12">
-          <div className="kv"><span>Slået fra<span className="meta block">CENTRA kører på denne computer, og alt gemmes krypteret med en nøgle fra dit password. Sync til iPhone og andre computere er bygget og slås til senere.</span></span><span className="meta">Kun denne enhed</span></div>
+          <div className="kv"><span>Slået fra<span className="meta block">CENTRA kører på denne computer, og alt gemmes krypteret med en nøgle fra dit password. Sync til iPhone slår til, når din sync-server er sat op (se docs/IPHONE.md).</span></span><span className="meta">Kun denne enhed</span></div>
         </Panel>
         )}
         <Panel title="Mail" className="span-12">
           <div className="kv"><span>Vis billeder i mails automatisk<span className="meta block">Billeder hentes fra afsenderens server, når du åbner mailen. Slår du det fra, viser CENTRA en knap i stedet, og afsenderen kan ikke se, at du har læst den. Usynlige sporings-pixels fjernes altid.</span></span>
             <label className="checkrow"><input type="checkbox" checked={remoteImagesOn(e)} onChange={(x) => { setRemoteImages(e, x.target.checked); toast({ text: x.target.checked ? 'Billeder vises automatisk' : 'Billeder vises først, når du beder om det' }); }} aria-label="Vis billeder i mails automatisk" /></label></div>
         </Panel>
-        <BrowserPanel />
+        {desktop && <BrowserPanel />}
         <DataPanel onExport={exportAll} />
       </div>
     </main>

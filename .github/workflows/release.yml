@@ -1,9 +1,11 @@
 # A push that changes the native app builds and publishes a new CENTRA. Nothing to run by hand.
 # (Interface-only pushes go out as fast updates through web.yml; run this one by hand to force a full build.)
 #
-#   relay    Cloudflare Worker (only when the CLOUDFLARE_API_TOKEN secret exists)
+#   relay    Cloudflare Worker = the sync server (only when the CLOUDFLARE_API_TOKEN secret exists);
+#            when it exists every app below is built with sync switched on
 #   web      GitHub Pages: the installable phone/web app (only when Pages is switched on)
 #   desktop  Mac (.dmg, universal) and Windows (.exe/.msi) on the GitHub release
+#   ios      iPhone app to TestFlight (only when the Apple secrets exist, see docs/IPHONE.md)
 #
 # Auto-update: installed desktop apps read latest.json from the newest release; that file is signed
 # with TAURI_SIGNING_PRIVATE_KEY. Without the secret the installers are still built, just without
@@ -17,6 +19,7 @@ on:
     paths:
       - 'apps/desktop/**'
       - 'services/**'
+      - 'packages/relay-core/**'
       - 'scripts/**'
       - 'installer/**'
       - '.github/workflows/release.yml'
@@ -55,6 +58,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       url: ${{ steps.deploy.outputs.url }}
+      sync: ${{ steps.deploy.outputs.sync }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -63,17 +67,18 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CENTRA_RELAY_URL: ${{ vars.CENTRA_RELAY_URL }}
         run: |
-          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
-            echo "Ingen CLOUDFLARE_API_TOKEN: springer serveren over (appen bruger CENTRA_RELAY_URL eller kører lokalt)."
-            echo "url=${{ vars.CENTRA_RELAY_URL }}" >> "$GITHUB_OUTPUT"; exit 0
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -z "$CENTRA_RELAY_URL" ]; then
+            npm ci
+            npx vitest run packages/relay-core
+            (cd services/relay-cf && npx --yes wrangler@4 deploy)
+          else
+            echo "Ingen CLOUDFLARE_API_TOKEN: ingen sync-server (appen kører kun på denne enhed, medmindre CENTRA_RELAY_URL er sat)."
           fi
-          npm ci
-          npx vitest run packages/relay-core
-          cd services/relay-cf
-          OUT=$(npx wrangler deploy 2>&1 | tee /dev/stderr)
-          URL=$(echo "$OUT" | grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' | head -1)
-          echo "url=${URL/https:/wss:}" >> "$GITHUB_OUTPUT"
+          URL=$(bash scripts/relay-url.sh)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          if [ -n "$URL" ]; then echo "sync=on" >> "$GITHUB_OUTPUT"; echo "Sync slået til: $URL"; else echo "sync=off" >> "$GITHUB_OUTPUT"; fi
 
   web:
     needs: [version, relay]
@@ -91,6 +96,7 @@ jobs:
         env:
           CENTRA_BASE: /${{ github.event.repository.name }}/
           VITE_RELAY_URL: ${{ needs.relay.outputs.url }}
+          VITE_SYNC: ${{ needs.relay.outputs.sync }}
         run: npm run build -w @centra/app
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
@@ -164,6 +170,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VITE_RELAY_URL: ${{ needs.relay.outputs.url }}
+          VITE_SYNC: ${{ needs.relay.outputs.sync }}
         with:
           projectPath: apps/desktop
           tauriScript: npx tauri
@@ -177,6 +184,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VITE_RELAY_URL: ${{ needs.relay.outputs.url }}
+          VITE_SYNC: ${{ needs.relay.outputs.sync }}
         run: |
           set -o pipefail
           (cd apps/desktop && npx tauri build ${{ matrix.args }} -v) 2>&1 | tee mac-build-log.txt || {
@@ -203,21 +211,49 @@ jobs:
       on: ${{ steps.gate.outputs.on }}
     steps:
       - id: gate
-        env: { KEY: '${{ secrets.APP_STORE_CONNECT_API_KEY }}' }
-        run: if [ -n "$KEY" ]; then echo "on=true" >> "$GITHUB_OUTPUT"; else echo "Ingen Apple-nøgler endnu – iPhone-bygget springes over."; fi
+        env:
+          P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=""
+          [ -z "$P8" ] && missing="$missing APPLE_API_KEY_P8"
+          [ -z "$KEY_ID" ] && missing="$missing APPLE_API_KEY_ID"
+          [ -z "$ISSUER" ] && missing="$missing APPLE_API_ISSUER"
+          [ -z "$TEAM" ] && missing="$missing APPLE_TEAM_ID"
+          if [ -z "$missing" ]; then echo "on=true" >> "$GITHUB_OUTPUT"; else echo "iPhone-bygget springes over. Mangler secrets:$missing"; fi
 
   ios:
     needs: [version, relay, ios-gate]
     if: needs.ios-gate.outputs.on == 'true'
     runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
-      - env:
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: 'aarch64-apple-ios' }
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: 'apps/desktop/src-tauri -> target' }
+      - run: npm ci
+      - name: Build and upload to TestFlight
+        env:
           VITE_RELAY_URL: ${{ needs.relay.outputs.url }}
-          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
-          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          VITE_SYNC: ${{ needs.relay.outputs.sync }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: bash scripts/ios-testflight.sh ${{ needs.version.outputs.version }} ${{ github.run_number }}
+        run: |
+          set -o pipefail
+          bash scripts/ios-testflight.sh ${{ needs.version.outputs.version }} ${{ github.run_number }} 2>&1 | tee ios-build-log.txt || {
+            # The end of the log goes on the release, so the error can be read without GitHub's log viewer.
+            tail -c 200000 ios-build-log.txt > iphone-build-fejl.txt
+            gh release upload ${{ needs.version.outputs.tag }} iphone-build-fejl.txt --clobber
+            exit 1
+          }
+          gh release delete-asset ${{ needs.version.outputs.tag }} iphone-build-fejl.txt -y 2>/dev/null || true
