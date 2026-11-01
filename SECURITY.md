@@ -8,7 +8,7 @@ Kort fortalt: dit password forlader aldrig din enhed. Alt indhold krypteres, fø
 |---|---|
 | Nogen læser koden på GitHub | Ingen passwords, nøgler eller hemmeligheder i koden. Signeringsnøglen ligger uden for repoet (`Desktop/CENTRA/CENTRA-noegler`) og som GitHub-secret |
 | Serveren bliver hacket | Den har kun ciphertext (XChaCha20-Poly1305) og SHA-256 af en Argon2id-afledt værdi. Den kan hverken dekryptere eller logge ind |
-| Nogen gætter dit password | Argon2id (64 MiB, 4 gennemløb) gør hvert gæt dyrt. Serveren spærrer kontoen efter 5 forkerte forsøg (30 s, 60 s, 120 s … op til 1 time) |
+| Nogen gætter dit password | Argon2id (64 MiB, 4 gennemløb) gør hvert gæt dyrt. Serveren spærrer kontoen efter 5 forkerte forsøg (30 s, 60 s, 120 s … op til 1 time). Dine egne enheder kommer stadig ind under en spærring (med det rigtige password), så en fremmed ikke kan holde din sync ude |
 | Nogen opretter en konto på din server | Kun brugernavnet `tranberg` kan oprettes, og kun én gang (`ALLOWED_USERS`) |
 | Mistet eller stjålet enhed | Log den ud under Indstillinger → Enheder. Den kobles af med det samme, og nye data krypteres med en ny nøgle. Skift også dit password |
 | Nogen bruger din ulåste Mac | Appen låser sig selv efter 15 min uden aktivitet eller 5 min i baggrunden, og så forsvinder nøglerne fra hukommelsen |
@@ -37,6 +37,9 @@ password ─Argon2id─▶ enc  ─┐                     recovery code ─Argo
 - Ét Durable Object pr. konto med egen SQLite-lagring. Det betjener kun kontoen, det er navngivet efter.
 - Kun `prelogin` virker uden login. Den returnerer de offentlige KDF-salte og den gendannelses-wrappede AK, som er låst med en 125-bit tilfældig nøgle plus Argon2id.
 - Hver besked er størrelses- og formkontrolleret, og hver forbindelse er rate-limited (40/s).
+- En forbindelse, der ikke logger ind, får 12 beskeder og lukkes så. Højst 20 ventende forbindelser pr. konto; de ældste skubbes ud, loggede-ind enheder røres aldrig.
+- Kun tilladte brugernavne kommer forbi Cloudflare-indgangen; alt andet afvises, før det koster noget. Svarene har sikkerheds-headers (HSTS, CSP, nosniff, ingen indlejring, ingen cache).
+- GitHub-workflows bruger tredjeparts-actions låst til et bestemt commit (ikke et flytbart tag), og test-workflowet kan kun læse koden.
 - Passwordskift og gendannelse lukker alle andre sessioner (kode 4002). En udlogget enhed afvises (kode 4001).
 
 ## Kendte begrænsninger
@@ -47,4 +50,4 @@ password ─Argon2id─▶ enc  ─┐                     recovery code ─Argo
 
 ## Test
 
-`npx vitest run` kører 9 sikkerhedstests mod relæ-kernen, blandt andet: ingen adgang før login, kun tilladt bruger, kun hash gemt, lockout med stigende ventetid, passwordskift logger andre ud, gendannelse, udlogget enhed afvist, nøgler kan ikke erstattes, og flood og forkert input afvises. `npm run e2e` kører hele forløbet i en browser med CSP slået til.
+`npx vitest run` kører 12 sikkerhedstests mod relæ-kernen, blandt andet: ingen adgang før login, kun tilladt bruger, kun hash gemt, lockout med stigende ventetid, passwordskift logger andre ud, gendannelse, udlogget enhed afvist, nøgler kan ikke erstattes, flood og forkert input afvises, egne enheder kommer ind under en spærring (og fremmede ikke), og forbindelser der ikke logger ind lukkes. `npm run e2e` kører hele forløbet i en browser med CSP slået til.

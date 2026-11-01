@@ -6,6 +6,9 @@
  *  - Nothing but `prelogin` (which returns public KDF salts) works before authentication.
  *  - The server stores SHA-256(auth) only; auth is itself derived from the password with Argon2id.
  *  - Failed logins are throttled per account with an exponential lock (5 free tries, then 30 s, 60 s, … ≤ 1 h).
+ *    The account's own (non-revoked) devices still get in during a lock, so a stranger who knows the
+ *    username can't keep the owner's sync locked out; they still need the right password.
+ *  - A connection that hasn't logged in gets a few messages only, then it is closed.
  *  - Only allow-listed usernames can be registered, and only once.
  *  - Every frame and field is size- and shape-checked; each connection is rate-limited.
  *  - A password change or a revoked device disconnects the other sessions.
@@ -40,6 +43,8 @@ export interface Conn {
   /** Called when the connection has logged in, so a host can remember it (Cloudflare: across hibernation). */
   saved?: () => void;
   bucket?: { tokens: number; at: number };
+  /** Messages sent before logging in (a few are enough; more is someone probing). */
+  pre?: number;
 }
 
 export type RelayOptions = {
@@ -52,6 +57,8 @@ export type RelayOptions = {
 
 const LIMITS = { frame: 4_000_000, body: 1_500_000, envsPerPush: 500, pull: 2000, pullBytes: 3_000_000, msgsPerSecond: 40, burst: 120 };
 const FREE_TRIES = 5;
+/** Messages a connection may send before it has logged in (prelogin, login, a retry or two). */
+const PRE_AUTH_MESSAGES = 12;
 
 export const normalizeUser = (u: unknown) => (typeof u === 'string' ? u.trim().toLowerCase() : '');
 
@@ -107,6 +114,8 @@ export class RelayCore {
 
     try {
       if (!conn.authed) {
+        conn.pre = (conn.pre ?? 0) + 1;
+        if (conn.pre > PRE_AUTH_MESSAGES) return conn.close(1008, 'log in first');
         switch (m.type) {
           case 'prelogin': return await this.prelogin(conn, m, rid);
           case 'register': return await this.register(conn, m, err);
@@ -232,10 +241,13 @@ export class RelayCore {
     const user = normalizeUser(m.user);
     if (!isAuth(m.auth) || !isStr(m.device, 40)) return err('bad-request');
     const store = this.o.store(user);
+    // One of the account's own devices (it knows its random device id) isn't held back by a lock
+    // that someone else caused; it still has to prove the password, and a wrong one still counts.
+    const own = (await store.getDevices()).some((d) => d.id === m.device && !d.revoked);
     const locked = await this.lockedFor(store);
-    if (locked) return err('locked', { retryAfter: locked });
+    if (locked && !own) return err('locked', { retryAfter: locked });
     const acc = await store.getAccount();
-    if (!acc || !(await this.checkAuth(store, acc.verifier, m.auth))) {
+    if (!acc || !(await this.checkAuth(store, acc.verifier, m.auth, !locked))) {
       const after = await this.lockedFor(store);
       return err('auth', after ? { retryAfter: after } : {});
     }
@@ -258,11 +270,12 @@ export class RelayCore {
   }
 
   /** Verifies and updates the lock-out counter. */
-  private async checkAuth(store: UserStore, verifier: string, auth: string): Promise<boolean> {
+  private async checkAuth(store: UserStore, verifier: string, auth: string, reset = true): Promise<boolean> {
     const ok = safeEqual(await sha256hex(auth), verifier);
     const g = await store.getGuard();
     if (ok) {
-      if (g.failures) await store.putGuard({ failures: 0, lockedUntil: 0 });
+      // (A device let in during a lock doesn't lift the lock for everyone else.)
+      if (g.failures && reset) await store.putGuard({ failures: 0, lockedUntil: 0 });
       return true;
     }
     const failures = g.failures + 1;

@@ -12,7 +12,15 @@ const SECURITY_HEADERS = {
   'x-content-type-options': 'nosniff',
   'referrer-policy': 'no-referrer',
   'strict-transport-security': 'max-age=63072000; includeSubDomains',
+  'content-security-policy': "default-src 'none'; frame-ancestors 'none'",
+  'x-frame-options': 'DENY',
+  'cache-control': 'no-store',
 };
+/** Connections that haven't logged in yet, per account. A flood of them pushes the oldest out;
+ *  logged-in devices are never touched, so the owner's sync can't be crowded out. */
+const MAX_WAITING = 20;
+
+const allowedUsers = (env: Env) => (env.ALLOWED_USERS ?? 'tranberg').split(',').map(normalizeUser).filter(Boolean);
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
@@ -22,6 +30,8 @@ export default {
     if (req.headers.get('upgrade')?.toLowerCase() !== 'websocket') return new Response('websocket only', { status: 426, headers: SECURITY_HEADERS });
     const user = normalizeUser(decodeURIComponent(m[1]));
     if (!/^[a-z0-9_.-]{1,64}$/.test(user)) return new Response('bad account', { status: 400, headers: SECURITY_HEADERS });
+    // Only the accounts this relay is for: anything else is turned away here, before it costs anything.
+    if (!allowedUsers(env).includes(user)) return new Response('unknown account', { status: 404, headers: SECURITY_HEADERS });
     const stub = env.ACCOUNTS.get(env.ACCOUNTS.idFromName(user));
     const fwd = new Request(req, { headers: new Headers(req.headers) });
     fwd.headers.set('x-centra-user', user);
@@ -72,7 +82,7 @@ export class Account extends DurableObject<Env> {
         return [...map.values()];
       },
     };
-    const allowed = (env.ALLOWED_USERS ?? 'tranberg').split(',').map(normalizeUser).filter(Boolean);
+    const allowed = allowedUsers(env);
     // This object only ever serves the account it is named after.
     this.core = new RelayCore({ allowedUsers: allowed, store: (u) => { if (!this.user || u !== this.user) throw new Error('wrong account'); return store; } });
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('{"type":"ping"}', '{"type":"pong"}'));
@@ -99,6 +109,8 @@ export class Account extends DurableObject<Env> {
   }
 
   async fetch(req: Request): Promise<Response> {
+    const waiting = this.ctx.getWebSockets().filter((ws) => !((ws.deserializeAttachment() ?? {}) as Attachment).authed);
+    for (const ws of waiting.slice(0, Math.max(0, waiting.length - MAX_WAITING + 1))) { this.gone(ws); try { ws.close(1013, 'busy'); } catch {} }
     this.user = req.headers.get('x-centra-user');
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);

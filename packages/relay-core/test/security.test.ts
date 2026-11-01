@@ -128,3 +128,40 @@ describe('relay security', () => {
     expect(flood.closed).toBe(1008);
   });
 });
+
+describe('relay security: lock-outs and probing', () => {
+  it("a stranger's wrong guesses lock strangers out, not the owner's own devices", async () => {
+    const { conn, ask } = setup();
+    const a = createAccount('CentraTest-1710!', 'interactive');
+    await ask(conn(), { type: 'register', ...id('dmac00000000000001'), account: a.account, auth: a.auth, recoveryAuth: a.recoveryAuth });
+    const wrong = passwordSecrets('gæt', a.account.kdf).auth;
+    for (let i = 0; i < 5; i++) await ask(conn(), { type: 'login', ...id(), auth: wrong });
+    // a new device with the right password waits; the Mac it already knows gets straight back in
+    expect((await ask(conn(), { type: 'login', ...id(), auth: a.auth })).code).toBe('locked');
+    expect((await ask(conn(), { type: 'login', ...id('dmac00000000000001'), auth: a.auth })).type).toBe('welcome');
+    // …which doesn't lift the lock for others, and the Mac still needs the right password
+    expect((await ask(conn(), { type: 'login', ...id(), auth: a.auth })).code).toBe('locked');
+    expect((await ask(conn(), { type: 'login', ...id('dmac00000000000001'), auth: wrong })).code).toBe('auth');
+  });
+
+  it('a revoked device gets no such pass', async () => {
+    const { conn, ask } = setup();
+    const a = createAccount('CentraTest-1710!', 'interactive');
+    const mac = conn();
+    await ask(mac, { type: 'register', ...id('dmac00000000000001'), account: a.account, auth: a.auth, recoveryAuth: a.recoveryAuth });
+    await ask(conn(), { type: 'login', ...id('dold00000000000002'), auth: a.auth });
+    await ask(mac, { type: 'revoke', device: 'dold00000000000002' });
+    const wrong = passwordSecrets('gæt', a.account.kdf).auth;
+    for (let i = 0; i < 5; i++) await ask(conn(), { type: 'login', ...id(), auth: wrong });
+    expect((await ask(conn(), { type: 'login', ...id('dold00000000000002'), auth: a.auth })).code).toBe('locked');
+  });
+
+  it('closes a connection that keeps talking without logging in', async () => {
+    const { conn, ask } = setup();
+    const c = conn();
+    for (let i = 0; i < 12; i++) await ask(c, { type: 'prelogin', user: 'tranberg' });
+    expect(c.closed).toBeUndefined();
+    await ask(c, { type: 'prelogin', user: 'tranberg' });
+    expect(c.closed).toBe(1008);
+  });
+});

@@ -8,3 +8,12 @@ services/relay/data/
 e2e-shots/
 *.key
 .wrangler/
+
+# Never in git: keys, certificates, environment files
+.env
+.env.*
+*.p8
+*.p12
+*.pem
+*.mobileprovision
+CENTRA-noegler/
