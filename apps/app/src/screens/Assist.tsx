@@ -153,13 +153,25 @@ export function Assist() {
   });
 
   const log = chat?.log ?? [];
-  useEffect(() => {
+  // Opening Assist (or another conversation) lands at the newest message with the box in view, at
+  // once; a new message glides in. On the iPhone the whole page scrolls (the box stays above the bar),
+  // elsewhere the conversation does.
+  const shownChat = useRef<string | null | undefined>(undefined);
+  useLayoutEffect(() => {
     const el = scroller.current; if (!el) return;
-    const behavior = reduced() ? 'auto' : 'smooth';
-    // On the iPhone the whole page scrolls (the box stays above the bar); elsewhere the conversation does.
-    if (el.scrollHeight <= el.clientHeight + 1) { if (log.length || busy) el.lastElementChild?.scrollIntoView({ block: 'end', behavior }); }
-    else el.scrollTo({ top: el.scrollHeight, behavior });
-  }, [log.length, busy, live.length]);
+    const opening = shownChat.current !== (chat?.id ?? null);
+    shownChat.current = chat?.id ?? null;
+    const toEnd = (behavior: ScrollBehavior) => {
+      if (el.scrollHeight > el.clientHeight + 1) el.scrollTo({ top: el.scrollHeight, behavior });
+      else if ((log.length || busy) && document.documentElement.scrollHeight > innerHeight + 1) el.closest('.chat')?.scrollIntoView({ block: 'end', behavior });
+    };
+    if (!opening) return toEnd(reduced() ? 'auto' : 'smooth');
+    toEnd('auto');
+    // again once the page has settled (the screen's entrance, fonts, pictures in the conversation)
+    const f = requestAnimationFrame(() => toEnd('auto'));
+    const t1 = setTimeout(() => toEnd('auto'), 120), t2 = setTimeout(() => toEnd('auto'), 450);
+    return () => { cancelAnimationFrame(f); clearTimeout(t1); clearTimeout(t2); };
+  }, [log.length, busy, live.length, chat?.id]);
   const sendRef = useRef<(t: string) => void>(() => {});
   sendRef.current = (t) => void send(t);
   useEffect(() => {

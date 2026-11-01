@@ -31,7 +31,9 @@ jobs:
       # node_modules straight from the cache when package-lock.json is unchanged (saves the install)
       - id: nm
         uses: actions/cache@v4
-        with: { path: node_modules, key: nm-${{ runner.os }}-${{ hashFiles('package-lock.json') }} }
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - if: steps.nm.outputs.cache-hit != 'true'
         run: npm ci --no-audit --no-fund
       - name: Build

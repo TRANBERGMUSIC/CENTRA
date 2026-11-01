@@ -39,17 +39,26 @@ npx tauri ios init --ci
 
 APPLE_DIR=src-tauri/gen/apple
 # Siri ("Hey Siri, husk i CENTRA", scripts/ios/CentraIntents.swift): the Swift file goes into the app's
-# sources, the project gets a Swift version (it's Objective-C otherwise) and is generated again.
-# Done before the Info.plist edits below, because generating rewrites the Info.plist.
+# sources, the app target gets a Swift version (the project is Objective-C otherwise) through a small
+# extra spec that includes Tauri's project.yml, and the project is generated again. Done before the
+# Info.plist edits below, because generating rewrites the Info.plist. Never stops the build: if any of
+# it goes wrong, the app is built without Siri.
 SIRI_FILE=""
-MAIN_MM=$(find "$APPLE_DIR/Sources" -name 'main.mm' 2>/dev/null | head -1 || true)
-if [ -n "$MAIN_MM" ] && [ -f "$APPLE_DIR/project.yml" ]; then
-  SRC_DIR=$(dirname "$MAIN_MM")
-  command -v yq >/dev/null || brew install yq
-  cp "$ROOT/scripts/ios/CentraIntents.swift" "$SRC_DIR/" && SIRI_FILE="$SRC_DIR/CentraIntents.swift"
-  yq -i '(.targets[] | select(has("sources"))).settings.base.SWIFT_VERSION //= "5.0"' "$APPLE_DIR/project.yml"
-  (cd "$APPLE_DIR" && xcodegen generate --spec project.yml) || { rm -f "$SIRI_FILE"; SIRI_FILE=""; }
-  echo "Siri: ${SIRI_FILE:-sprunget over}"
+siri_prep() {
+  local main target
+  main=$(find "$APPLE_DIR/Sources" -name 'main.mm' 2>/dev/null | head -1)
+  [ -n "$main" ] && [ -f "$APPLE_DIR/project.yml" ] || return 1
+  target=$(ruby -ryaml -e 'f = ARGV[0]; y = YAML.respond_to?(:unsafe_load_file) ? YAML.unsafe_load_file(f) : YAML.load_file(f); puts y["targets"].keys.grep(/_iOS$/).first' "$APPLE_DIR/project.yml") || return 1
+  [ -n "$target" ] || return 1
+  cp "$ROOT/scripts/ios/CentraIntents.swift" "$(dirname "$main")/" || return 1
+  SIRI_FILE="$(dirname "$main")/CentraIntents.swift"
+  printf 'include:\n  - project.yml\ntargets:\n  %s:\n    settings:\n      base:\n        SWIFT_VERSION: "5.0"\n' "$target" > "$APPLE_DIR/siri.yml"
+  (cd "$APPLE_DIR" && xcodegen generate --spec siri.yml) || return 1
+}
+if siri_prep; then echo "Siri: med ($SIRI_FILE)"; else
+  echo "::warning::Siri-delen kunne ikke sættes op; bygger uden."
+  [ -n "$SIRI_FILE" ] && rm -f "$SIRI_FILE"; SIRI_FILE=""
+  (cd "$APPLE_DIR" && xcodegen generate --spec project.yml) || true
 fi
 # App icon (made from the brand icon, without transparency, which App Store Connect refuses)
 ICONSET=$(find "$APPLE_DIR" -type d -name 'AppIcon.appiconset' | head -1)

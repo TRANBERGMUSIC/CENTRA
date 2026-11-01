@@ -1018,6 +1018,7 @@ html.is-app .sidebar, html.is-app .tabbar, html.is-app .btn, html.is-app .tag { 
   .panel.chat::after { display: none; }
   .chat__log { overflow: visible; padding: 12px 16px 16px; gap: 14px; }
   .chat__log > * { scroll-margin-bottom: calc(150px + env(safe-area-inset-bottom, 0px)); }
+  .panel.chat { scroll-margin-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
   .chat .msg { max-width: 86%; }
   .chat .composer, .chat .composer__pics { position: sticky; z-index: 4; margin: 0 12px; max-width: none; }
   .chat .composer__pics { bottom: calc(136px + env(safe-area-inset-bottom, 0px)); padding: 8px 4px; border: 0; background: none; }
