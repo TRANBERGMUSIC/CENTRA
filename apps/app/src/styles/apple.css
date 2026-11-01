@@ -1091,3 +1091,15 @@ html.is-app .sidebar, html.is-app .tabbar, html.is-app .btn, html.is-app .tag { 
 .hl__add > input, .hl__add > input:focus, .hl__add > input:focus-visible { border: 0 !important; box-shadow: none !important; outline: none !important; background: none !important; padding: 0; }
 .hl__add:focus-within { box-shadow: 0 0 0 2px color-mix(in oklab, var(--c-focus) 70%, transparent); }
 .hl__add { transition: box-shadow 160ms var(--ease-out-quart); }
+
+/* ---------------------------------------------------------------- mail on the iPhone: the list, then the mail on its own (like Mail) */
+@media (max-width: 640px) {
+  .inbox.has-open > .mlist { display: none; }
+  .inbox:not(.has-open) > .reader { display: none; }
+  .inbox.has-open > .reader { display: block; }  /* base.css hid the mail on phones altogether */
+  .inbox > .mlist { height: auto; }
+  .inbox > .reader { padding: 8px 16px 40px; overflow: visible; }
+  .inbox .phone-back { margin: 4px 0 6px -4px; padding: 6px 4px; border: 0; background: none; font: inherit; font-size: 17px; color: var(--link); cursor: pointer; }
+  .inbox .reader__bar { flex-wrap: wrap; row-gap: 4px; margin: 0 -16px 16px; padding: 8px 12px; top: 0; }
+  .inbox .mailframe { width: 100%; }
+}

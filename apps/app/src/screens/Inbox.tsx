@@ -68,7 +68,10 @@ export function Inbox() {
     && (words.length ? words.every((w) => `${m.fromName} ${m.fromEmail} ${(m.to ?? []).join(' ')} ${m.subject} ${m.body ?? m.preview} ${(m.attachments ?? []).join(' ')} ${m.acctName}`.toLowerCase().includes(w))
       : inBox(m, box) && (box !== 'inbox' || inFilter(m, filter)))).sort(sorter(sort)), [everything, acct, box, filter, q, sort]);
   const [shown, moreAt] = useProgressive(rows.length, 60, `${acct}|${box}|${filter}|${q}|${sort}`);
-  const id = (route.id && !route.id.startsWith('folder:') ? route.id : undefined) ?? rows[0]?.id;
+  // A mail you opened yourself. On the Mac the newest one shows when none is; on the iPhone the list
+  // shows until you tap one, and then the mail fills the screen (with a way back), like Mail.
+  const opened = route.id && !route.id.startsWith('folder:') ? route.id : undefined;
+  const id = opened ?? rows[0]?.id;
   const folderCount = (f: string) => everything.filter((m) => !m.archived && m.mbox === f && (acct === 'all' || m.acct === acct)).length;
   const folderUnread = (f: string) => everything.filter((m) => !m.archived && m.mbox === f && m.unread && (acct === 'all' || m.acct === acct)).length;
   const dropTo = (target: string, ev: React.DragEvent) => {
@@ -117,7 +120,7 @@ export function Inbox() {
   }
 
   return (
-    <main className="inbox" ref={ref}>
+    <main className={`inbox ${opened ? 'has-open' : ''}`} ref={ref}>
       <div className="mlist" data-lenis-prevent>
         <div className="mlist__head" data-enter>
           <div className="mlist__title"><h1>Mail</h1>
@@ -184,14 +187,14 @@ export function Inbox() {
           {!rows.length && <p className="meta pad">{!accts.length ? <>Ingen mailkonti endnu. <button className="tag" onClick={() => go({ screen: 'connections' })}>Tilføj Gmail, iCloud, one.com eller Simply</button></> : words.length ? 'Intet fundet. Prøv andre ord, eller spørg Assist.' : box === 'sent' ? 'Ingen sendte mails endnu. De hentes fra Sendt-mappen på din mailserver.' : box === 'archive' ? 'Intet i arkivet.' : box !== 'inbox' ? 'Ingen mails i mappen endnu. Træk en mail herover, giv mappen regler, eller bed Assist om at sortere.' : filter === 'other' ? 'Ingen reklamer eller notifikationer. Dejligt.' : all.length ? 'Intet her.' : 'Henter dine mails …'}</p>}
         </div>
       </div>
-      {id ? <Reader key={id} id={id} onMove={(m, a) => move(m, a, document.getElementById(`mrow-${m.id}`))} /> : <div className="reader" />}
+      {id ? <Reader key={id} id={id} onMove={(m, a) => move(m, a, document.getElementById(`mrow-${m.id}`))} onBack={() => go({ screen: 'inbox', id: box !== 'inbox' && box !== 'sent' && box !== 'archive' ? `folder:${box}` : undefined })} /> : <div className="reader" />}
       {editFolder && <FolderSheet f={editFolder === 'new' ? null : editFolder} onClose={() => setEditFolder(null)} onSaved={(fid) => { setBox(fid); setEditFolder(null); }} onDeleted={() => { setBox('inbox'); setEditFolder(null); }} />}
       <ContactRail id={id} />
     </main>
   );
 }
 
-function Reader({ id, onMove }: { id: string; onMove: (m: any, a: 'archive' | 'trash') => void }) {
+function Reader({ id, onMove, onBack }: { id: string; onMove: (m: any, a: 'archive' | 'trash') => void; onBack: () => void }) {
   const e = useEngine();
   const m = useRecord<any>(id);
   const toast = useToast();
@@ -223,6 +226,7 @@ function Reader({ id, onMove }: { id: string; onMove: (m: any, a: 'archive' | 't
   return (
     <div className="reader" ref={wrap}>
       <div ref={content}>
+        <button className="phone-back" onClick={onBack}><Icon name="chevron-left" />Mail</button>
         <div className="reader__bar">
           <Btn size="sm" variant="text" icon="reply" onClick={() => setReply(text || '')}>{m.sent ? 'Skriv igen' : 'Svar'}</Btn>
           <Btn size="sm" variant="text" icon="archive" onClick={() => onMove(m, 'archive')}>Arkivér</Btn>
