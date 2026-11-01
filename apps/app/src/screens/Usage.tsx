@@ -58,8 +58,8 @@ export function UsageScreen() {
       <div className="kpis" data-enter>
         <div className="kpi"><span className="meta">{now.toLocaleDateString('da-DK', { month: 'long' }).replace(/^./, (c) => c.toUpperCase())} indtil nu</span><b className="num"><CountUp to={monthDkk} from={0} decimals={2} duration={0.9} separator="." decimalSeparator="," trigger="mount" /> kr</b><span className="meta num">Forventet hele måneden: {kr(forecast)}</span></div>
         <div className="kpi"><span className="meta">I dag</span><b className="num">{kr(todayDkk)}</b><span className="meta num">{sum(rows.filter((r) => r.day === today), 'calls')} kald</span></div>
-        <div className="kpi"><span className="meta">Sparet denne måned</span><b className="num">{kr(saved)}</b><span className="meta">ved Haiku og cache, i forhold til alt på Sonnet</span></div>
-        <div className="kpi"><span className="meta">Fra cache</span><b className="num">{Math.round(cacheShare * 100)} %</b><span className="meta">af det, Claude læste, kom fra cache (koster 5 % af prisen)</span></div>
+        <div className="kpi"><span className="meta">Sparet denne måned</span><b className="num">{kr(saved)}</b></div>
+        <div className="kpi"><span className="meta">Fra cache</span><b className="num">{Math.round(cacheShare * 100)} %</b></div>
       </div>
 
       <div className="grid12">

@@ -44,7 +44,7 @@ export function Goals() {
   );
 
   return (
-    <main className={`goals ${route.id ? 'has-open' : ''}`} ref={ref}>
+    <main className={`goals ${route.id ? 'has-open' : ''} ${pending > 0 || !!cur?.g.event ? '' : 'no-rail'}`} ref={ref}>
       <div className="glist" data-enter>
         <h1>Mål <span className="meta num">{goals.length}</span><Btn size="sm" icon="plus" onClick={() => setCreating(true)}>Nyt mål</Btn></h1>
         {areas.length > 1 && <div className="ntags gareas">{[null, ...areas].map((a) => <button key={a ?? 'all'} className={`tag ${area === a ? 'is-active' : ''}`} onClick={() => setArea(a)}>{a ?? 'Alle'}</button>)}</div>}
@@ -55,10 +55,10 @@ export function Goals() {
         {showDone && section('', shown.filter((x) => finished(x.g, x.s)))}
       </div>
       {cur ? <GoalDetail key={cur.g.id} g={cur.g} s={cur.s} /> : <div className="gdetail"><p className="muted pad">Ingen mål endnu.</p></div>}
-      <aside className="details" aria-label="Detaljer">
+      {(pending > 0 || !!cur?.g.event) && <aside className="details" aria-label="Detaljer">
         {pending > 0 && <div className="dsec"><div className="dsec__title">Forslag fra Assist</div><SuggestionRows limit={2} /></div>}
         {cur?.g.event && <LinkedEvent id={cur.g.event} />}
-      </aside>
+      </aside>}
       {creating && <NewGoal onClose={() => setCreating(false)} onMade={(nid) => { setCreating(false); go({ screen: 'goals', id: nid }); }} />}
     </main>
   );
@@ -141,8 +141,8 @@ function GoalDetail({ g, s }: { g: Goal; s: ReturnType<typeof goalStats> }) {
       <Progress ratio={s.ratio} focus={!s.onTrack} />
       <div className="prog__ends meta num"><span>0</span><span>{g.kind === 'measure' ? `${fmtN(g.target ?? 0)} ${g.unit}` : g.kind === 'milestones' || (g.kind === 'once' && g.steps?.length) ? `${g.steps?.length} trin` : g.kind === 'count' ? `${fmtN(g.target ?? 0)} gange` : g.kind === 'once' ? 'gjort' : `${g.perWeek} gange`}</span></div>
       <div className="gwhy">
-        <label><span className="meta">Hvorfor</span><input defaultValue={g.why ?? ''} placeholder="Hvorfor betyder det noget for dig?" onBlur={(x) => x.target.value.trim() !== (g.why ?? '') && e.set('goal', g.id, { why: x.target.value.trim() })} /></label>
-        <label><span className="meta">Næste skridt</span><input defaultValue={g.next ?? ''} placeholder="Det allerførste, du gør" onBlur={(x) => x.target.value.trim() !== (g.next ?? '') && e.set('goal', g.id, { next: x.target.value.trim() })} /></label>
+        <label><span className="meta">Hvorfor</span><input defaultValue={g.why ?? ''} onBlur={(x) => x.target.value.trim() !== (g.why ?? '') && e.set('goal', g.id, { why: x.target.value.trim() })} /></label>
+        <label><span className="meta">Næste skridt</span><input defaultValue={g.next ?? ''} onBlur={(x) => x.target.value.trim() !== (g.next ?? '') && e.set('goal', g.id, { next: x.target.value.trim() })} /></label>
       </div>
       <p className="gfinding">
         {g.kind === 'measure' && s.left > 0 && <><span className="strong num">{fmtN(s.left)} {g.unit} tilbage på {s.daysLeft} dage</span> kræver {fmt.num(s.needPerWeek ?? 0, 1)} {g.unit} om ugen.{s.pacePerWeek != null && <> Dit tempo i år er {fmt.num(s.pacePerWeek, 1)} {g.unit} om ugen.</>}</>}
@@ -163,7 +163,7 @@ function GoalDetail({ g, s }: { g: Goal; s: ReturnType<typeof goalStats> }) {
         <ClickSpark ref={spark} sparkColor="#C9683A" sparkCount={10} sparkRadius={26} sparkSize={10} duration={450}>
           <form className="gupdate" onSubmit={log}>
             {g.kind !== 'milestones' && g.kind !== 'once' && <label className="field"><span>+</span><input inputMode="decimal" value={delta} onChange={(x) => setDelta(x.target.value)} placeholder={g.kind === 'habit' || g.kind === 'count' ? '1' : '0'} aria-label={`Antal ${g.unit ?? ''}`} /><span>{g.kind === 'habit' || g.kind === 'count' ? 'gang' : g.unit}</span></label>}
-            <label className="field field--grow"><input value={text} onChange={(x) => setText(x.target.value)} placeholder="Skriv hvad der skete …" aria-label="Opdatering" /></label>
+            <label className="field field--grow"><input value={text} onChange={(x) => setText(x.target.value)} placeholder="Opdatering" aria-label="Opdatering" /></label>
             <Btn type="submit" variant="primary">{g.kind === 'count' || g.kind === 'habit' ? (delta.trim() ? 'Log' : '+1 gang') : g.kind === 'once' || g.kind === 'milestones' ? 'Skriv note' : 'Log opdatering'}</Btn>
           </form>
         </ClickSpark>

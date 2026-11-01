@@ -28,7 +28,7 @@ export function Unlock({ onReady, notice }: { onReady: (s: Session) => void; not
   const card = useRef<HTMLFormElement>(null);
   const [bio, setBio] = useState<BioKind>('none');
   const bioOn = bio !== 'none' && mode === 'login' && bioIsOn(user);
-  const leave = () => (reduced() ? Promise.resolve() : new Promise((r) => gsap.to(card.current, { y: -24, scale: 0.96, opacity: 0, filter: 'blur(10px)', duration: 0.45, ease: 'power2.in', onComplete: r })));
+  const leave = () => (reduced() ? Promise.resolve() : new Promise((r) => gsap.to(card.current, { y: -12, scale: 0.98, opacity: 0, duration: 0.22, ease: 'power2.in', onComplete: r })));
 
   async function tryBio(kind = bio) {
     setError(null); setInfo(null);
@@ -59,7 +59,7 @@ export function Unlock({ onReady, notice }: { onReady: (s: Session) => void; not
   // Arrival: the icon settles, then the wordmark, tagline and fields rise in one after another.
   useGSAP(() => {
     if (reduced()) return;
-    gsap.from(card.current!.children, { y: 22, opacity: 0, filter: 'blur(8px)', duration: 0.9, ease: 'expo.out', stagger: 0.06, delay: 0.1, clearProps: 'all' });
+    gsap.from(card.current!.children, { y: 12, opacity: 0, duration: 0.5, ease: 'expo.out', stagger: 0.04, clearProps: 'transform,opacity' });
   }, { scope: card });
   // Fields that appear later (second password, recovery key, a message) slide open instead of popping.
   useGSAP(() => {

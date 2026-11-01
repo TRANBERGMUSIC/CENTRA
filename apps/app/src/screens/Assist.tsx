@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useLayoutEffect } from 'react';
 import { useEngine, useList, useRoute, useNarrow } from '../state.tsx';
 import { Btn, Panel } from '../ui/primitives.tsx';
 import { useToast } from '../ui/Shell.tsx';
-import { collapseOut, useScreenEnter, reduced } from '../motion.ts';
+import { collapseOut, useScreenEnter, reduced, gsap } from '../motion.ts';
 import { Icon } from '../ui/Icon.tsx';
 import { ask, aiSettings, aiReady, saveAiSettings, testAi, AiError, type Msg } from '../ai/agent.ts';
 import { MODEL_NAMES, spentThisMonth } from '../ai/usage.ts';
@@ -113,6 +113,8 @@ export function Assist() {
   const chat = chats.find((c) => c.id === sel) ?? chats[0];
   const [text, setText] = useState('');
   const narrow = useNarrow();
+  // On the iPhone the conversation has the screen; past chats and what Assist knows open on request.
+  const [side, setSide] = useState(false);
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState<Action[]>([]);
   const [pics, setPics] = useState<string[]>([]);
@@ -172,6 +174,18 @@ export function Assist() {
     const t1 = setTimeout(() => toEnd('auto'), 120), t2 = setTimeout(() => toEnd('auto'), 450);
     return () => { cancelAnimationFrame(f); clearTimeout(t1); clearTimeout(t2); };
   }, [log.length, busy, live.length, chat?.id]);
+  // A new reply from Assist rises out of a soft blur, the same light as a screen's entrance
+  // (on the phone without the blur). Only replies that arrive while you watch, not on opening a chat.
+  const seen = useRef({ chat: chat?.id, len: log.length });
+  useLayoutEffect(() => {
+    const was = seen.current;
+    seen.current = { chat: chat?.id, len: log.length };
+    if (was.chat !== chat?.id || log.length <= was.len || reduced() || log[log.length - 1]?.role !== 'assistant') return;
+    const el = scroller.current?.querySelectorAll<HTMLElement>(':scope > .msg')[log.length - 1];
+    if (!el) return;
+    const from = narrow ? { y: 8, opacity: 0 } : { y: 12, opacity: 0, filter: 'blur(8px)' };
+    gsap.from(el, { ...from, duration: narrow ? 0.32 : 0.55, ease: 'expo.out', clearProps: 'transform,opacity,filter' });
+  }, [log.length, chat?.id, narrow]);
   const sendRef = useRef<(t: string) => void>(() => {});
   sendRef.current = (t) => void send(t);
   useEffect(() => {
@@ -252,12 +266,13 @@ export function Assist() {
 
   const ready = aiReady(ai);
   return (
-    <main className="canvas assist" ref={ref}>
+    <main className={`canvas assist ${side ? 'show-side' : ''}`} ref={ref}>
       <div className="titlerow" data-enter>
         <div><h1>Assist</h1></div>
         <div className="actions">
           <button className="tag modelpill" onClick={() => go({ screen: 'usage' })} title="Se forbrug">{ai.provider === 'claude' ? (ai.claudeKey ? (ai.modelMode === 'auto' ? 'Automatisk model' : MODEL_NAMES[ai.modelMode] ?? 'Claude') + ' · ' + kr(spentThisMonth(e) * (ai.usdDkk || 6.9)) + ' i ' + new Date().toLocaleDateString('da-DK', { month: 'long' }) : 'Ikke forbundet') : 'Lokal · ' + ai.localModel}</button>
-          {log.length > 0 && <Btn size="sm" icon="plus" onClick={() => setSel(e.create('chat', { at: new Date().toISOString(), messages: [], log: [] }))}>Ny samtale</Btn>}
+          {log.length > 0 && <Btn size="sm" icon="plus" onClick={() => { setSide(false); setSel(e.create('chat', { at: new Date().toISOString(), messages: [], log: [] })); }}>Ny samtale</Btn>}
+          {narrow && <Btn size="sm" variant={side ? 'primary' : 'secondary'} aria-pressed={side} onClick={() => setSide((x) => !x)}>Samtaler</Btn>}
         </div>
       </div>
       <div className="assist__grid">
@@ -331,7 +346,7 @@ export function Assist() {
         <aside className="assist__side">
           <Memory />
           <Watches />
-          <Chats chats={chats} current={chat?.id} onOpen={setSel} />
+          <Chats chats={chats} current={chat?.id} onOpen={(id) => { setSel(id); setSide(false); }} />
         </aside>
       </div>
     </main>

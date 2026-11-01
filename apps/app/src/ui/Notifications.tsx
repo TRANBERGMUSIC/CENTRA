@@ -114,7 +114,7 @@ function Note({ t, index, onClose }: { t: Toast; index: number; onClose: () => v
     let x0: number | null = null, dx = 0;
     const down = (e: PointerEvent) => { if ((e.target as HTMLElement).closest('button')) return; x0 = e.clientX; dx = 0; el.setPointerCapture(e.pointerId); timer.current?.pause(); };
     const move = (e: PointerEvent) => { if (x0 === null) return; dx = Math.max(-20, e.clientX - x0); gsap.set(el, { x: dx, opacity: 1 - Math.max(0, dx) / 360 }); };
-    const up = () => { if (x0 === null) return; x0 = null; if (dx > 90) leave(); else { gsap.to(el, { x: 0, opacity: 1, duration: 0.3, ease: 'back.out(2)' }); timer.current?.resume(); } };
+    const up = () => { if (x0 === null) return; x0 = null; if (dx > 90) leave(); else { gsap.to(el, { x: 0, opacity: 1, duration: 0.3, ease: 'back.out(1.2)' }); timer.current?.resume(); } };
     el.addEventListener('pointerdown', down); el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
     return () => { el.removeEventListener('pointerdown', down); el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); };
   }, [leave]);

@@ -26,8 +26,9 @@ export const dur = { instant: s(T.duration.instant), quick: s(T.duration.quick),
 const ROWS = '.row, .nrow, .mrow, .gitem, .goalrow, .orow, .crow, .xrow, .oweline, .msg, .plist > *';
 
 /**
- * A screen arriving: panels rise out of a soft blur, staggered, then the rows inside them follow.
- * Expressive but quick (≈ 0.6 s in total) and transform/opacity/filter only.
+ * A screen arriving: its panels settle in from 8 px below, quickly, the first rows with them.
+ * An app screen should feel there at once, so it's short (≈ 0.3 s all in), ease-out, transform and
+ * opacity only (no blur: costly, and it makes text look like it's loading).
  */
 export function useScreenEnter(scope: RefObject<HTMLElement | null>, key: unknown) {
   useGSAP(() => {
@@ -36,14 +37,14 @@ export function useScreenEnter(scope: RefObject<HTMLElement | null>, key: unknow
     // On the phone: shorter and without blur (blur is costly there, and a phone screen should feel instant).
     if (narrow()) {
       const parts = root.querySelectorAll(':scope [data-enter], :scope .kpi');
-      gsap.from(parts, { y: 10, opacity: 0, duration: 0.34, ease: 'power3.out', stagger: 0.03, clearProps: 'transform,opacity' });
+      gsap.from(parts, { y: 8, opacity: 0, duration: 0.26, ease: 'power3.out', stagger: { each: 0.025, amount: 0.12 }, clearProps: 'transform,opacity' });
       return;
     }
     const parts = root.querySelectorAll(':scope [data-enter], :scope .kpi');
-    const rows = Array.from(root.querySelectorAll<HTMLElement>(ROWS)).filter((el, i, all) => all.indexOf(el) < 40 && !el.closest('[hidden]')).slice(0, 28);
+    const rows = Array.from(root.querySelectorAll<HTMLElement>(ROWS)).filter((el, i, all) => all.indexOf(el) < 40 && !el.closest('[hidden]')).slice(0, 8);
     gsap.timeline()
-      .from(parts, { y: 18, opacity: 0, scale: 0.985, filter: 'blur(6px)', duration: 0.6, ease: 'expo.out', stagger: 0.045, clearProps: 'transform,opacity,filter' })
-      .from(rows, { y: 10, opacity: 0, duration: 0.45, ease: 'power3.out', stagger: 0.022, clearProps: 'transform,opacity' }, 0.12);
+      .from(parts, { y: 8, opacity: 0, duration: 0.28, ease: 'power3.out', stagger: { each: 0.025, amount: 0.12 }, clearProps: 'transform,opacity' })
+      .from(rows, { y: 6, opacity: 0, duration: 0.24, ease: 'power3.out', stagger: 0.02, clearProps: 'transform,opacity' }, 0.06);
   }, { scope, dependencies: [key], revertOnUpdate: true });
 }
 
@@ -87,17 +88,14 @@ export function useAppMotion(root: RefObject<HTMLElement | null>) {
     return () => { mo.disconnect(); removeEventListener('resize', queue); el.removeEventListener('pointermove', glow); cancelAnimationFrame(raf); };
   }, [root]);
 
-  // The shell itself arrives once, after unlocking: a gentle zoom out of the light.
+  // The shell itself arrives once, after unlocking: a short fade, so the unlock lands softly.
   useGSAP(() => {
     if (reduced() || !root.current) return;
-    const r = root.current;
-    gsap.timeline()
-      .from(r, { opacity: 0, scale: 1.02, filter: 'blur(10px)', duration: 0.7, ease: 'expo.out', clearProps: 'all' })
-      .from(r.querySelectorAll('.sidebar .brand, .sidebar .searchbtn, .sidebar .nav-item, .sidebar__foot > *'), { x: -14, opacity: 0, duration: 0.5, ease: 'power3.out', stagger: 0.03, clearProps: 'transform,opacity' }, 0.1);
+    gsap.from(root.current, { opacity: 0, duration: 0.25, ease: 'power2.out', clearProps: 'opacity' });
   }, { scope: root });
 }
 
-/** The sidebar's active pill glides between items with a little spring; the new icon pops. */
+/** The sidebar's active pill glides to the chosen item (ease-out, no bounce: this is a tool, not a toy). */
 export function useNavPill(nav: RefObject<HTMLElement | null>, key: unknown) {
   useLayoutEffect(() => {
     const box = nav.current;
@@ -110,8 +108,7 @@ export function useNavPill(nav: RefObject<HTMLElement | null>, key: unknown) {
     const to = { y: act.offsetTop, height: act.offsetHeight, opacity: 1 };
     if (first || reduced()) gsap.set(pill, to);
     else {
-      gsap.to(pill, { ...to, duration: 0.55, ease: 'elastic.out(1, 0.8)', overwrite: true });
-      gsap.fromTo(act.querySelector('.ic'), { scale: 0.6, rotate: -14 }, { scale: 1, rotate: 0, duration: 0.6, ease: 'back.out(3)' });
+      gsap.to(pill, { ...to, duration: 0.32, ease: 'expo.out', overwrite: true });
     }
   }, [nav, key]);
 }

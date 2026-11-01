@@ -63,8 +63,8 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
         </Panel>
         <Panel title="Opdateringer" className="span-7">
           <div className="kv"><span>Version</span><span className="num">{APP_VERSION} · {platform === 'desktop' ? 'Mac-app' : ios ? 'iPhone-app' : platform === 'mobile' ? 'mobil-app' : 'web'}</span></div>
-          <div className="kv"><span>Grænseflade<span className="meta block">{native ? 'Opdateres for sig selv på under et minut, uden ny app' : 'Bygget'}</span></span><span className="num">{new Date(WEB_VERSION * 1000).toLocaleString('da-DK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>
-          {ios ? <div className="kv"><span>Ny app-version<span className="meta block">Kommer i TestFlight, når du pusher en ændring af den indbyggede del</span></span><span className="meta">TestFlight</span></div> : <>
+          <div className="kv"><span>Grænseflade<span className="meta block">{native ? 'Automatisk' : 'Bygget'}</span></span><span className="num">{new Date(WEB_VERSION * 1000).toLocaleString('da-DK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>
+          {ios ? <div className="kv"><span>Ny app-version</span><span className="meta">TestFlight</span></div> : <>
           <div className="kv"><span>Kilde</span><span className="meta">github.com/{REPO}/releases</span></div>
           <div className="kv"><span>{update === 'none' ? 'Du har den nyeste version' : update === 'error' ? 'Kunne ikke tjekke. Enten er du offline, eller den nyeste udgivelse på GitHub mangler sin opdateringsfil (latest.json).' : update === 'checking' ? 'Søger …' : update && typeof update === 'object' ? `Version ${update.version} er klar` : 'Søger automatisk ved start, hvert kvarter og når vinduet får fokus'}</span>
             {update && typeof update === 'object' ? <Btn variant="primary" size="sm" onClick={() => update.install()}>Installér og genstart</Btn> : <Btn size="sm" onClick={check}>Søg nu</Btn>}</div>
@@ -139,7 +139,7 @@ function DataPanel({ onExport }: { onExport: () => void }) {
   const all = KINDS.flatMap(([, , t]) => t);
   return (
     <Panel title="Data" className="span-12">
-      <div className="kv"><span>Eksportér alt som JSON<span className="meta block">Tag en kopi, før du sletter noget.</span></span><Btn size="sm" onClick={onExport}>Eksportér</Btn></div>
+      <div className="kv"><span>Eksportér alt som JSON</span><Btn size="sm" onClick={onExport}>Eksportér</Btn></div>
       {KINDS.map(([label, sub, types]) => {
         const n = count(types);
         return (
@@ -205,10 +205,10 @@ function SecurityPanel() {
         </form>
       ) : (
         <>
-          <div className="kv"><span>Password<span className="meta block">Låser dine data op. Gemmes ingen steder.</span></span><Btn size="sm" onClick={() => setForm('password')}>Skift password</Btn></div>
-          <div className="kv"><span>Gendannelsesnøgle<span className="meta block">Den eneste vej ind, hvis du glemmer dit password.</span></span><Btn size="sm" onClick={() => setForm('recovery')}>Lav ny</Btn></div>
+          <div className="kv"><span>Password</span><Btn size="sm" onClick={() => setForm('password')}>Skift password</Btn></div>
+          <div className="kv"><span>Gendannelsesnøgle</span><Btn size="sm" onClick={() => setForm('recovery')}>Lav ny</Btn></div>
           <BioRow />
-          <div className="kv"><span>Automatisk lås<span className="meta block">Efter 15 min uden aktivitet, eller 5 min i baggrunden.</span></span><Btn size="sm" onClick={() => lock()}>Lås nu</Btn></div>
+          <div className="kv"><span>Automatisk lås<span className="meta block">15 min · 5 min i baggrunden</span></span><Btn size="sm" onClick={() => lock()}>Lås nu</Btn></div>
         </>
       )}
     </Panel>
@@ -268,7 +268,7 @@ function BioRow() {
     } finally { setBusy(false); }
   }
   return (
-    <div className="kv"><span>Lås op med {name}<span className="meta block">{kind === 'none' ? (ios ? 'Face ID er ikke sat op på iPhonen, eller CENTRA har ikke fået lov (Indstillinger → CENTRA).' : 'Denne Mac har ingen fingeraftrykslæser, eller der er ikke sat et fingeraftryk op.') : `Nøglen gemmes i ${device}s nøglering og bruges kun efter ${name}. Dit password virker stadig altid.`}</span></span>
+    <div className="kv"><span>Lås op med {name}<span className="meta block">{kind === 'none' ? (ios ? 'Face ID er ikke sat op på iPhonen, eller CENTRA har ikke fået lov (Indstillinger → CENTRA).' : 'Denne Mac har ingen fingeraftrykslæser, eller der er ikke sat et fingeraftryk op.') : ''}</span></span>
       <label className="checkrow"><input type="checkbox" checked={on} disabled={busy || (kind === 'none' && !on)} onChange={(x) => void toggle(x.target.checked)} aria-label={`Lås op med ${name}`} /></label></div>
   );
 }
@@ -294,13 +294,13 @@ function AiPanel() {
   }
   return (
     <Panel title="Assist" className="span-12">
-      <div className="kv"><span>Hjerne<span className="meta block">Claude er klogest. En lokal model kører helt på din Mac via Ollama.</span></span>
+      <div className="kv"><span>Hjerne</span>
         <div className="segmented" role="radiogroup" aria-label="Hjerne">
           {([['claude', 'Claude'], ['local', 'Lokal model']] as const).map(([k, l]) => (
             <button key={k} role="radio" aria-checked={s.provider === k} className={s.provider === k ? 'is-active' : ''} onClick={() => save({ provider: k })}>{l}</button>
           ))}
         </div></div>
-      <div className="kv"><span>Claude API-nøgle<span className="meta block">{s.claudeKey ? 'Gemt krypteret (slutter på …' + s.claudeKey.slice(-4) + ')' : 'Hent en på console.anthropic.com → API keys'}</span></span>
+      <div className="kv"><span>Claude API-nøgle<span className="meta block">{s.claudeKey ? 'Gemt krypteret (slutter på …' + s.claudeKey.slice(-4) + ')' : 'console.anthropic.com → API keys'}</span></span>
         <form className="connect" onSubmit={saveKey}>
           <input className="kvinput" type="password" autoComplete="off" spellCheck={false} placeholder={s.claudeKey ? 'Ny nøgle' : 'sk-ant-…'} value={key} onChange={(ev) => setKey(ev.target.value)} aria-label="Claude API-nøgle" />
           <Btn size="sm" type="submit" disabled={busy || key.trim().length < 20}>Gem</Btn>

@@ -45,10 +45,13 @@ h1, h2, h3 { letter-spacing: -0.02em; }
 .kbd { border: 0; background: var(--fill); color: var(--c-faint); border-radius: 5px; }
 
 /* ---------------------------------------------------------------- focus: Apple's soft blue ring */
-:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring-soft); border-radius: 10px; }
+:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring-soft); }
 input:focus-visible, textarea:focus-visible, select:focus-visible { box-shadow: 0 0 0 3px var(--ring-soft); }
 
 /* ---------------------------------------------------------------- sidebar: translucent, blue glyphs */
+.sidebar > * { flex-shrink: 0; }
+.sidebar { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+.sidebar::-webkit-scrollbar { display: none; }
 .sidebar { background: var(--side); -webkit-backdrop-filter: saturate(1.8) blur(30px); backdrop-filter: saturate(1.8) blur(30px); border-right: 0.5px solid var(--sep); padding: var(--s-4) 10px; gap: 1px; }
 .brand { padding: 2px 8px 14px; }
 .searchbtn { height: 32px; border-radius: 9px; background: var(--fill); color: var(--c-faint); margin-bottom: var(--s-3); }
@@ -59,7 +62,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { box-shadow: 
 .nav-item.is-active, .nav-sub.is-active { background: var(--fill-strong); color: var(--c-text); font-weight: 600; }
 .nav-item .count { color: var(--c-faint); font-weight: 400; }
 .nav-item .count.is-due { min-width: 20px; height: 18px; padding: 0 6px; border-radius: 9px; background: var(--c-focus); color: #fff; font-size: 11px; line-height: 18px; text-align: center; font-weight: 600; }
-.nav-group { padding: var(--s-5) 10px 6px; font-weight: 600; font-size: 11px; color: var(--c-faint); }
+.nav-group { padding: 14px 10px 5px; font-weight: 600; font-size: 11px; color: var(--c-faint); }
 .userrow { border-radius: 10px; }
 .syncline { padding: 6px 10px; }
 
@@ -639,7 +642,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { box-shadow: 
 .nlinks .linkchip { width: auto; }
 
 /* ---------------------------------------------------------------- mål: slags, hvorfor, status */
-.gareas { padding: 0 0 8px; }
+.gareas { padding: 0 0 10px; gap: 6px; }
+.gareas .tag { height: 28px; padding: 0 12px; border-radius: 14px; background: var(--fill); color: var(--c-text); font-size: 13px; font-weight: 500; }
+.gareas .tag.is-active { background: var(--c-text); color: var(--c-ground); }
 .gwhy { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 4px; }
 .gwhy label { display: flex; flex-direction: column; gap: 4px; }
 .gwhy input { height: 34px; padding: 0 10px; border-radius: 9px; border: 1px solid transparent; background: var(--fill); color: var(--c-text); font: inherit; outline: none; }
@@ -1103,3 +1108,18 @@ html.is-app .sidebar, html.is-app .tabbar, html.is-app .btn, html.is-app .tag { 
   .inbox .reader__bar { flex-wrap: wrap; row-gap: 4px; margin: 0 -16px 16px; padding: 8px 12px; top: 0; }
   .inbox .mailframe { width: 100%; }
 }
+
+/* Assist on the iPhone: the conversation, or (on request) past chats and what Assist knows */
+@media (max-width: 640px) {
+  .assist:not(.show-side) .assist__side { display: none; }
+  .assist.show-side .chat { display: none; }
+  .assist.show-side .assist__side { margin-top: 8px; }
+  .assist .titlerow .actions { flex-wrap: nowrap; }
+  .assist .modelpill { display: none; }
+}
+
+/* Native controls and scrollbars follow the theme; headings break into even lines */
+:root { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
+h1, h2, .panel__title, .chat__lead { text-wrap: balance; }
+@media (min-width: 641px) { .goals.no-rail { grid-template-columns: var(--l-list-column) minmax(0, 1fr); } }

@@ -90,13 +90,6 @@ export function Connections() {
             <Btn size="sm" onClick={() => go({ screen: 'settings' })}>Indstillinger</Btn></div>
         </Panel>
 
-        <Panel title="Kommer senere" className="span-12">
-          <ul className="rows soon">
-            <li><Icon name="inbox" size="sm" />Outlook / Microsoft 365 med Microsoft-login</li>
-            <li><Icon name="calendar" size="sm" />Google- og iCloud-kalender med redigering begge veje</li>
-            <li><Icon name="check" size="sm" />Påmindelser og kontakter fra iPhone</li>
-          </ul>
-        </Panel>
       </div>
       {adding === 'mail' && <AddMail onClose={() => setAdding(null)} />}
       {adding === 'cal' && <AddCalendar onClose={() => setAdding(null)} />}
