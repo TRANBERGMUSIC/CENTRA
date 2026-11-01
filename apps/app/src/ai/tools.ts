@@ -2,6 +2,7 @@
  * What Assist can do in CENTRA. Every tool works on the encrypted local engine and returns an undo
  * step, so anything Assist did can be taken back with one click ("Fortryd").
  */
+import { addReminder, setDone, whenLabel, sorted as sortedReminders, type Reminder } from '../reminders.ts';
 import { calTypes, typeForName } from '../calTypes.ts';
 import type { SyncEngine } from '@centra/sync';
 import { fullText, fetchedHtml } from '../mailText.ts';
@@ -38,7 +39,7 @@ const obj = (properties: Record<string, unknown>, required: string[] = []) => ({
 const KINDS: Record<string, string> = {
   note: 'note', event: 'aftale', goal: 'mål', goalUpdate: 'målopdatering', person: 'kontakt', outlay: 'udlæg', tally: 'regnestykke',
   payment: 'betaling', expense: 'fast udgift', memory: 'hukommelse', photo: 'billede', mail: 'mail', mailfolder: 'mailmappe',
-  notefolder: 'notemappe', calcat: 'kalendertype', suggestion: 'forslag', mailacct: 'mailkonto', lhconn: 'LunchHub-forbindelse', feed: 'kalenderabonnement',
+  notefolder: 'notemappe', calcat: 'kalendertype', suggestion: 'forslag', reminder: 'huskeliste-punkt', mailacct: 'mailkonto', lhconn: 'LunchHub-forbindelse', feed: 'kalenderabonnement',
 };
 const KIND_KEYS = Object.keys(KINDS);
 /** One line about a record, for find_items. */
@@ -279,6 +280,20 @@ export const TOOLS: ToolDef[] = [
     name: 'my_writing_style',
     description: 'How the user writes: what they have said about their style, and their own most recent sent mails (to the same person first, if given). Use before writing anything in the user\'s name.',
     input_schema: obj({ to: str('optional: e-mail address of the person the text is for') }, []),
+  },
+  {
+    name: 'add_reminder',
+    description: 'Put something on the huskeliste ("husk mig på …", "mind mig om …", "jeg skal huske at …"). With a date and time the user gets a notification on the iPhone and the Mac then. Write the text as what to do, short ("Levere udstyr tilbage til Sigge"), without the time. A time without a day is today (tomorrow if it has passed). Use this, not the calendar, for things to remember to do.',
+    input_schema: obj({
+      text: str('what to remember to do'),
+      date: str('optional day, YYYY-MM-DD'),
+      time: str('optional time, HH:MM (Danish time)'),
+    }, ['text']),
+  },
+  {
+    name: 'complete_reminder',
+    description: 'Tick something on the huskeliste off as done (or not done again), by id from Huskeliste in the context. "Jeg har afleveret udstyret" → tick it off.',
+    input_schema: obj({ id: str('the reminder id'), done: { type: 'boolean', description: 'false to open it again; default true' } }, ['id']),
   },
   {
     name: 'find_items',
@@ -661,6 +676,27 @@ export function runTool(e: SyncEngine, name: string, input: any): ToolResult {
       if (!ids.length) throw new Error('Intet gemt');
       return { result: { ok: true, ids }, action: { label: `Gemt i Billeder: ${ids.map((id) => (e.get(id) as any)?.title).join(', ')}`, undo: { kind: 'removeMany', type: 'photo', ids }, open: { screen: 'photos', id: ids[0] } } };
     }
+    case 'add_reminder': {
+      let at: Date | null = null;
+      if (input.time || input.date) {
+        const t = /^\d{1,2}[:.]\d{2}$/.test(String(input.time ?? '')) ? String(input.time).replace('.', ':').padStart(5, '0') : '09:00';
+        const today = new Date();
+        const day = /^\d{4}-\d{2}-\d{2}$/.test(String(input.date ?? '')) ? String(input.date) : `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        at = new Date(`${day}T${t}`);
+        if (isNaN(at.getTime())) throw new Error('Ukendt tidspunkt: brug YYYY-MM-DD og HH:MM');
+        if (!input.date && at <= today) at.setDate(at.getDate() + 1);
+      }
+      const id = addReminder(e, String(input.text ?? ''), at);
+      const when = at ? whenLabel(at.toISOString()) : '';
+      return { result: { ok: true, id, at: at?.toISOString() ?? null, when: when || 'uden tidspunkt' }, action: { label: `Husk: ${input.text}${when ? ' · ' + when : ''}`, undo: { kind: 'remove', type: 'reminder', id }, open: { screen: 'reminders' } } };
+    }
+    case 'complete_reminder': {
+      const r = e.get(String(input.id)) as any;
+      if (!r || r.type !== 'reminder') throw new Error('Fandt ikke punktet på huskelisten');
+      const done = input.done !== false;
+      setDone(e, r.id, done);
+      return { result: { ok: true }, action: { label: `${done ? 'Klaret' : 'Åbnet igen'}: ${r.text}`, undo: { kind: 'restore', type: 'reminder', id: r.id, fields: { done: !!r.done, doneAt: r.doneAt ?? null } }, open: { screen: 'reminders' } } };
+    }
     case 'find_items': {
       const words = String(input.query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
       const kinds: string[] = (input.kinds?.length ? input.kinds : KIND_KEYS.filter((k) => k !== 'mail')).filter((k: string) => KINDS[k]);
@@ -763,6 +799,7 @@ export function contextFor(e: SyncEngine): string {
   const fixed = all.filter((x) => x.repeat).map((x) => { const d = evDef(x); return `- [${d.id}] ${d.title}: ${d.when}${x.repeat?.skip?.length ? ' (aflyst: ' + x.repeat.skip.join(', ') + ')' : ''}`; });
   const end = new Date(now); end.setDate(end.getDate() + 8);
   const soon = occurrences(all.filter((x) => !x.repeat), now, end).map((x) => { const l = evLine(x); return `- [${l.id}] ${l.day} ${l.time} ${l.title}${l.place ? ' · ' + l.place : ''}`; });
+  const remind = sortedReminders(e.list('reminder') as unknown as Reminder[]).filter((r) => !r.done).slice(0, 40).map((r) => `- [${r.id}] ${r.text}${r.at ? ' · ' + whenLabel(r.at, now) : ''}`);
   const watches = e.list('watch').filter((w: any) => w.active).map((w: any) => `- [${w.id}] ${w.description}`);
   const accts = e.list('mailacct').map((a: any) => `${a.name} (${a.email})`);
   const mails = (e.list('mail') as any[]).filter((m) => !m.archived && !m.sent);
@@ -788,6 +825,7 @@ export function contextFor(e: SyncEngine): string {
     sec('Det ved du om brugeren', memory.filter((l) => !/\(Svarstil\)/.test(l)), '(intet endnu — brugeren er ny, så lær dem at kende)'),
     sec('Faste aftaler', fixed, '(ingen)'),
     sec('Enkeltaftaler de næste 8 dage', soon, '(ingen)'),
+    sec('Huskeliste (ikke klaret)', remind, '(tom)'),
     sec('Mål', goals, '(ingen)'),
     sec('Notemapper', noteFolders.length ? [noteFolders.join(' · ')] : [], '(kun Indbakke)'),
     sec('Kalendertyper', [calTypes(e).map((t) => t.name).join(' · ')], ''),

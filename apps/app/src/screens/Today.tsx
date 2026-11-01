@@ -11,6 +11,7 @@ import { dayOccurrences, type CalEvent } from '../calendar.ts';
 import { calTypes, eventColor } from '../calTypes.ts';
 import { balances, kr, monthSpend, perMonth, personName, type Expense, debts } from '../money.ts';
 import { checkItems, toggleCheck } from '../notes.ts';
+import { sorted, setDone, whenLabel, overdue, addReminder, type Reminder } from '../reminders.ts';
 import { arrange, saveLayout, resetLayout, move, SIZE_SPAN, SIZE_NAME, type Size } from '../home.ts';
 import { useToast } from '../ui/Shell.tsx';
 import DecryptedText from '../bits/DecryptedText.jsx';
@@ -25,6 +26,7 @@ const MODULES: Module[] = [
   { id: 'inbox', name: 'Venter på dit svar', desc: 'Mails der venter på dig', icon: 'inbox', size: 'large', on: true, C: InboxModule },
   { id: 'assist', name: 'Spørg Assist', desc: 'Skriv til Assist herfra, og se dens forslag', icon: 'assist', size: 'large', on: true, C: AssistModule },
   { id: 'notes', name: 'Seneste noter', desc: 'De noter, du sidst har skrevet i', icon: 'notes', size: 'small', on: true, C: NotesModule },
+  { id: 'reminders', name: 'Husk', desc: 'Din huskeliste: kryds af, når det er gjort', icon: 'bell', size: 'small', on: true, C: RemindersModule },
   { id: 'checklist', name: 'Tjekliste', desc: 'Kryds af direkte herfra, fx på indkøbslisten', icon: 'check', size: 'small', on: true, C: ChecklistModule },
   { id: 'money', name: 'Penge', desc: 'Hvem skylder hvad, og hvad der går ud denne måned', icon: 'wallet', size: 'full', on: true, C: MoneyModule },
   { id: 'goals', name: 'Mål', desc: 'Dine mål, og om du er på sporet', icon: 'goals', size: 'full', on: true, C: GoalsModule },
@@ -299,6 +301,38 @@ function NotesModule() {
           </li>
         ))}
       </ul>
+    </Panel>
+  );
+}
+
+/* ---------------------------------------------------------------- module: the huskeliste */
+function RemindersModule() {
+  const e = useEngine();
+  const { go } = useRoute();
+  const now = useNow();
+  const toast = useToast();
+  const list = sorted(useList('reminder') as unknown as Reminder[]);
+  const open = list.filter((r) => !r.done);
+  const [text, setText] = useState('');
+  const late = open.filter((r) => overdue(r, now)).length;
+  return (
+    <Panel title="Husk" count={open.length ? (late ? `${late} nu` : String(open.length)) : undefined} link="Huskeliste" onLink={() => go({ screen: 'reminders' })}>
+      <ul className="hl hl--mini">
+        {open.slice(0, 6).map((r) => (
+          <li key={r.id} className={`hl__row ${overdue(r, now) ? 'is-late' : ''}`}>
+            <button className="hl__check" onClick={() => { setDone(e, r.id, true); toast({ text: `Klaret: ${r.text}`, action: { label: 'Fortryd', run: () => setDone(e, r.id, false) } }); }} aria-label={`Klaret: ${r.text}`}><Icon name="check" size="sm" /></button>
+            <button className="hl__body" onClick={() => go({ screen: 'reminders' })}>
+              <span className="hl__text">{r.text}</span>
+              {r.at && <span className="hl__at"><Icon name="bell" size="sm" />{whenLabel(r.at, now)}</span>}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {open.length > 6 && <button className="tag" onClick={() => go({ screen: 'reminders' })}>{open.length - 6} mere</button>}
+      {!open.length && <p className="muted">Intet at huske. Sig til Assist eller Siri: "Husk mig på at ringe til mor kl. 17".</p>}
+      <form className="hl__quick" onSubmit={(x) => { x.preventDefault(); if (text.trim()) { addReminder(e, text); setText(''); } }}>
+        <input value={text} onChange={(x) => setText(x.target.value)} placeholder="Tilføj …" aria-label="Tilføj til huskelisten" enterKeyHint="done" />
+      </form>
     </Panel>
   );
 }

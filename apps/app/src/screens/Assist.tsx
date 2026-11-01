@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { useEngine, useList, useRoute } from '../state.tsx';
+import { useEffect, useRef, useState, useLayoutEffect } from 'react';
+import { useEngine, useList, useRoute, useNarrow } from '../state.tsx';
 import { Btn, Panel } from '../ui/primitives.tsx';
 import { useToast } from '../ui/Shell.tsx';
 import { collapseOut, useScreenEnter, reduced } from '../motion.ts';
@@ -112,6 +112,7 @@ export function Assist() {
   const [sel, setSel] = useState<string | null>(null);
   const chat = chats.find((c) => c.id === sel) ?? chats[0];
   const [text, setText] = useState('');
+  const narrow = useNarrow();
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState<Action[]>([]);
   const [pics, setPics] = useState<string[]>([]);
@@ -134,8 +135,16 @@ export function Assist() {
   const box = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const base = useRef('');
+  // Just sent: the iPhone's keyboard can hand back the sent text a moment later (when it commits its
+  // suggestion or dictation after the tap), and a stopped dictation still delivers its last words.
+  // Neither may put the message back in the box.
+  const sentAt = useRef(0);
+  const muted = useRef(false);
+  const fit = (t: HTMLTextAreaElement | null) => { if (!t) return; if (!t.value) { t.style.height = ''; return; } t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 200) + 'px'; };
 
+  useLayoutEffect(() => fit(box.current), [text]);
   const dict = useDictation((t, final) => {
+    if (muted.current) return;
     setText((base.current ? base.current + ' ' : '') + t);
     if (final) box.current?.focus();
   }, (p) => {
@@ -144,7 +153,13 @@ export function Assist() {
   });
 
   const log = chat?.log ?? [];
-  useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: reduced() ? 'auto' : 'smooth' }); }, [log.length, busy, live.length]);
+  useEffect(() => {
+    const el = scroller.current; if (!el) return;
+    const behavior = reduced() ? 'auto' : 'smooth';
+    // On the iPhone the whole page scrolls (the box stays above the bar); elsewhere the conversation does.
+    if (el.scrollHeight <= el.clientHeight + 1) { if (log.length || busy) el.lastElementChild?.scrollIntoView({ block: 'end', behavior }); }
+    else el.scrollTo({ top: el.scrollHeight, behavior });
+  }, [log.length, busy, live.length]);
   const sendRef = useRef<(t: string) => void>(() => {});
   sendRef.current = (t) => void send(t);
   useEffect(() => {
@@ -162,14 +177,18 @@ export function Assist() {
     const msg = raw.trim();
     const imgs = pics;
     if ((!msg && !imgs.length) || busy) return;
+    muted.current = true;
     if (dict.listening) dict.stop();
+    sentAt.current = Date.now();
+    setText(''); base.current = ''; setPics([]);
+    if (box.current) { box.current.value = ''; box.current.style.height = ''; }
     const id = chat?.id ?? e.create('chat', { at: new Date().toISOString(), messages: [], log: [] });
     const cur = (e.get(id) as unknown as Chat) ?? { messages: [], log: [] };
     const thumbs = imgs.length ? await Promise.all(imgs.map((u) => forLog(u).catch(() => ''))) : [];
     const userItem: LogItem = { role: 'user', text: msg, at: new Date().toISOString(), ...(thumbs.length ? { images: thumbs.filter(Boolean) } : {}) };
     const nextLog = [...(cur.log ?? []), userItem];
     e.set('chat', id, { log: nextLog, at: userItem.at, title: cur.title ?? (msg.slice(0, 60) || (imgs.length > 1 ? `${imgs.length} billeder` : 'Billede')) });
-    setText(''); base.current = ''; setPics([]); setBusy(true); setLive([]);
+    setBusy(true); setLive([]);
     abort.current = new AbortController();
     try {
       const t = await ask(e, cur.messages ?? [], msg || (imgs.length > 1 ? 'Se på billederne.' : 'Se på billedet.'), { signal: abort.current.signal, images: imgs, onAction: (a) => setLive((l) => [...l, a]) });
@@ -272,15 +291,21 @@ export function Assist() {
               ))}
             </div>
           )}
-          <form className="composer" onSubmit={(ev) => { ev.preventDefault(); void send(); }}>
+          <form className={`composer ${text.trim() || pics.length ? 'has-text' : ''} ${busy ? 'is-busy' : ''}`} onSubmit={(ev) => { ev.preventDefault(); void send(); }}>
             <button type="button" className="iconbtn" disabled={!ready || pics.length >= MAX_PICS} aria-label="Tilføj billede" title="Tilføj billede eller skærmbillede (eller indsæt med ⌘V)" onClick={() => picker.current?.click()}><Icon name="paperclip" /></button>
             <input ref={picker} type="file" accept="image/*,.heic,.heif" multiple hidden onChange={(ev) => { if (ev.target.files) void addPics(ev.target.files); ev.target.value = ''; }} />
-            <textarea ref={box} rows={1} value={text} disabled={!ready} placeholder={dict.listening ? 'Lytter … tal bare' : pics.length ? 'Spørg om billedet, eller send det bare' : 'Skriv til Assist, tal, eller sæt et billede ind'}
-              onChange={(ev) => { setText(ev.target.value); base.current = ev.target.value.trim(); }}
+            <textarea ref={box} rows={1} value={text} disabled={!ready} placeholder={dict.listening ? 'Lytter … tal bare' : pics.length ? 'Spørg om billedet, eller send det bare' : (narrow ? 'Skriv til Assist' : 'Skriv til Assist, tal, eller sæt et billede ind')}
+              enterKeyHint="send"
+              onChange={(ev) => {
+                const v = ev.target.value;
+                // a whole text arriving right after sending is the keyboard handing the old one back
+                if (Date.now() - sentAt.current < 800 && v.length > 1) { ev.target.value = ''; fit(ev.target); return; }
+                muted.current = false;
+                setText(v); base.current = v.trim(); fit(ev.target);
+              }}
               onPaste={(ev) => { const files = [...ev.clipboardData.files].filter((f) => f.type.startsWith('image/')); if (files.length) { ev.preventDefault(); void addPics(files); } }}
-              onInput={(ev) => { const t = ev.currentTarget; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 200) + 'px'; }}
               onKeyDown={(ev) => { if (ev.key === 'Enter' && !ev.shiftKey && !ev.nativeEvent.isComposing) { ev.preventDefault(); void send(); } }} />
-            <button type="button" className={`iconbtn ${dict.listening ? 'is-live' : ''}`} disabled={!ready} aria-pressed={dict.listening} aria-label={dict.listening ? 'Stop med at lytte' : 'Tal til Assist'} title="Tal til Assist" onClick={() => { base.current = text.trim(); dict.toggle(); }}><Icon name="mic" /></button>
+            <button type="button" className={`iconbtn composer__mic ${dict.listening ? 'is-live' : ''}`} disabled={!ready} aria-pressed={dict.listening} aria-label={dict.listening ? 'Stop med at lytte' : 'Tal til Assist'} title="Tal til Assist" onClick={() => { muted.current = false; base.current = text.trim(); dict.toggle(); }}><Icon name="mic" /></button>
             {busy
               ? <Btn type="button" variant="text" onClick={() => abort.current?.abort()}>Stop</Btn>
               : <Btn type="submit" variant="primary" icon="send" disabled={(!text.trim() && !pics.length) || !ready} aria-label="Send" />}

@@ -55,3 +55,10 @@ Logger iPhonen ind, før Mac'en har lagt kontoen op, siger den det og opretter i
 - Touch ID
 
 Mail, kalender-feeds, LunchHub, Assist, noter, mål, udlæg og billeder virker begge steder.
+
+## Huskelisten og Siri
+
+- Et punkt med tidspunkt planlægges hos iPhonen, så notifikationen kommer til tiden, også når CENTRA er lukket. iPhonen spørger én gang, om CENTRA må sende notifikationer.
+- Mac'en viser notifikationen, når CENTRA kører.
+- Laves et punkt på Mac'en, kommer det på iPhonens plan, næste gang CENTRA har været åben på iPhonen.
+- **Siri:** sig "Hey Siri, husk i CENTRA". Siri spørger "Hvad skal jeg huske?", og du siger fx "levere udstyr tilbage til Sigge kl. 12". CENTRA åbner, og Assist sætter det på listen med tidspunktet. Virker Siri-sætningen ikke, så find "Husk i CENTRA" i Genveje-appen; der kan du også give den dit eget navn.

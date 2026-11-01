@@ -27,6 +27,8 @@ import { useAppMotion, usePageTransition } from './motion.ts';
 import { markReady, watchWebUpdates, justUpdated } from './webupdate.ts';
 import { resumeAfterUpdate } from './session.ts';
 import { Photos } from './screens/Photos.tsx';
+import { Reminders } from './screens/Reminders.tsx';
+import { startReminders } from './reminderAlerts.ts';
 import { native } from './platform.ts';
 
 const readRoute = (): Route => {
@@ -181,12 +183,14 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
     window.addEventListener('focus', vis);
     return () => { alive = false; clearInterval(t); clearInterval(tl); document.removeEventListener('visibilitychange', vis); window.removeEventListener('focus', vis); };
   }, [e, toast, go]);
+  // Huskelisten: notifications when it's time, and what Siri was told
+  useEffect(() => startReminders(e, toast, go), [e, toast, go]);
   useEffect(() => watchForUpdates((u) => toast({ text: `CENTRA ${u.version} er hentet og klar`, sticky: true, action: { label: 'Genstart nu', run: () => void u.install() } })), [toast]);
 
   const screen = {
     today: <Today firstOpen={opened.current} />, notes: <Notes />, inbox: <Inbox />, goals: <Goals />,
     calendar: <Calendar />, assist: <Assist />, settings: <Settings theme={theme} setTheme={setTheme} />, connections: <Connections />,
-    contacts: <Contacts />, outlays: <Outlays />, expenses: <Expenses />, usage: <UsageScreen />, photos: <Photos />,
+    contacts: <Contacts />, reminders: <Reminders />, outlays: <Outlays />, expenses: <Expenses />, usage: <UsageScreen />, photos: <Photos />,
   }[route.screen] ?? <Today firstOpen={false} />;
 
   return (

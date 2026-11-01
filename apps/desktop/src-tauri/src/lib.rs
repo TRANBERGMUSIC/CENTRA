@@ -7,6 +7,7 @@ mod browser;
 mod contacts;
 mod lunchhub;
 mod mail;
+mod siri;
 mod webupdate;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -35,7 +36,7 @@ pub fn run() {
             webupdate::web_ready, webupdate::web_info, webupdate::web_update_check, webupdate::session_stash, webupdate::session_take,
             biometry::bio_kind, biometry::bio_enable, biometry::bio_unlock, biometry::bio_disable,
             contacts::contacts_fetch, contacts::contacts_status,
-            lunchhub::lunchhub_request,
+            lunchhub::lunchhub_request, siri::siri_inbox,
             browser::browser_open, browser::browser_state, browser::browser_go, browser::browser_nav, browser::browser_toggle,
             browser::browser_clear, browser::browser_external, browser::browser_reveal, browser::browser_vpn_test
         ]);
@@ -47,12 +48,14 @@ pub fn run() {
         webupdate::web_ready, webupdate::web_info, webupdate::web_update_check, webupdate::session_stash, webupdate::session_take,
         biometry::bio_kind, biometry::bio_enable, biometry::bio_unlock, biometry::bio_disable,
         contacts::contacts_fetch, contacts::contacts_status,
-        lunchhub::lunchhub_request
+        lunchhub::lunchhub_request, siri::siri_inbox
     ]);
 
     builder
         // Links (opsig, guides, mailto:, tel:, sms:) open in the browser / Mail / Messages.
         .plugin(tauri_plugin_opener::init())
+        // Reminders: the iPhone plans them with the system, the Mac shows them when they're due.
+        .plugin(tauri_plugin_notification::init())
         // Choose the interface (installed fast update or the built-in one) before the window opens.
         .setup(|app| {
             webupdate::init(app);

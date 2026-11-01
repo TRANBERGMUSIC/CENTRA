@@ -38,6 +38,19 @@ rm -rf src-tauri/gen/apple
 npx tauri ios init --ci
 
 APPLE_DIR=src-tauri/gen/apple
+# Siri ("Hey Siri, husk i CENTRA", scripts/ios/CentraIntents.swift): the Swift file goes into the app's
+# sources, the project gets a Swift version (it's Objective-C otherwise) and is generated again.
+# Done before the Info.plist edits below, because generating rewrites the Info.plist.
+SIRI_FILE=""
+MAIN_MM=$(find "$APPLE_DIR/Sources" -name 'main.mm' 2>/dev/null | head -1 || true)
+if [ -n "$MAIN_MM" ] && [ -f "$APPLE_DIR/project.yml" ]; then
+  SRC_DIR=$(dirname "$MAIN_MM")
+  command -v yq >/dev/null || brew install yq
+  cp "$ROOT/scripts/ios/CentraIntents.swift" "$SRC_DIR/" && SIRI_FILE="$SRC_DIR/CentraIntents.swift"
+  yq -i '(.targets[] | select(has("sources"))).settings.base.SWIFT_VERSION //= "5.0"' "$APPLE_DIR/project.yml"
+  (cd "$APPLE_DIR" && xcodegen generate --spec project.yml) || { rm -f "$SIRI_FILE"; SIRI_FILE=""; }
+  echo "Siri: ${SIRI_FILE:-sprunget over}"
+fi
 # App icon (made from the brand icon, without transparency, which App Store Connect refuses)
 ICONSET=$(find "$APPLE_DIR" -type d -name 'AppIcon.appiconset' | head -1)
 if [ -n "$ICONSET" ]; then cp src-tauri/icons/ios/*.png "$ICONSET/"; fi
@@ -51,10 +64,25 @@ if [ -n "$PLIST" ]; then
   pb NSCameraUsageDescription string "CENTRA bruger kameraet, når du tager et billede af en kvittering eller noget, du vil gemme."
   pb NSPhotoLibraryUsageDescription string "CENTRA henter billeder, du vælger, så Assist kan se dem, eller du kan gemme dem under Billeder."
   pb NSFaceIDUsageDescription string "CENTRA bruger Face ID til at låse dine data op."
+  pb NSUserNotificationsUsageDescription string "CENTRA giver dig besked, når det er tid til noget på din huskeliste."
+  # Danish is the app's own language: Siri understands "Husk i CENTRA" in Danish
+  pb CFBundleDevelopmentRegion string da
   echo "Info.plist: $PLIST"
 fi
 
-npx tauri ios build --ci --export-method app-store-connect
+if ! npx tauri ios build --ci --export-method app-store-connect; then
+  # If the Siri part is what failed, the app still ships: built again without it.
+  if [ -n "$SIRI_FILE" ]; then
+    echo "::warning::iPhone-bygget med Siri fejlede; bygger igen uden Siri."
+    rm -f "$SIRI_FILE"; SIRI_FILE=""
+    (cd "$APPLE_DIR" && xcodegen generate --spec project.yml)
+    [ -n "$PLIST" ] && { pb ITSAppUsesNonExemptEncryption bool false; pb NSMicrophoneUsageDescription string "CENTRA bruger mikrofonen, når du taler til Assist."; pb NSSpeechRecognitionUsageDescription string "CENTRA laver din tale om til tekst, så Assist kan forstå den."; pb NSCameraUsageDescription string "CENTRA bruger kameraet, når du tager et billede af en kvittering eller noget, du vil gemme."; pb NSPhotoLibraryUsageDescription string "CENTRA henter billeder, du vælger, så Assist kan se dem, eller du kan gemme dem under Billeder."; pb NSFaceIDUsageDescription string "CENTRA bruger Face ID til at låse dine data op."; pb CFBundleDevelopmentRegion string da; }
+    if [ -n "$ICONSET" ]; then cp src-tauri/icons/ios/*.png "$ICONSET/"; fi
+    npx tauri ios build --ci --export-method app-store-connect
+  else
+    exit 1
+  fi
+fi
 
 IPA=$(find "$APPLE_DIR/build" -name '*.ipa' | head -1)
 if [ -z "$IPA" ]; then echo "Fandt ingen .ipa efter bygget." >&2; exit 1; fi

@@ -20,7 +20,7 @@ export { useToast, NotificationHost as ToastHost } from './Notifications.tsx';
  */
 type NavItem = [Route['screen'], IconName, string];
 export const SECTIONS: { title: string; items: NavItem[] }[] = [
-  { title: 'Overblik', items: [['today', 'today', 'I dag'], ['calendar', 'calendar', 'Kalender']] },
+  { title: 'Overblik', items: [['today', 'today', 'I dag'], ['calendar', 'calendar', 'Kalender'], ['reminders', 'bell', 'Huskeliste']] },
   { title: 'Kommunikation', items: [['inbox', 'inbox', 'Indbakke'], ['contacts', 'contacts', 'Kontakter']] },
   { title: 'Noter og mål', items: [['notes', 'notes', 'Noter'], ['goals', 'goals', 'Mål'], ['photos', 'camera', 'Billeder']] },
   { title: 'Økonomi', items: [['outlays', 'receipt', 'Udlæg'], ['expenses', 'wallet', 'Udgifter'], ['usage', 'hash', 'Claude-forbrug']] },
@@ -124,7 +124,7 @@ export function TabBar({ onSearch }: { onSearch: () => void }) {
 }
 
 /** Each category's colour in the menu (from the brand's light: amber, flare, rose, violet). */
-const TONE: Record<string, string> = { Kommunikation: 'violet', 'Noter og mål': 'amber', Økonomi: 'rose', System: 'mist' };
+const TONE: Record<string, string> = { Overblik: 'amber', Kommunikation: 'violet', 'Noter og mål': 'amber', Økonomi: 'rose', System: 'mist' };
 
 /**
  * The iPhone's menu: you and the search at the top, today and the calendar as two cards, then every
@@ -136,6 +136,7 @@ function MenuSheet({ counts, onClose, onSearch }: { counts: Record<string, numbe
   const e = useEngine();
   const now = new Date();
   const events = useList('event') as any[];
+  const reminderList = useList('reminder');
   const notes = useList('note'), persons = useList('person'), photos = useList('photo'), goals = useList('goal'), accts = useList('mailacct'), costs = useList('expense');
   const day0 = new Date(now); day0.setHours(0, 0, 0, 0);
   const today = occurrences(events, day0, new Date(day0.getTime() + 86400000));
@@ -149,6 +150,7 @@ function MenuSheet({ counts, onClose, onSearch }: { counts: Record<string, numbe
     photos: `${photos.length} ${photos.length === 1 ? 'billede' : 'billeder'}`,
     outlays: owed || owe ? [owed && `Til gode ${kr(owed, { short: true })}`, owe && `skylder ${kr(owe, { short: true })}`].filter(Boolean).join(' · ') : 'Alt er gjort op',
     expenses: costs.length ? `${costs.length} faste udgifter` : 'Ingen endnu',
+    reminders: (() => { const open = (reminderList as any[]).filter((r) => !r.done); const late = open.filter((r) => r.at && new Date(r.at) <= now).length; return open.length ? `${open.length} at huske${late ? ` · ${late} nu` : ''}` : 'Intet at huske'; })(),
     connections: accts.length ? `${accts.length} ${accts.length === 1 ? 'konto' : 'konti'}` : 'Mail og kalender',
   };
 
@@ -212,9 +214,9 @@ function MenuSheet({ counts, onClose, onSearch }: { counts: Record<string, numbe
             <span className="mcard__v">{next ? `${fmt.hm(next.start)} ${next.title}` : today.length ? 'Dagen er overstået' : 'Ingen aftaler i dag'}</span>
           </button>
         </div>
-        {SECTIONS.filter((x) => x.title !== 'Overblik').map((sec) => (
+        {SECTIONS.map((sec) => ({ ...sec, items: sec.items.filter(([k]) => k !== 'today' && k !== 'calendar') })).filter((sec) => sec.items.length).map((sec) => (
           <section key={sec.title} className={`mgroup mgroup--${TONE[sec.title] ?? 'mist'}`} data-in>
-            <h2>{sec.title}</h2>
+            {sec.title !== 'Overblik' && <h2>{sec.title}</h2>}
             <div className="mgroup__list">
               {sec.items.map(([k, i, l]) => (
                 <button key={k} className={`mrow2 ${route.screen === k ? 'is-active' : ''}`} onClick={() => open(k)} aria-current={route.screen === k ? 'page' : undefined}>

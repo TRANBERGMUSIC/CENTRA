@@ -14,6 +14,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+# Reminders (huskelisten): planned on the iPhone, shown by the app on the Mac
+tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Mail and calendars (see src/mail.rs)
@@ -48,7 +50,7 @@ tauri-plugin-single-instance = "2"
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSError", "NSData", "NSArray", "NSCalendar", "NSObjCRuntime"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSError", "NSData", "NSArray", "NSCalendar", "NSObjCRuntime", "NSUserDefaults"] }
 objc2-local-authentication = { version = "0.3", default-features = false, features = ["std", "LAContext", "LAError", "LABiometryType", "block2"] }
 security-framework = "3"
 
