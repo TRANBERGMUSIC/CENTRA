@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RouteProvider, SessionProvider, useEngine, type Route } from './state.tsx';
 import { Sidebar, TabBar, CommandPalette, ToastHost, useToast } from './ui/Shell.tsx';
 import { ConfirmHost } from './ui/Confirm.tsx';
+import { openLink, bindLinks, saveBrowserSettings } from './open.ts';
 import { Today } from './screens/Today.tsx';
 import { Notes } from './screens/Notes.tsx';
 import { Inbox } from './screens/Inbox.tsx';
@@ -25,6 +26,7 @@ import { syncFeeds } from './feeds.ts';
 import { useAppMotion } from './motion.ts';
 import { markReady, watchWebUpdates, justUpdated } from './webupdate.ts';
 import { resumeAfterUpdate } from './session.ts';
+import { Photos } from './screens/Photos.tsx';
 
 const readRoute = (): Route => {
   const [screen, id] = location.hash.replace(/^#\/?/, '').split('/');
@@ -116,14 +118,26 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
   useEffect(() => {
     if (!('__TAURI_INTERNALS__' in window)) return;
     const click = (ev: MouseEvent) => {
+      if (ev.defaultPrevented) return; // already handled (mail text, Assist answers)
       const a = (ev.target as HTMLElement).closest?.('a[href]') as HTMLAnchorElement | null;
       if (!a || !/^(https?|mailto|tel|sms):/i.test(a.href)) return;
       ev.preventDefault();
-      void import('@tauri-apps/plugin-opener').then(({ openUrl }) => openUrl(a.href)).catch(() => toast({ text: 'Linket kunne ikke åbnes' }));
+      void openLink(a.href).catch(() => toast({ text: 'Linket kunne ikke åbnes' }));
     };
     document.addEventListener('click', click);
     return () => document.removeEventListener('click', click);
   }, [toast]);
+  // Links know the browser settings; switching private mode or VPN in the browser window is remembered here.
+  useEffect(() => {
+    bindLinks(e);
+    if (!('__TAURI_INTERNALS__' in window)) return () => bindLinks(null);
+    let off: (() => void) | undefined;
+    void import('@tauri-apps/api/event').then(({ listen }) => listen<{ incognito?: boolean; vpnOn?: boolean; vpnActive?: string }>('browser-prefs', (ev) => {
+      const p = ev.payload ?? {};
+      saveBrowserSettings(e, { ...(typeof p.incognito === 'boolean' ? { incognito: p.incognito } : {}), ...(typeof p.vpnOn === 'boolean' ? { vpnOn: p.vpnOn } : {}), ...(p.vpnActive ? { vpnActive: p.vpnActive } : {}) });
+    })).then((u) => { off = u; });
+    return () => { bindLinks(null); off?.(); };
+  }, [e]);
   // Mail every 2 minutes, LunchHub every minute, calendars every 15 — and all of it when the window comes back.
   useEffect(() => {
     let last = 0, lastFeeds = 0, lastLh = 0, alive = true;
@@ -166,7 +180,7 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
   const screen = {
     today: <Today firstOpen={opened.current} />, notes: <Notes />, inbox: <Inbox />, goals: <Goals />,
     calendar: <Calendar />, assist: <Assist />, settings: <Settings theme={theme} setTheme={setTheme} />, connections: <Connections />,
-    contacts: <Contacts />, outlays: <Outlays />, expenses: <Expenses />, usage: <UsageScreen />,
+    contacts: <Contacts />, outlays: <Outlays />, expenses: <Expenses />, usage: <UsageScreen />, photos: <Photos />,
   }[route.screen] ?? <Today firstOpen={false} />;
 
   return (

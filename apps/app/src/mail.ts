@@ -6,6 +6,7 @@
  * records with a stable id per account + IMAP UID, so fetching twice never duplicates.
  */
 import type { SyncEngine } from '@centra/sync';
+import { sortByRules } from './mailFolders.ts';
 import { syncAllLunchHub, setLunchHubStatus } from './lunchhub.ts';
 const isDesktop = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -252,6 +253,7 @@ export async function syncAll(e: SyncEngine) {
     const firstLh = (e.list('lhconn') as any[]).some((c) => c.enabled !== false && !c.since);
     const lh = await syncAllLunchHub(e);
     errors.push(...lh.errors);
+    sortByRules(e, [...added, ...lh.added]); // your folders' rules, the moment the mail arrives
     return { added: [...added, ...lh.added], hits: firstRun ? [] : matchWatches(e, added), errors, firstLh };
   } finally { running = false; }
 }

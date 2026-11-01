@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CENTRA Browser</title>
+</head>
+<body>
+<header class="bar" data-tauri-drag-region>
+  <div class="bar__lights" data-tauri-drag-region></div>
+  <button class="ib" id="back" aria-label="Tilbage" title="Tilbage (⌘[)"><svg viewBox="0 0 24 24"><path d="M14.5 6l-6 6 6 6"/></svg></button>
+  <button class="ib" id="fwd" aria-label="Frem" title="Frem (⌘])"><svg viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></svg></button>
+  <button class="ib" id="reload" aria-label="Genindlæs" title="Genindlæs (⌘R)"><svg class="i-reload" viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v3.75h-3.75"/></svg><svg class="i-stop" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
+  <form class="addr" id="addr" data-tauri-drag-region>
+    <span class="addr__badge" id="badge" aria-hidden="true"></span>
+    <input id="q" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Adresse eller søgning" placeholder="Søg eller skriv en adresse">
+    <span class="addr__load" id="load" aria-hidden="true"></span>
+  </form>
+  <button class="pill" id="inc" aria-pressed="false" title="Privat: intet gemmes (cookies, logins, historik), når vinduet lukkes"><svg viewBox="0 0 24 24"><path d="M3 12c2.5-4 5.5-6 9-6s6.5 2 9 6c-2.5 4-5.5 6-9 6s-6.5-2-9-6z"/><path d="M4 20L20 4"/></svg><span>Privat</span></button>
+  <button class="pill" id="vpn" aria-pressed="false" title="Send trafikken gennem din VPN"><svg viewBox="0 0 24 24"><path d="M12 3l7.5 3v5.5c0 4.5-3.2 8-7.5 9.5-4.3-1.5-7.5-5-7.5-9.5V6z"/><path class="tick" d="M8.8 12.2l2.2 2.2 4.4-4.6"/></svg><span id="vpnlabel">VPN</span></button>
+  <select class="vpnpick" id="vpnpick" aria-label="Vælg VPN" title="Vælg VPN" hidden></select>
+  <button class="note" id="note" role="status" aria-live="polite" hidden></button>
+  <button class="ib" id="copy" aria-label="Kopiér link" title="Kopiér link"><svg viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 8.5V6a2.5 2.5 0 0 0-2.5-2.5H6A2.5 2.5 0 0 0 3.5 6v7A2.5 2.5 0 0 0 6 15.5h2.5"/></svg></button>
+  <button class="ib" id="clear" aria-label="Ryd browserdata" title="Ryd cookies, logins og historik"><svg viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.5 7l1 12.5h9l1-12.5"/></svg></button>
+  <button class="ib" id="ext" aria-label="Åbn i Safari" title="Åbn i Safari"><svg viewBox="0 0 24 24"><path d="M13.5 4.5h6v6M19.5 4.5l-8 8M17.5 13.5v4a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h4"/></svg></button>
+</header>
+<script type="module" src="./src/browser/toolbar.ts"></script>
+</body>
+</html>

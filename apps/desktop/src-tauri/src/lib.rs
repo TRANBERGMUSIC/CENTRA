@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 mod biometry;
+mod browser;
 mod contacts;
 mod lunchhub;
 mod mail;
@@ -31,8 +32,11 @@ pub fn run() {
             webupdate::web_ready, webupdate::web_info, webupdate::web_update_check, webupdate::session_stash, webupdate::session_take,
             biometry::bio_kind, biometry::bio_enable, biometry::bio_unlock, biometry::bio_disable,
             contacts::contacts_fetch, contacts::contacts_status,
-            lunchhub::lunchhub_request
+            lunchhub::lunchhub_request,
+            browser::browser_open, browser::browser_state, browser::browser_go, browser::browser_nav, browser::browser_toggle,
+            browser::browser_clear, browser::browser_external, browser::browser_reveal, browser::browser_vpn_test
         ])
+        .manage(browser::Browser::default())
         // Choose the interface (installed fast update or the built-in one) before the window opens.
         .setup(|app| {
             webupdate::init(app);

@@ -122,6 +122,76 @@ export function iOwe(o: Outlay, payments: Payment[]): Owed | null {
 }
 export const isOpen = (o: Outlay, payments: Payment[]) => owed(o, payments).some((x) => x.left > 0.004) || (iOwe(o, payments)?.left ?? 0) > 0.004;
 
+/* ---------------------------------------------------------------- regnestykker med én person */
+/**
+ * A running account with one person, for days like "pantede flasker med Jonas for 440, købte mad for
+ * 315, han gav mig snus til 64". Each line says what it was, who paid (or got the money), and whose it
+ * was. CENTRA works out who owes whom, and it counts in the same overview as udlæg.
+ */
+export type TallyLine = {
+  id: string; text: string; amount: number;
+  /** expense: money paid out. income: money received (pant, salg, gevinst). gift: no money owed. */
+  kind: 'expense' | 'income' | 'gift';
+  /** Who paid (expense) or got the money (income). */
+  by: 'me' | 'them';
+  /** Whose it was: shared equally, only mine, only theirs. */
+  whose: 'both' | 'me' | 'them';
+};
+export type Tally = { id: string; title: string; date: string; person: string; lines: TallyLine[]; note?: string; createdAt?: string };
+
+/** One line in øre: positive = they owe me, negative = I owe them. */
+export function lineNet(l: Pick<TallyLine, 'amount' | 'kind' | 'by' | 'whose'>): number {
+  const a = ore(Math.abs(l.amount || 0));
+  if (l.kind === 'gift') return 0;
+  const theirPart = l.whose === 'both' ? a / 2 : l.whose === 'them' ? a : 0;
+  const myPart = a - theirPart;
+  const n = l.kind === 'expense' ? (l.by === 'me' ? theirPart : -myPart) : l.by === 'me' ? -theirPart : myPart; // income: whoever got the money owes the other their part
+  return n || 0; // never -0
+}
+export const tallyNet = (t: Pick<Tally, 'lines'>) => Math.round((t.lines ?? []).reduce((s, l) => s + lineNet(l), 0)) / 100;
+
+/** What's left of a regnestykke after payments: positive = they owe me, negative = I owe them. */
+export function tallyLeft(t: Tally, payments: Payment[]) {
+  const net = tallyNet(t);
+  const by = (who: string) => payments.filter((x) => x.outlay === t.id && x.person === who).reduce((s, x) => s + ore(x.amount), 0) / 100;
+  const paidThem = by(t.person), paidMe = by(ME);
+  const left = net >= 0 ? Math.max(0, net - paidThem + paidMe) : -Math.max(0, -net - paidMe + paidThem);
+  return { net: net || 0, paidThem, paidMe, left: Math.round(left * 100) / 100 || 0 };
+}
+
+/** In words, for the screen and for Assist: "Du fik 440 kr i pant: Jonas' halvdel er 220 kr". */
+/** Danish genitive: Jonas → Jonas', Mads → Mads', Sofie → Sofies. */
+export const gen = (name: string) => (/[sxz]$/i.test(name) ? `${name}'` : `${name}s`);
+
+export function lineExplain(l: TallyLine, first: string): string {
+  const a = kr(Math.abs(l.amount || 0)), n = lineNet(l) / 100;
+  const half = kr(Math.abs(l.amount || 0) / 2);
+  if (l.kind === 'gift') return `${l.by === 'me' ? `Du gav ${first}` : `${first} gav dig`} ${l.text.toLowerCase() || 'en gave'} (${a}). En gave, så ingen skylder noget.`;
+  const who = l.by === 'me' ? 'Du' : first;
+  const verb = l.kind === 'expense' ? 'betalte' : 'fik';
+  const whose = l.whose === 'both' ? `delt ligeligt (${half} hver)` : l.whose === 'me' ? 'det var dit' : `det var ${gen(first)}`;
+  const res = n > 0 ? `${first} skylder dig ${kr(n)}` : n < 0 ? `du skylder ${first} ${kr(-n)}` : 'ingen skylder noget';
+  return `${who} ${verb} ${a}${l.kind === 'income' ? ` for ${l.text.toLowerCase()}` : ` for ${l.text.toLowerCase()}`}, ${whose}: ${res}.`;
+}
+
+/** Normalises lines from the AI (or from Assist's tool). */
+export function toLines(raw: unknown, rid: () => string, keep: TallyLine[] = []): TallyLine[] {
+  const old = [...keep];
+  return (Array.isArray(raw) ? raw : []).flatMap((x: any) => {
+    const text = String(x?.text ?? '').trim();
+    const amount = Math.round(Math.abs(Number(x?.amount)) * 100) / 100;
+    if (!text || !Number.isFinite(amount) || amount === 0) return [];
+    const kind: TallyLine['kind'] = ['expense', 'income', 'gift'].includes(x?.kind) ? x.kind : 'expense';
+    const by: TallyLine['by'] = /^(person|them|de|han|hun)$/i.test(String(x?.by ?? '')) ? 'them' : 'me';
+    const w = String(x?.whose ?? 'begge').toLowerCase();
+    const whose: TallyLine['whose'] = w === 'mig' || w === 'me' ? 'me' : w === 'person' || w === 'them' ? 'them' : 'both';
+    const same = old.findIndex((l) => l.text === text && l.amount === amount);
+    return [{ id: same >= 0 ? old.splice(same, 1)[0].id : rid(), text, amount, kind, by, whose }];
+  });
+}
+
+const tallies = (e: SyncEngine) => (e.list('tally') as unknown as Tally[]).sort((a, b) => (a.date ?? '').localeCompare(b.date ?? '') || (a.createdAt ?? '').localeCompare(b.createdAt ?? ''));
+
 /** Per person: how much you owe them right now, across every udlæg they paid. */
 export function debts(e: SyncEngine) {
   const outlays = e.list('outlay') as unknown as Outlay[];
@@ -134,6 +204,14 @@ export function debts(e: SyncEngine) {
     b.share += w.share; b.paid += w.paid; b.left = Math.round((b.left + w.left) * 100) / 100;
     if (w.left > 0.004) b.open.push(o.id);
     by.set(w.person, b);
+  }
+  for (const t of tallies(e)) {
+    const r = tallyLeft(t, pays);
+    if (r.net >= 0 || !t.person) continue;
+    const b = by.get(t.person) ?? { person: t.person, share: 0, paid: 0, left: 0, open: [] };
+    b.share += -r.net; b.paid += r.paidMe; b.left = Math.round((b.left - r.left) * 100) / 100;
+    if (r.left < -0.004) b.open.push(t.id);
+    by.set(t.person, b);
   }
   return [...by.values()].filter((b) => b.share > 0).sort((a, b) => b.left - a.left);
 }
@@ -151,6 +229,14 @@ export function payDebt(e: SyncEngine, creditor: string, amount: number, note = 
     ids.push(e.create('payment', { outlay: o.id, person: ME, amount: take / 100, at: new Date().toISOString(), note }));
     left -= take;
   }
+  for (const t of tallies(e).filter((x) => x.person === creditor)) {
+    if (left <= 0) break;
+    const r = tallyLeft(t, e.list('payment') as unknown as Payment[]);
+    if (r.left >= -0.004) continue;
+    const take = Math.min(left, ore(-r.left));
+    ids.push(e.create('payment', { outlay: t.id, person: ME, amount: take / 100, at: new Date().toISOString(), note }));
+    left -= take;
+  }
   if (left > 0 && ids.length) { const last = e.get(ids[ids.length - 1]) as unknown as Payment; e.set('payment', last.id, { amount: last.amount + left / 100, note: (note ? note + ' · ' : '') + 'mere end skyldt' }); }
   return ids;
 }
@@ -165,6 +251,14 @@ export function balances(e: SyncEngine) {
     b.share += w.share; b.paid += w.paid; b.left = Math.round((b.left + w.left) * 100) / 100;
     if (w.left > 0.004) b.open.push(o.id);
     by.set(w.person, b);
+  }
+  for (const t of tallies(e)) {
+    const r = tallyLeft(t, pays);
+    if (r.net <= 0 || !t.person) continue;
+    const b = by.get(t.person) ?? { person: t.person, share: 0, paid: 0, left: 0, open: [] };
+    b.share += r.net; b.paid += r.paidThem; b.left = Math.round((b.left + r.left) * 100) / 100;
+    if (r.left > 0.004) b.open.push(t.id);
+    by.set(t.person, b);
   }
   return [...by.values()].filter((b) => b.share > 0).sort((a, b) => b.left - a.left);
 }
@@ -183,6 +277,14 @@ export function payBack(e: SyncEngine, person: string, amount: number, note = ''
     if (!w || w.left <= 0) continue;
     const take = Math.min(left, ore(w.left));
     ids.push(e.create('payment', { outlay: o.id, person, amount: take / 100, at: new Date().toISOString(), note }));
+    left -= take;
+  }
+  for (const t of tallies(e).filter((x) => x.person === person)) {
+    if (left <= 0) break;
+    const r = tallyLeft(t, e.list('payment') as unknown as Payment[]);
+    if (r.left <= 0.004) continue;
+    const take = Math.min(left, ore(r.left));
+    ids.push(e.create('payment', { outlay: t.id, person, amount: take / 100, at: new Date().toISOString(), note }));
     left -= take;
   }
   if (left > 0 && ids.length) { const last = e.get(ids[ids.length - 1]) as unknown as Payment; e.set('payment', last.id, { amount: last.amount + left / 100, note: (note ? note + ' · ' : '') + 'mere end skyldt' }); }

@@ -16,7 +16,7 @@ export { useToast, NotificationHost as ToastHost } from './Notifications.tsx';
 const NAV: [Route['screen'], IconName, string][] = [
   ['today', 'today', 'I dag'], ['notes', 'notes', 'Noter'], ['calendar', 'calendar', 'Kalender'],
   ['inbox', 'inbox', 'Indbakke'], ['goals', 'goals', 'Mål'], ['outlays', 'receipt', 'Udlæg'], ['expenses', 'wallet', 'Udgifter'],
-  ['contacts', 'contacts', 'Kontakter'], ['assist', 'assist', 'Assist'],
+  ['contacts', 'contacts', 'Kontakter'], ['photos', 'camera', 'Billeder'], ['assist', 'assist', 'Assist'],
 ];
 const PHONE_TABS: Route['screen'][] = ['today', 'calendar', 'outlays', 'notes', 'assist'];
 

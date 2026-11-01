@@ -5,7 +5,7 @@ import { Icon } from '../ui/Icon.tsx';
 import { Progress } from '../ui/DayStrip.tsx';
 import { useToast } from '../ui/Shell.tsx';
 import { useScreenEnter } from '../motion.ts';
-import { goalStats, fmtN, type Goal, type GoalUpdate } from '../goals.ts';
+import { goalStats, fmtN, KIND_NAMES, PERIOD_NAMES, type Goal, type GoalUpdate, type GoalKind, type Period } from '../goals.ts';
 import CountUp from '../bits/CountUp.jsx';
 import ClickSpark from '../bits/ClickSpark.jsx';
 import { SuggestionRows } from './Assist.tsx';
@@ -23,9 +23,16 @@ export function Goals() {
   const e = useEngine();
   const pending = useList('suggestion').filter((x: any) => x.status === 'pending').length;
 
+  const [area, setArea] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [showDone, setShowDone] = useState(false);
+  const areas = [...new Set(goals.map((g) => g.area || 'Privat'))].sort((a, b) => a.localeCompare(b, 'da'));
+  const finished = (g: Goal, st: ReturnType<typeof goalStats>) => g.status === 'done' || ((g.kind === 'once' || g.kind === 'milestones' || g.kind === 'measure') && st.ratio >= 1);
+  const shown = stats.filter((x) => !area || (x.g.area || 'Privat') === area);
+  const live = shown.filter((x) => !finished(x.g, x.s) && x.g.status !== 'paused');
   const section = (title: string, list: typeof stats) => list.length > 0 && (
     <>
-      <div className="gsec">{title}</div>
+      {title && <div className="gsec">{title}</div>}
       {list.map(({ g, s }) => (
         <button key={g.id} className={`gitem ${g.id === id ? 'is-selected' : ''}`} onClick={() => go({ screen: 'goals', id: g.id })}>
           <span className="gitem__t"><span className={`strong ellipsis ${g.title ? '' : 'faint'}`}>{g.title || 'Uden navn'}</span><span className="meta num">{s.due}</span></span>
@@ -39,16 +46,21 @@ export function Goals() {
   return (
     <main className="goals" ref={ref}>
       <div className="glist" data-enter>
-        <h1>Mål <span className="meta num">{goals.length}</span><Btn size="sm" icon="plus" onClick={() => { const nid = e.create('goal', { title: '', kind: 'measure', unit: 'gange', target: 10, area: 'Privat', start: now.toISOString().slice(0, 10), due: `${now.getFullYear()}-12-31`, order: goals.length + 1 }); fresh = nid; go({ screen: 'goals', id: nid }); }}>Nyt mål</Btn></h1>
-        {section('Kræver handling', stats.filter((x) => !x.s.onTrack))}
-        {section('På sporet', stats.filter((x) => x.s.onTrack))}
+        <h1>Mål <span className="meta num">{goals.length}</span><Btn size="sm" icon="plus" onClick={() => setCreating(true)}>Nyt mål</Btn></h1>
+        {areas.length > 1 && <div className="ntags gareas">{[null, ...areas].map((a) => <button key={a ?? 'all'} className={`tag ${area === a ? 'is-active' : ''}`} onClick={() => setArea(a)}>{a ?? 'Alle'}</button>)}</div>}
+        {section('Kræver handling', live.filter((x) => !x.s.onTrack))}
+        {section('På sporet', live.filter((x) => x.s.onTrack))}
+        {section('På pause', shown.filter((x) => x.g.status === 'paused' && !finished(x.g, x.s)))}
+        {shown.some((x) => finished(x.g, x.s)) && <button className="gsec gsec--btn" onClick={() => setShowDone((v) => !v)} aria-expanded={showDone}>Fuldført <span className="num">{shown.filter((x) => finished(x.g, x.s)).length}</span> <Icon name="chevron-down" size="sm" /></button>}
+        {showDone && section('', shown.filter((x) => finished(x.g, x.s)))}
       </div>
       {cur ? <GoalDetail key={cur.g.id} g={cur.g} s={cur.s} /> : <div className="gdetail"><p className="muted pad">Ingen mål endnu. Lav et med knappen, eller fortæl Assist, hvad du gerne vil nå.</p></div>}
       <aside className="details" aria-label="Detaljer">
         {pending > 0 && <div className="dsec"><div className="dsec__title">Forslag fra Assist</div><SuggestionRows limit={2} /></div>}
         {cur?.g.event && <LinkedEvent id={cur.g.event} />}
-        <div className="dsec"><div className="dsec__title">Med Assist</div><p className="muted small">Sig fx "Jeg løb 5 km i dag" eller "Sæt et mål om at spare 10.000 kr inden sommer", så opdaterer Assist dine mål. <button className="tag" onClick={() => go({ screen: 'assist' })}>Åbn Assist</button></p></div>
+        <div className="dsec"><div className="dsec__title">Med Assist</div><p className="muted small">Fortæl Assist om dine mål med dine egne ord: "Jeg vil løbe 5 km 10 gange i år", "Jeg skal have lavet hjemmesiden inden jul" eller "Spar 10.000 kr inden sommer". Sig "Jeg løb 5 km i dag", så holder Assist styr på resten. <button className="tag" onClick={() => go({ screen: 'assist' })}>Åbn Assist</button></p></div>
       </aside>
+      {creating && <NewGoal onClose={() => setCreating(false)} onMade={(nid) => { setCreating(false); go({ screen: 'goals', id: nid }); }} />}
     </main>
   );
 }
@@ -89,9 +101,10 @@ function GoalDetail({ g, s }: { g: Goal; s: ReturnType<typeof goalStats> }) {
 
   function log(ev: React.FormEvent) {
     ev.preventDefault();
-    const n = Number(delta.replace(',', '.'));
-    if (g.kind !== 'milestones' && !(n > 0) && !text.trim()) return;
-    const id = e.create('goalUpdate', { goal: g.id, at: new Date().toISOString(), delta: g.kind === 'milestones' ? 0 : n || 0, text: text.trim(), src: 'Skrevet af dig' });
+    const n = Number(delta.replace(',', '.')) || ((g.kind === 'count' || g.kind === 'habit') && !delta.trim() ? 1 : 0);
+    if (g.kind !== 'milestones' && g.kind !== 'once' && !(n > 0) && !text.trim()) return;
+    if ((g.kind === 'milestones' || g.kind === 'once') && !text.trim()) return;
+    const id = e.create('goalUpdate', { goal: g.id, at: new Date().toISOString(), delta: g.kind === 'milestones' || g.kind === 'once' ? 0 : n || 0, text: text.trim(), src: 'Skrevet af dig' });
     const btn = (ev.target as HTMLFormElement).querySelector('button[type=submit]')!.getBoundingClientRect();
     const host = (ev.target as HTMLElement).closest('.sparkhost')!.getBoundingClientRect();
     spark.current?.spark(btn.left - host.left + btn.width / 2, btn.top - host.top + btn.height / 2);
@@ -114,7 +127,7 @@ function GoalDetail({ g, s }: { g: Goal; s: ReturnType<typeof goalStats> }) {
   return (
     <div className="gdetail">
       <div className="ghead">
-        <div className="meta">{g.area} · {g.kind === 'measure' ? 'tal-mål' : g.kind === 'milestones' ? 'milepæle' : 'vane'}{g.due ? ' · frist ' + s.due : ''}</div>
+        <div className="meta">{g.area} · {KIND_NAMES[g.kind] ?? g.kind}{g.kind === 'count' && g.each ? ` · ${g.each}` : ''}{g.due ? ' · frist ' + new Date(g.due + 'T12:00').toLocaleDateString('da-DK', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}{g.status === 'paused' ? ' · på pause' : ''}</div>
         <Btn size="sm" variant="text" icon="edit" aria-expanded={editing} onClick={() => setEditing((x) => !x)}>{editing ? 'Færdig' : 'Redigér'}</Btn>
       </div>
       <input ref={titleRef} className="gtitle" value={title} placeholder="Navngiv dit mål" aria-label="Målets navn"
@@ -122,29 +135,41 @@ function GoalDetail({ g, s }: { g: Goal; s: ReturnType<typeof goalStats> }) {
       {editing && <GoalEdit g={g} onDelete={removeGoal} />}
       <div className="gfig">
         <b className="num"><CountUp key={g.id} from={from} to={s.value} duration={0.8} decimals={g.kind === 'measure' && s.value % 1 ? 1 : 0} separator="." decimalSeparator="," trigger="mount" /></b>
-        <span className="muted num">{g.kind === 'measure' ? `af ${fmtN(g.target ?? 0)} ${g.unit ?? ''}` : g.kind === 'milestones' ? `af ${g.steps?.length} trin` : `af ${g.perWeek} denne uge`}</span>
-        <span className={`status push-right ${s.onTrack ? '' : 'is-due'}`}>{s.onTrack ? 'På sporet' : 'Kræver handling'}</span>
+        <span className="muted num">{g.kind === 'measure' ? `af ${fmtN(g.target ?? 0)} ${g.unit ?? ''}` : g.kind === 'milestones' ? `af ${g.steps?.length} trin` : g.kind === 'count' ? `af ${fmtN(g.target ?? 0)} gange ${(s as any).window?.label ?? ''}` : g.kind === 'once' ? (s.value ? 'gjort' : (g.steps?.length ? `trin klaret af ${g.steps.length}` : 'ikke gjort endnu')) : `af ${g.perWeek} denne uge`}</span>
+        <span className={`status push-right ${s.onTrack ? '' : 'is-due'}`}>{g.status === 'done' || s.ratio >= 1 && g.kind !== 'habit' && g.kind !== 'count' ? 'Fuldført' : g.status === 'paused' ? 'På pause' : s.onTrack ? 'På sporet' : 'Kræver handling'}</span>
       </div>
       <Progress ratio={s.ratio} focus={!s.onTrack} />
-      <div className="prog__ends meta num"><span>0</span><span>{g.kind === 'measure' ? `${fmtN(g.target ?? 0)} ${g.unit}` : g.kind === 'milestones' ? `${g.steps?.length} trin` : `${g.perWeek} gange`}</span></div>
+      <div className="prog__ends meta num"><span>0</span><span>{g.kind === 'measure' ? `${fmtN(g.target ?? 0)} ${g.unit}` : g.kind === 'milestones' || (g.kind === 'once' && g.steps?.length) ? `${g.steps?.length} trin` : g.kind === 'count' ? `${fmtN(g.target ?? 0)} gange` : g.kind === 'once' ? 'gjort' : `${g.perWeek} gange`}</span></div>
+      <div className="gwhy">
+        <label><span className="meta">Hvorfor</span><input defaultValue={g.why ?? ''} placeholder="Hvorfor betyder det noget for dig?" onBlur={(x) => x.target.value.trim() !== (g.why ?? '') && e.set('goal', g.id, { why: x.target.value.trim() })} /></label>
+        <label><span className="meta">Næste skridt</span><input defaultValue={g.next ?? ''} placeholder="Det allerførste, du gør" onBlur={(x) => x.target.value.trim() !== (g.next ?? '') && e.set('goal', g.id, { next: x.target.value.trim() })} /></label>
+      </div>
       <p className="gfinding">
         {g.kind === 'measure' && s.left > 0 && <><span className="strong num">{fmtN(s.left)} {g.unit} tilbage på {s.daysLeft} dage</span> kræver {fmt.num(s.needPerWeek ?? 0, 1)} {g.unit} om ugen.{s.pacePerWeek != null && <> Dit tempo i år er {fmt.num(s.pacePerWeek, 1)} {g.unit} om ugen.</>}</>}
         {g.kind === 'measure' && s.left === 0 && <span className="strong">Nået. Godt gået.</span>}
         {g.kind === 'milestones' && <><span className="strong num">{s.left} trin tilbage på {s.daysLeft} {s.daysLeft === 1 ? 'dag' : 'dage'}.</span>{!s.onTrack && ' Det næste er ' + (g.steps?.find(([, d]) => !d)?.[0] ?? '') + '.'}</>}
         {g.kind === 'habit' && <>Denne uge: <span className="strong num">{s.value} af {g.perWeek}</span>. {s.onTrack ? 'Du har holdt vanen de sidste fire uger.' : 'De sidste fire uger har været under målet.'}</>}
+        {g.kind === 'count' && (s.left > 0 ? <><span className="strong num">{fmtN(s.left)} {s.left === 1 ? 'gang' : 'gange'} tilbage {(s as any).window?.label ?? ''}</span>{s.daysLeft ? `, ${s.daysLeft} dage at gøre det på` : ''}.{(s as any).expected != null && <> Efter planen burde du have nået {(s as any).expected} nu{s.onTrack ? ', så du er med.' : '.'}</>}</> : <span className="strong">Nået {(s as any).window?.label ?? ''}. Godt gået.</span>)}
+        {g.kind === 'once' && (s.value ? <span className="strong">Gjort{g.doneAt ? ' ' + fmt.shortDate(g.doneAt) : ''}. Godt gået.</span> : <>{g.due ? <><span className="strong num">{s.daysLeft} {s.daysLeft === 1 ? 'dag' : 'dage'} til fristen.</span> </> : null}{g.next ? `Næste skridt: ${g.next}.` : 'Skriv det næste skridt ovenfor, så er det lettere at komme i gang.'}</>)}
       </p>
+      <div className="gstatus">
+        {g.kind === 'once' && !s.value && <Btn variant="primary" icon="check" onClick={() => { e.set('goal', g.id, { status: 'done', doneAt: new Date().toISOString() }); e.create('goalUpdate', { goal: g.id, at: new Date().toISOString(), delta: 1, text: 'Gjort', src: 'Skrevet af dig' }); toast({ text: `${g.title || 'Målet'} er gjort`, action: { label: 'Fortryd', run: () => e.set('goal', g.id, { status: 'active', doneAt: '' }) } }); }}>Markér som gjort</Btn>}
+        {g.kind !== 'once' && g.status !== 'done' && <Btn size="sm" variant="text" icon="check" onClick={() => e.set('goal', g.id, { status: 'done', doneAt: new Date().toISOString() })}>Markér som fuldført</Btn>}
+        {g.status === 'done' && <Btn size="sm" variant="text" onClick={() => e.set('goal', g.id, { status: 'active', doneAt: '' })}>Genåbn</Btn>}
+        {g.status !== 'done' && <Btn size="sm" variant="text" onClick={() => e.set('goal', g.id, { status: g.status === 'paused' ? 'active' : 'paused' })}>{g.status === 'paused' ? 'Genoptag' : 'Sæt på pause'}</Btn>}
+      </div>
 
       <div className="sparkhost">
         <ClickSpark ref={spark} sparkColor="#C9683A" sparkCount={10} sparkRadius={26} sparkSize={10} duration={450}>
           <form className="gupdate" onSubmit={log}>
-            {g.kind !== 'milestones' && <label className="field"><span>+</span><input inputMode="decimal" value={delta} onChange={(x) => setDelta(x.target.value)} placeholder={g.kind === 'habit' ? '1' : '0'} aria-label={`Antal ${g.unit ?? ''}`} /><span>{g.kind === 'habit' ? 'gang' : g.unit}</span></label>}
+            {g.kind !== 'milestones' && g.kind !== 'once' && <label className="field"><span>+</span><input inputMode="decimal" value={delta} onChange={(x) => setDelta(x.target.value)} placeholder={g.kind === 'habit' || g.kind === 'count' ? '1' : '0'} aria-label={`Antal ${g.unit ?? ''}`} /><span>{g.kind === 'habit' || g.kind === 'count' ? 'gang' : g.unit}</span></label>}
             <label className="field field--grow"><input value={text} onChange={(x) => setText(x.target.value)} placeholder="Skriv hvad der skete …" aria-label="Opdatering" /></label>
-            <Btn type="submit" variant="primary">Log opdatering</Btn>
+            <Btn type="submit" variant="primary">{g.kind === 'count' || g.kind === 'habit' ? (delta.trim() ? 'Log' : '+1 gang') : g.kind === 'once' || g.kind === 'milestones' ? 'Skriv note' : 'Log opdatering'}</Btn>
           </form>
         </ClickSpark>
       </div>
 
-      {g.kind === 'milestones' && (
+      {(g.kind === 'milestones' || (g.kind === 'once' && (g.steps?.length ?? 0) > 0)) && (
         <div className="glog"><div className="panel__head"><h3 className="panel__title">Trin</h3></div>
           <ul className="steps">{(g.steps ?? []).map(([t, d], i) => (
             <li key={t}><button className={`check ${d ? 'is-done' : ''}`} onClick={() => toggleStep(i)} aria-pressed={d}><span className="check__box">{d && <Icon name="check" size="sm" />}</span><span className="check__label">{t}</span></button></li>
@@ -155,7 +180,7 @@ function GoalDetail({ g, s }: { g: Goal; s: ReturnType<typeof goalStats> }) {
 
       <div className="glog">
         <div className="panel__head"><h3 className="panel__title">Opdateringer</h3><span className="panel__count num">{s.mine.length}</span></div>
-        <ul>{[...s.mine].reverse().slice(0, showAll ? undefined : 8).map((u) => <UpdateRow key={u.id} u={u} unit={g.kind === 'milestones' ? '' : g.unit ?? ''} />)}</ul>
+        <ul>{[...s.mine].reverse().slice(0, showAll ? undefined : 8).map((u) => <UpdateRow key={u.id} u={u} unit={g.kind === 'milestones' || g.kind === 'once' ? '' : g.kind === 'count' || g.kind === 'habit' ? 'gang' : g.unit ?? ''} />)}</ul>
         {s.mine.length > 8 && <button className="tag pad-top" onClick={() => setShowAll((x) => !x)}>{showAll ? 'Vis færre' : `Vis alle ${s.mine.length}`}</button>}
       </div>
     </div>
@@ -207,9 +232,9 @@ function GoalEdit({ g, onDelete }: { g: Goal; onDelete: () => void }) {
   return (
     <div className="gedit">
       <div className="segmented" role="radiogroup" aria-label="Type">
-        {([['measure', 'Tal-mål'], ['milestones', 'Milepæle'], ['habit', 'Vane']] as const).map(([k, l]) => (
+        {(['once', 'milestones', 'count', 'measure', 'habit'] as GoalKind[]).map((k) => (
           <button key={k} type="button" role="radio" aria-checked={g.kind === k} className={g.kind === k ? 'is-active' : ''}
-            onClick={() => set({ kind: k, ...(k === 'habit' && !g.perWeek ? { perWeek: 2 } : {}), ...(k === 'milestones' && !g.steps ? { steps: [] } : {}) })}>{l}</button>
+            onClick={() => set({ kind: k, ...(k === 'habit' && !g.perWeek ? { perWeek: 2 } : {}), ...(k === 'milestones' && !g.steps ? { steps: [] } : {}), ...(k === 'count' && !g.target ? { target: 10, period: 'year' } : {}) })}>{KIND_NAMES[k]}</button>
         ))}
       </div>
       <div className="gedit__grid">
@@ -217,13 +242,18 @@ function GoalEdit({ g, onDelete }: { g: Goal; onDelete: () => void }) {
           <label className="ufield"><span>Mål</span><input inputMode="decimal" defaultValue={g.target ?? ''} onBlur={(x) => { const n = numIn(x.target.value); if (n) set({ target: n }); }} placeholder="fx 300" /></label>
           <label className="ufield"><span>Enhed</span><input defaultValue={g.unit ?? ''} onBlur={(x) => set({ unit: x.target.value.trim() })} placeholder="fx km, kr, bøger" /></label>
         </>}
+        {g.kind === 'count' && <>
+          <label className="ufield"><span>Hvor mange gange</span><input inputMode="numeric" defaultValue={g.target ?? ''} onBlur={(x) => { const n = numIn(x.target.value); if (n) set({ target: Math.round(n) }); }} placeholder="fx 10" /></label>
+          <label className="ufield"><span>Hvad er én gang</span><input defaultValue={g.each ?? ''} onBlur={(x) => set({ each: x.target.value.trim() })} placeholder="fx løbe 5 km" /></label>
+          <label className="ufield"><span>Pr.</span><select value={g.period ?? 'total'} onChange={(x) => set({ period: x.target.value as Period })}>{(['year', 'month', 'week', 'total'] as Period[]).map((p) => <option key={p} value={p}>{p === 'total' ? 'I alt (inden fristen)' : PERIOD_NAMES[p].replace(/^om /, '').replace(/^./, (c) => c.toUpperCase())}</option>)}</select></label>
+        </>}
         {g.kind === 'habit' && <label className="ufield"><span>Gange om ugen</span><input inputMode="numeric" defaultValue={g.perWeek ?? 1} onBlur={(x) => { const n = numIn(x.target.value); if (n) set({ perWeek: Math.round(n) }); }} /></label>}
         {g.kind !== 'habit' && <label className="ufield"><span>Frist</span><input type="date" defaultValue={g.due ?? ''} onChange={(x) => set({ due: x.target.value || undefined })} /></label>}
         <label className="ufield"><span>Område</span><input list="goal-areas" defaultValue={g.area ?? ''} onBlur={(x) => set({ area: x.target.value.trim() || 'Privat' })} /></label>
         <datalist id="goal-areas">{['Privat', 'Arbejde', 'Sundhed', 'Økonomi', 'Projekter', 'Familie'].map((a) => <option key={a} value={a} />)}</datalist>
       </div>
-      {g.kind === 'milestones' && (
-        <div className="gedit__steps">
+      {(g.kind === 'milestones' || g.kind === 'once') && (
+        <div className="gedit__steps">{g.kind === 'once' && <span className="meta">Trin (valgfrit): del opgaven op, hvis den er stor.</span>}
           <ul className="rows">{steps.map(([t, d], i) => (
             <li key={i} className="memrow"><span className="row__body"><span className={d ? 'faint' : ''}>{t}</span></span>
               <Btn size="sm" variant="text" icon="x" aria-label={`Fjern ${t}`} onClick={() => set({ steps: steps.filter((_, j) => j !== i) })} /></li>
@@ -235,6 +265,68 @@ function GoalEdit({ g, onDelete }: { g: Goal; onDelete: () => void }) {
         </div>
       )}
       <div className="gedit__foot"><Btn size="sm" variant="text" icon="x" onClick={onDelete}>Slet mål</Btn></div>
+    </div>
+  );
+}
+
+const EXAMPLES: Record<GoalKind, string> = { once: 'Få lavet hjemmesiden · Søge nyt job · Male stuen', milestones: 'Bygge SmartLink · Flytte · Planlægge rejsen', count: 'Løbe 5 km 10 gange i år · 2 koncerter om måneden', measure: 'Spare 10.000 kr · Løbe 300 km · Læse 12 bøger', habit: 'Træne 3 gange om ugen · Meditere 5 gange om ugen' };
+
+/** A new goal: name it, pick what kind it is, fill in the few numbers that kind needs. */
+function NewGoal({ onClose, onMade }: { onClose: () => void; onMade: (id: string) => void }) {
+  const e = useEngine();
+  const [title, setTitle] = useState('');
+  const [kind, setKind] = useState<GoalKind>('once');
+  const [target, setTarget] = useState('');
+  const [unit, setUnit] = useState('');
+  const [each, setEach] = useState('');
+  const [period, setPeriod] = useState<Period>('year');
+  const [due, setDue] = useState('');
+  const [area, setArea] = useState('Privat');
+  function make(ev: React.FormEvent) {
+    ev.preventDefault();
+    if (!title.trim()) return;
+    const n = Number(target.replace(',', '.'));
+    const f: Record<string, unknown> = { title: title.trim(), kind, area, start: new Date().toISOString().slice(0, 10), order: e.list('goal').length + 1, status: 'active' };
+    if (due) f.due = due;
+    if (kind === 'measure') { f.target = n > 0 ? n : 1; f.unit = unit.trim(); }
+    if (kind === 'count') { f.target = n > 0 ? Math.round(n) : 10; f.each = each.trim(); f.period = period; }
+    if (kind === 'habit') f.perWeek = n > 0 ? Math.round(n) : 3;
+    if (kind === 'milestones') f.steps = [];
+    onMade(e.create('goal', f));
+  }
+  return (
+    <div>
+      <div className="scrim" onClick={onClose} />
+      <form className="sheet newgoal" role="dialog" aria-label="Nyt mål" onSubmit={make}>
+        <div className="sheet__body">
+          <h2>Nyt mål</h2>
+          <input className="gtitle" autoFocus value={title} onChange={(x) => setTitle(x.target.value)} placeholder="Hvad vil du nå?" aria-label="Målets navn" />
+          <div className="gkinds" role="radiogroup" aria-label="Slags mål">
+            {(['once', 'milestones', 'count', 'measure', 'habit'] as GoalKind[]).map((k) => (
+              <button key={k} type="button" role="radio" aria-checked={kind === k} className={`gkind ${kind === k ? 'is-active' : ''}`} onClick={() => setKind(k)}>
+                <b>{KIND_NAMES[k]}</b><span className="meta">{EXAMPLES[k]}</span>
+              </button>
+            ))}
+          </div>
+          <div className="gedit__grid">
+            {kind === 'count' && <>
+              <label className="ufield"><span>Hvor mange gange</span><input inputMode="numeric" value={target} onChange={(x) => setTarget(x.target.value)} placeholder="10" /></label>
+              <label className="ufield"><span>Hvad er én gang</span><input value={each} onChange={(x) => setEach(x.target.value)} placeholder="løbe 5 km" /></label>
+              <label className="ufield"><span>Pr.</span><select value={period} onChange={(x) => setPeriod(x.target.value as Period)}><option value="year">År</option><option value="month">Måned</option><option value="week">Uge</option><option value="total">I alt (inden fristen)</option></select></label>
+            </>}
+            {kind === 'measure' && <>
+              <label className="ufield"><span>Mål</span><input inputMode="decimal" value={target} onChange={(x) => setTarget(x.target.value)} placeholder="10.000" /></label>
+              <label className="ufield"><span>Enhed</span><input value={unit} onChange={(x) => setUnit(x.target.value)} placeholder="kr, km, bøger" /></label>
+            </>}
+            {kind === 'habit' && <label className="ufield"><span>Gange om ugen</span><input inputMode="numeric" value={target} onChange={(x) => setTarget(x.target.value)} placeholder="3" /></label>}
+            {(kind !== 'habit' && !(kind === 'count' && period !== 'total')) && <label className="ufield"><span>Frist (valgfri)</span><input type="date" value={due} onChange={(x) => setDue(x.target.value)} /></label>}
+            <label className="ufield"><span>Område</span><input list="goal-areas-new" value={area} onChange={(x) => setArea(x.target.value)} /></label>
+            <datalist id="goal-areas-new">{['Privat', 'Arbejde', 'Sundhed', 'Økonomi', 'Projekter', 'Familie', 'Musik'].map((a) => <option key={a} value={a} />)}</datalist>
+          </div>
+          <p className="meta">Du kan også bare fortælle Assist om målet med dine egne ord, så sætter den det op.</p>
+          <div className="sheet__foot"><span className="push-right" /><Btn type="button" variant="text" onClick={onClose}>Annullér</Btn><Btn type="submit" variant="primary" disabled={!title.trim()}>Lav målet</Btn></div>
+        </div>
+      </form>
     </div>
   );
 }

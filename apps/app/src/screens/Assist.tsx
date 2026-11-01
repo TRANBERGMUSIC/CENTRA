@@ -12,6 +12,7 @@ import { useDictation } from '../ai/dictation.ts';
 import { openExternal } from '../open.ts';
 import ClickSpark from '../bits/ClickSpark.jsx';
 import { shrinkImage } from '../ai/receipt.ts';
+import { Markdown } from '../ui/Markdown.tsx';
 
 const MAX_PICS = 6;
 const dataUrlBlob = (url: string) => { const [h, d] = url.split(','); const bin = atob(d); return new Blob([Uint8Array.from(bin, (c) => c.charCodeAt(0))], { type: /data:([^;]+)/.exec(h)?.[1] ?? 'image/jpeg' }); };
@@ -84,7 +85,7 @@ export function SuggestionRows({ limit }: { limit?: number }) {
 
 /* ================================================================ Assist: talk to CENTRA */
 
-type LogItem = { role: 'user' | 'assistant' | 'error'; text: string; at: string; images?: string[]; actions?: Action[]; via?: 'claude' | 'local'; model?: string; why?: string; usd?: number };
+type LogItem = { role: 'user' | 'assistant' | 'error'; text: string; at: string; images?: string[]; rating?: 'up' | 'down'; actions?: Action[]; via?: 'claude' | 'local'; model?: string; why?: string; usd?: number };
 type Chat = { id: string; at: string; title?: string; messages: Msg[]; log: LogItem[] };
 
 let queued: string | null = null;
@@ -248,10 +249,12 @@ export function Assist() {
             ) : log.map((m, i) => (
               <div key={i} className={`msg msg--${m.role}`}>
                 {m.images && m.images.length > 0 && <div className="msg__pics">{m.images.map((u, k) => <button key={k} type="button" onClick={() => setView(u)} aria-label="Vis billedet større"><img src={u} alt="" /></button>)}</div>}
-                {m.text && <div className="msg__text">{m.text}</div>}
+                {m.text && (m.role === 'assistant' ? <Markdown className="msg__text" text={m.text} /> : <div className="msg__text">{m.text}</div>)}
                 {m.actions && m.actions.length > 0 && <ActionList actions={m.actions} onUndo={(k) => undo(i, k)} onOpen={(a) => a.open && go(a.open)} />}
                 {m.role === 'assistant' && m.model && <span className="msg__meta" title={m.why ? 'Valgt fordi: ' + m.why : undefined}>{MODEL_NAMES[m.model] ?? m.model}{m.usd !== undefined ? ' · ' + (m.usd * (ai.usdDkk || 6.9) < 0.01 ? 'under 1 øre' : kr(m.usd * (ai.usdDkk || 6.9))) : ''}
-                  {i === log.length - 1 && !busy && m.via === 'claude' && m.model === 'claude-haiku-5-5' && !(m.actions ?? []).some((a) => !a.undone) && <button type="button" className="msg__deeper" onClick={() => void deeper()} title="Samme spørgsmål til Sonnet 5.5. Koster mere.">Svar grundigere</button>}</span>}
+                  {i === log.length - 1 && !busy && m.via === 'claude' && m.model === 'claude-haiku-5-5' && !(m.actions ?? []).some((a) => !a.undone) && <button type="button" className="msg__deeper" onClick={() => void deeper()} title="Samme spørgsmål til Sonnet 5.5. Koster mere.">Svar grundigere</button>}
+                  <Feedback chat={chat} index={i} />
+                </span>}
               </div>
             ))}
             {busy && (
@@ -296,6 +299,41 @@ export function Assist() {
         </aside>
       </div>
     </main>
+  );
+}
+
+/**
+ * 👍 / 👎 under an answer. A thumbs down asks what should have been different; that becomes a rule in
+ * "Svarstil" that Assist follows from then on (and can be edited or deleted under Det ved CENTRA om dig).
+ */
+function Feedback({ chat, index }: { chat: Chat; index: number }) {
+  const e = useEngine();
+  const toast = useToast();
+  const [asking, setAsking] = useState(false);
+  const [note, setNote] = useState('');
+  const item = chat.log[index];
+  const question = [...chat.log.slice(0, index)].reverse().find((l) => l.role === 'user')?.text ?? '';
+  function rate(r: 'up' | 'down', why = '') {
+    const cur = e.get(chat.id) as unknown as Chat;
+    e.set('chat', chat.id, { log: cur.log.map((l, j) => (j === index ? { ...l, rating: r } : l)) });
+    const fid = e.create('feedback', { at: new Date().toISOString(), rating: r, note: why, question: question.slice(0, 300), reply: String(item.text ?? '').slice(0, 600), model: item.model ?? '' });
+    let mid = '';
+    if (why.trim()) mid = e.create('memory', { kind: 'Svarstil', statement: why.trim(), source: 'Din feedback på et svar', at: new Date().toISOString() });
+    toast({ text: r === 'up' ? 'Tak. Assist svarer mere sådan fremover.' : why.trim() ? 'Gemt. Assist svarer sådan fremover.' : 'Noteret. Skriv gerne, hvad der var galt, så lærer Assist mere.', action: { label: 'Fortryd', run: () => { e.remove('feedback', fid); if (mid) e.remove('memory', mid); const c = e.get(chat.id) as unknown as Chat; e.set('chat', chat.id, { log: c.log.map((l, j) => (j === index ? { ...l, rating: undefined } : l)) }); } } });
+  }
+  if (item.rating) return <span className="fb fb--done">{item.rating === 'up' ? 'Du kunne lide svaret' : 'Feedback givet'}</span>;
+  if (asking) return (
+    <form className="fb__ask" onSubmit={(x) => { x.preventDefault(); rate('down', note); setAsking(false); }}>
+      <input autoFocus value={note} onChange={(x) => setNote(x.target.value)} placeholder="Hvad skulle være anderledes? Fx: kortere, uden lister, mere direkte" aria-label="Hvad skulle være anderledes" />
+      <Btn size="sm" type="submit" variant="primary">Gem</Btn>
+      <Btn size="sm" type="button" variant="text" onClick={() => setAsking(false)}>Annullér</Btn>
+    </form>
+  );
+  return (
+    <span className="fb">
+      <button type="button" aria-label="Godt svar" title="Godt svar" onClick={() => rate('up')}>👍</button>
+      <button type="button" aria-label="Dårligt svar" title="Dårligt svar: fortæl hvad der skal være anderledes" onClick={() => setAsking(true)}>👎</button>
+    </span>
   );
 }
 

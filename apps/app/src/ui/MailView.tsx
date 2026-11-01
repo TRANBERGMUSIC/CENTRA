@@ -5,7 +5,7 @@ import { Btn } from './primitives.tsx';
 import { Icon } from './Icon.tsx';
 import { useToast } from './Shell.tsx';
 import { mailBody, mailPart, openMailPart, mailAvailable, type Body, type Part } from '../mail.ts';
-import { openExternal } from '../open.ts';
+import { openLink } from '../open.ts';
 
 /**
  * A mail shown the way it was sent: its own HTML (layout, colours, pictures) in a sandboxed frame
@@ -99,7 +99,7 @@ export function MailView({ e, m }: { e: SyncEngine; m: any }) {
       if (!a) return;
       ev.preventDefault();
       const href = a.getAttribute('href') ?? '';
-      if (/^(https?|mailto|tel|sms):/i.test(href)) void openExternal(href);
+      if (/^(https?|mailto|tel|sms):/i.test(href)) void openLink(href);
     });
     if (mailAvailable()) {
       d.querySelectorAll<HTMLImageElement>('img[data-cid]').forEach((img) => {
@@ -191,7 +191,7 @@ function linkify(t: string) {
   while ((mm = re.exec(t))) {
     if (mm.index > last) out.push(t.slice(last, mm.index));
     const v = mm[0], href = v.includes('@') && !v.startsWith('http') ? `mailto:${v}` : v;
-    out.push(<a key={i++} href={href} onClick={(x) => { x.preventDefault(); void openExternal(href); }}>{v}</a>);
+    out.push(<a key={i++} href={href} onClick={(x) => { x.preventDefault(); void openLink(href); }}>{v}</a>);
     last = mm.index + v.length;
   }
   out.push(t.slice(last));

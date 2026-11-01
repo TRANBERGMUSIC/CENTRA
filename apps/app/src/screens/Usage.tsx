@@ -11,7 +11,7 @@ import CountUp from '../bits/CountUp.jsx';
 
 /** Model slot colours: Haiku green, Sonnet blue, Opus violet (fixed, so a model keeps its colour). */
 const MODEL_SLOT: Record<string, number> = { 'claude-haiku-5-5': 2, 'claude-sonnet-5-5': 0, 'claude-opus-5-5': 5 };
-const FEATURE_SLOT: Record<Feature, number> = { chat: 0, kvittering: 3, udlaeg: 4, mailsortering: 2, test: 5, andet: -1 };
+const FEATURE_SLOT: Record<Feature, number> = { chat: 0, kvittering: 3, udlaeg: 4, billeder: 1, mailsortering: 2, test: 5, andet: -1 };
 const fmtTok = (n: number) => (n >= 1e6 ? `${(n / 1e6).toLocaleString('da-DK', { maximumFractionDigits: 1 })} mio.` : n >= 1000 ? `${Math.round(n / 1000).toLocaleString('da-DK')}k` : String(n));
 
 /** Claude-forbrug: what Assist has cost, per day, model and feature, and what routing and caching saved. */
@@ -98,7 +98,7 @@ export function UsageScreen() {
 /* ================================================================ the log: what Claude was used for */
 const smallKr = (dkk: number) => (dkk < 0.995 ? `${(dkk * 100).toLocaleString('da-DK', { maximumFractionDigits: dkk * 100 < 10 ? 1 : 0 })} øre` : kr(dkk));
 const usdText = (usd: number) => `$${usd.toLocaleString('en-US', { minimumFractionDigits: usd < 0.01 ? 4 : 3, maximumFractionDigits: usd < 0.01 ? 4 : 3 })}`;
-const LOG_FILTERS: [string, string, Feature[] | null][] = [['all', 'Alt', null], ['chat', 'Assist', ['chat']], ['money', 'Kvitteringer og udlæg', ['kvittering', 'udlaeg']], ['mail', 'Mail', ['mailsortering']]];
+const LOG_FILTERS: [string, string, Feature[] | null][] = [['all', 'Alt', null], ['chat', 'Assist', ['chat']], ['money', 'Kvitteringer og udlæg', ['kvittering', 'udlaeg']], ['photos', 'Billeder', ['billeder']], ['mail', 'Mail', ['mailsortering']]];
 
 /**
  * Claude-forbrug as a section in Udgifter: this month in kroner and dollars, and a log of every use

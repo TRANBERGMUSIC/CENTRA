@@ -4,6 +4,7 @@ import { lock } from '../lock.ts';
 import { useEngine, useList, useRoute, useSession, useSyncStatus, fmt } from '../state.tsx';
 import { Btn, Panel } from '../ui/primitives.tsx';
 import { ask } from '../ui/Confirm.tsx';
+import { BrowserPanel } from './BrowserSettings.tsx';
 import { useToast } from '../ui/Shell.tsx';
 import { useScreenEnter } from '../motion.ts';
 import { APP_VERSION, WEB_VERSION, REPO, checkForUpdate, platform, type Update } from '../updater.ts';
@@ -95,6 +96,7 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
           <div className="kv"><span>Vis billeder i mails automatisk<span className="meta block">Billeder hentes fra afsenderens server, når du åbner mailen. Slår du det fra, viser CENTRA en knap i stedet, og afsenderen kan ikke se, at du har læst den. Usynlige sporings-pixels fjernes altid.</span></span>
             <label className="checkrow"><input type="checkbox" checked={remoteImagesOn(e)} onChange={(x) => { setRemoteImages(e, x.target.checked); toast({ text: x.target.checked ? 'Billeder vises automatisk' : 'Billeder vises først, når du beder om det' }); }} aria-label="Vis billeder i mails automatisk" /></label></div>
         </Panel>
+        <BrowserPanel />
         <DataPanel onExport={exportAll} />
       </div>
     </main>
@@ -103,16 +105,18 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
 
 /** What can be wiped, one kind at a time or everything. Every wipe can be undone right after. */
 const KINDS: [string, string, string[]][] = [
-  ['Udlæg og betalinger', 'Alle udlæg, varer og registrerede tilbagebetalinger', ['outlay', 'payment']],
+  ['Udlæg og betalinger', 'Alle udlæg, regnestykker, varer og registrerede tilbagebetalinger', ['outlay', 'tally', 'payment']],
   ['Kontakter', 'Personer med billeder, numre og noter', ['person']],
   ['Udgifter', 'Faste udgifter og abonnementer', ['expense']],
-  ['Noter', 'Alle noter', ['note']],
+  ['Noter', 'Alle noter og notemapper', ['note', 'notefolder']],
+  ['Billeder', 'Alle gemte billeder', ['photo']],
   ['Kalender', 'Aftaler du har lavet (abonnerede kalendere hentes igen)', ['event']],
   ['Mål', 'Mål og alle deres opdateringer', ['goal', 'goalUpdate']],
   ['Samtaler med Assist', 'Chathistorikken', ['chat']],
-  ['Det Assist ved om dig', 'Hukommelse, regler, mail-overvågning og forslag', ['memory', 'rule', 'watch', 'suggestion']],
+  ['Det Assist ved om dig', 'Hukommelse, svarstil, din feedback, regler, mail-overvågning og forslag', ['memory', 'feedback', 'rule', 'watch', 'suggestion']],
   ['Mails på denne computer', 'Kun kopierne i CENTRA. Mails på serveren røres ikke og hentes igen', ['mail']],
-  ['Claude-forbrug', 'Historikken over hvad Assist har kostet', ['usage']],
+  ['Mailmapper', 'Dine mapper og deres regler (mailene kommer tilbage i Indbakke)', ['mailfolder']],
+  ['Claude-forbrug', 'Historikken og loggen over hvad Claude har kostet', ['usage', 'usagelog']],
 ];
 
 function DataPanel({ onExport }: { onExport: () => void }) {

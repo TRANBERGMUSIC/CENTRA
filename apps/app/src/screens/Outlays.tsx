@@ -13,6 +13,8 @@ import { useDictation } from '../ai/dictation.ts';
 import { openExternal } from '../open.ts';
 import { Avatar } from './Contacts.tsx';
 import CountUp from '../bits/CountUp.jsx';
+import { TallyRow, TallyDetail } from './Tally.tsx';
+import { tallyLeft, type Tally } from '../money.ts';
 
 const rid = () => Math.random().toString(36).slice(2, 10);
 const today = () => new Date().toISOString().slice(0, 10);
@@ -41,6 +43,10 @@ export function Outlays() {
   const who = route.id?.startsWith('who:') ? route.id.slice(4) : null;
   const id = who ? undefined : route.id;
   // "Jeg skylder": someone else paid (paidBy "" until you pick who).
+  const tallies = useList('tally', (a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (b.createdAt ?? '').localeCompare(a.createdAt ?? '')) as unknown as Tally[];
+  const openTallies = tallies.filter((t) => !(t.lines?.length && Math.abs(tallyLeft(t, pays).left) < 0.005));
+  const doneTallies = tallies.filter((t) => !openTallies.includes(t));
+  const newTally = () => go({ screen: 'outlays', id: e.create('tally', { title: '', date: today(), person: '', lines: [], createdAt: new Date().toISOString() }) });
   const create = (theyPaid = false) => go({ screen: 'outlays', id: e.create('outlay', { title: '', date: today(), people: [ME], items: [], countMine: true, createdAt: new Date().toISOString(), ...(theyPaid ? { paidBy: '' } : {}) }) });
   const max = Math.max(1, ...bal.map((b) => b.left), ...dbt.map((b) => b.left));
 
@@ -60,7 +66,7 @@ export function Outlays() {
   return (
     <main className={`split ${route.id ? 'has-open' : ''}`} ref={ref}>
       <div className="split__list" data-enter>
-        <div className="nlist__head"><h1>Udlæg</h1><span className="nlist__acts"><Btn size="sm" variant="text" onClick={() => create(true)}>Jeg skylder</Btn><Btn size="sm" icon="plus" onClick={() => create()}>Nyt udlæg</Btn></span></div>
+        <div className="nlist__head"><h1>Udlæg</h1><span className="nlist__acts"><Btn size="sm" variant="text" onClick={() => create(true)}>Jeg skylder</Btn><Btn size="sm" variant="text" onClick={newTally} title="Pant, mad, ting der går frem og tilbage med én person">Regnestykke</Btn><Btn size="sm" icon="plus" onClick={() => create()}>Nyt udlæg</Btn></span></div>
         <section className="owecard" aria-label="Skyldes dig">
           <div className="meta">Folk skylder dig</div>
           <div className="owecard__sum num"><CountUp key={owedTotal} to={owedTotal} from={0} duration={0.8} decimals={owedTotal % 1 ? 2 : 0} separator="." decimalSeparator="," trigger="mount" /> kr</div>
@@ -87,13 +93,15 @@ export function Outlays() {
             );
           })}</ul> : <p className="meta">Du skylder ikke nogen noget. Har en anden lagt ud for dig, så tryk Jeg skylder.</p>}
         </section>
+        {openTallies.length > 0 && <><div className="gsec">Regnestykker <span className="num">{openTallies.length}</span></div>{openTallies.map((t) => <TallyRow key={t.id} t={t} selected={t.id === id} onOpen={() => go({ screen: 'outlays', id: t.id })} />)}</>}
         <div className="gsec">Aktive <span className="num">{active.length}</span></div>
         {active.map(row)}
         {!outlays.length && <p className="muted pad">Lagde du ud for nogen? Tryk Nyt udlæg og skriv bare, hvad der blev købt, og hvem der var med. Eller tag et billede af kvitteringen. Så regner CENTRA ud, hvem der skylder hvad.</p>}
-        {done.length > 0 && <button className="gsec gsec--btn" onClick={() => setShowDone((x) => !x)} aria-expanded={showDone}>Betalt <span className="num">{done.length}</span> <Icon name="chevron-down" size="sm" /></button>}
+        {done.length + doneTallies.length > 0 && <button className="gsec gsec--btn" onClick={() => setShowDone((x) => !x)} aria-expanded={showDone}>Betalt <span className="num">{done.length + doneTallies.length}</span> <Icon name="chevron-down" size="sm" /></button>}
         {showDone && done.map(row)}
+        {showDone && doneTallies.map((t) => <TallyRow key={t.id} t={t} selected={t.id === id} onOpen={() => go({ screen: 'outlays', id: t.id })} />)}
       </div>
-      {id ? <OutlayDetail key={id} id={id} /> : who ? <PersonDebt key={who} person={who} /> : <Overview />}
+      {id && (e.get(id) as any)?.type === 'tally' ? <TallyDetail key={id} id={id} /> : id ? <OutlayDetail key={id} id={id} /> : who ? <PersonDebt key={who} person={who} /> : <Overview />}
     </main>
   );
 }
@@ -476,11 +484,16 @@ function PersonDebt({ person }: { person: string }) {
   const p = e.get(person) as unknown as Person | null;
   const mine = outlays.map((o) => ({ o, w: owed(o, pays).find((x) => x.person === person) })).filter((x): x is { o: Outlay; w: NonNullable<typeof x.w> } => !!x.w && x.w.share > 0);
   const open = mine.filter((x) => x.w.left > 0.004), paid = mine.filter((x) => x.w.left <= 0.004);
-  const left = Math.round(open.reduce((s, x) => s + x.w.left, 0) * 100) / 100;
+  const leftOutlays = Math.round(open.reduce((s, x) => s + x.w.left, 0) * 100) / 100;
   // The other way: udlæg this person paid, where you owe them your part.
   const theirs = outlays.map((o) => ({ o, w: iOwe(o, pays) })).filter((x): x is { o: Outlay; w: NonNullable<typeof x.w> } => !!x.w && x.w.person === person && x.w.share > 0);
   const iOpen = theirs.filter((x) => x.w.left > 0.004), iDone = theirs.filter((x) => x.w.left <= 0.004);
-  const iLeft = Math.round(iOpen.reduce((s, x) => s + x.w.left, 0) * 100) / 100;
+  let left = 0;
+  // Regnestykker with this person count both ways.
+  const tl = (useList('tally') as unknown as Tally[]).filter((t) => t.person === person).map((t) => ({ t, r: tallyLeft(t, pays) }));
+  const tOwed = tl.filter((x) => x.r.left > 0).reduce((s, x) => s + x.r.left, 0), tOwe = tl.filter((x) => x.r.left < 0).reduce((s, x) => s - x.r.left, 0);
+  const iLeft = Math.round((iOpen.reduce((s, x) => s + x.w.left, 0) + tOwe) * 100) / 100;
+  left = Math.round((leftOutlays + tOwed) * 100) / 100;
   const [myPart, setMyPart] = useState<string | null>(null);
   const first = (p?.name ?? '').split(' ')[0];
   const net = Math.round((left - iLeft) * 100) / 100;
@@ -573,6 +586,16 @@ function PersonDebt({ person }: { person: string }) {
           </section>
         ))}
       </>}
+      {tl.length > 0 && <><div className="gsec">Regnestykker med {first} <span className="num">{tl.length}</span></div>
+        {tl.map(({ t, r }) => (
+          <section key={t.id} className="panel odebt">
+            <button className="odebt__head" onClick={() => go({ screen: 'outlays', id: t.id })}>
+              <span className="row__body"><span className="strong">{t.title || 'Regnestykke'}</span><span className="meta">{fmt.shortDate(t.date)} · {(t.lines ?? []).map((l) => l.text).join(', ')}</span></span>
+              {r.left > 0.004 ? <Pill tone="focus">Skylder dig {kr(r.left)}</Pill> : r.left < -0.004 ? <Pill tone="calm">Du skylder {kr(-r.left)}</Pill> : <span className="status">Kvit</span>}
+              <Icon name="chevron-right" size="sm" />
+            </button>
+          </section>
+        ))}</>}
       {paid.length > 0 && <div className="gsec">Betalt til dig <span className="num">{paid.length}</span></div>}
       {paid.map(card)}
     </div>

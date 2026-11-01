@@ -8,15 +8,23 @@ import { useScreenEnter, collapseOut } from '../motion.ts';
 import { moveMail, sendMail, setMailFlag, syncAll, mailAvailable, sendAccounts, type MailAccount } from '../mail.ts';
 import { setLunchHubStatus, type LhConn } from '../lunchhub.ts';
 import { queueAssist } from './Assist.tsx';
+import { folders as listFolders, moveToFolder, removeFolder, sortByRules, type MailFolder, type FolderRule } from '../mailFolders.ts';
 import { ask } from '../ui/Confirm.tsx';
 
-type Box = 'inbox' | 'sent' | 'archive';
+/** 'inbox', 'sent', 'archive', or a folder's id. */
+type Box = string;
+type Sort = 'new' | 'old' | 'from' | 'unread';
+const SORTS: [Sort, string][] = [['new', 'Nyeste først'], ['old', 'Ældste først'], ['from', 'Afsender A–Å'], ['unread', 'Ulæste først']];
+const sorter = (k: Sort) => (a: any, b: any) => k === 'old' ? (a.at ?? '').localeCompare(b.at ?? '')
+  : k === 'from' ? String(a.fromName || a.fromEmail || '').localeCompare(String(b.fromName || b.fromEmail || ''), 'da') || (b.at ?? '').localeCompare(a.at ?? '')
+  : k === 'unread' ? Number(!!b.unread) - Number(!!a.unread) || (b.at ?? '').localeCompare(a.at ?? '')
+  : (b.at ?? '').localeCompare(a.at ?? '');
 type Filter = 'all' | 'important' | 'reply' | 'receipts' | 'other';
 const BOXES: [Box, string][] = [['inbox', 'Indbakke'], ['sent', 'Sendt'], ['archive', 'Arkiv']];
 const FILTERS: [Filter, string][] = [['all', 'Alle'], ['important', 'Vigtigt'], ['reply', 'Venter på svar'], ['receipts', 'Kvitteringer'], ['other', 'Reklamer og notifikationer']];
 /** Noise: newsletters, automatic notices, or what the AI sorted out. Watched and starred mail is never noise. */
 const noise = (m: any) => !m.watch && !m.flagged && (m.ai ? !m.ai.important : m.cat === 'Nyhedsbreve' || m.cat === 'Notifikationer');
-const inBox = (m: any, b: Box) => b === 'archive' ? m.archived : !m.archived && (b === 'sent' ? !!m.sent : !m.sent);
+const inBox = (m: any, b: Box) => b === 'archive' ? m.archived : m.archived ? false : b === 'sent' ? !!m.sent : b === 'inbox' ? !m.sent && !m.mbox : m.mbox === b;
 const inFilter = (m: any, f: Filter) => f === 'all' ? true : f === 'important' ? !noise(m) : f === 'reply' ? m.needsReply && !noise(m) : f === 'receipts' ? m.cat === 'Kvitteringer' : noise(m);
 /** Delete asks first (the mail goes to the server's papirkurv, so it is gone from every mail app). */
 const askDelete = (m: any) => m.source === 'lunchhub'
@@ -36,7 +44,14 @@ export function Inbox() {
   const now = useNow();
   const ref = useRef<HTMLElement>(null);
   useScreenEnter(ref, 'inbox');
-  const [box, setBox] = useState<Box>('inbox');
+  const [box, setBox] = useState<Box>(() => route.id?.startsWith('folder:') ? route.id.slice(7) : 'inbox');
+  const [sort, setSort] = useState<Sort>('new');
+  const [editFolder, setEditFolder] = useState<MailFolder | 'new' | null>(null);
+  const [dropOn, setDropOn] = useState<string | null>(null);
+  useList('mailfolder');
+  const fl = listFolders(e);
+  useEffect(() => { if (route.id?.startsWith('folder:')) { setBox(route.id.slice(7)); setQ(''); } }, [route.id]);
+  if (box !== 'inbox' && box !== 'sent' && box !== 'archive' && !fl.some((f) => f.id === box)) setTimeout(() => setBox('inbox'), 0);
   const [filter, setFilter] = useState<Filter>('all');
   const [acct, setAcct] = useState<string>('all');
   const [q, setQ] = useState('');
@@ -51,8 +66,17 @@ export function Inbox() {
   // A search looks through every account and the archive, in sender, subject and the whole text.
   const rows = useMemo(() => everything.filter((m) => (acct === 'all' || m.acct === acct)
     && (words.length ? words.every((w) => `${m.fromName} ${m.fromEmail} ${(m.to ?? []).join(' ')} ${m.subject} ${m.body ?? m.preview} ${(m.attachments ?? []).join(' ')} ${m.acctName}`.toLowerCase().includes(w))
-      : inBox(m, box) && (box !== 'inbox' || inFilter(m, filter)))), [everything, acct, box, filter, q]);
-  const id = route.id ?? rows[0]?.id;
+      : inBox(m, box) && (box !== 'inbox' || inFilter(m, filter)))).sort(sorter(sort)), [everything, acct, box, filter, q, sort]);
+  const id = (route.id && !route.id.startsWith('folder:') ? route.id : undefined) ?? rows[0]?.id;
+  const folderCount = (f: string) => everything.filter((m) => !m.archived && m.mbox === f && (acct === 'all' || m.acct === acct)).length;
+  const folderUnread = (f: string) => everything.filter((m) => !m.archived && m.mbox === f && m.unread && (acct === 'all' || m.acct === acct)).length;
+  const dropTo = (target: string, ev: React.DragEvent) => {
+    ev.preventDefault(); setDropOn(null);
+    const mid = ev.dataTransfer.getData('text/centra-mail');
+    if (!mid) return;
+    const before = moveToFolder(e, [mid], target === 'inbox' ? '' : target);
+    toast({ text: `Flyttet til ${target === 'inbox' ? 'Indbakke' : fl.find((f) => f.id === target)?.name ?? 'mappen'}`, action: { label: 'Fortryd', run: () => before.forEach((b) => e.set('mail', b.id, b.fields)) } });
+  };
   const mine = everything.filter((m) => acct === 'all' || m.acct === acct);
   const unread = mine.filter((m) => inBox(m, 'inbox') && m.unread).length;
   const count = (f: Filter) => mine.filter((m) => inBox(m, 'inbox') && inFilter(m, f)).length;
@@ -106,38 +130,60 @@ export function Inbox() {
             )}
           </div>
           <div className="segmented mbox" role="tablist" aria-label="Mappe">
-            {BOXES.map(([k, l]) => <button key={k} role="tab" aria-selected={box === k && !words.length} className={box === k && !words.length ? 'is-active' : ''} onClick={() => { setBox(k); setQ(''); }}>{l}{k === 'inbox' && unread > 0 && <span className="mbox__n num">{unread}</span>}</button>)}
+            {BOXES.map(([k, l]) => <button key={k} role="tab" aria-selected={box === k && !words.length} className={`${box === k && !words.length ? 'is-active' : ''} ${dropOn === k ? 'is-drop' : ''}`} onClick={() => { setBox(k); setQ(''); }}
+              onDragOver={k === 'inbox' ? (ev) => { ev.preventDefault(); setDropOn(k); } : undefined} onDragLeave={() => setDropOn(null)} onDrop={k === 'inbox' ? (ev) => dropTo('inbox', ev) : undefined}>{l}{k === 'inbox' && unread > 0 && <span className="mbox__n num">{unread}</span>}</button>)}
+          </div>
+          <div className="mfolders" role="tablist" aria-label="Dine mapper">
+            {fl.map((f) => {
+              const n = folderUnread(f.id);
+              return (
+                <button key={f.id} role="tab" aria-selected={box === f.id && !words.length} className={`mfolder ${box === f.id && !words.length ? 'is-active' : ''} ${dropOn === f.id ? 'is-drop' : ''}`} title={f.description || undefined}
+                  onClick={() => { setBox(f.id); setQ(''); }} onDragOver={(ev) => { ev.preventDefault(); setDropOn(f.id); }} onDragLeave={() => setDropOn(null)} onDrop={(ev) => dropTo(f.id, ev)}>
+                  <Icon name="folder" size="sm" /><span className="ellipsis">{f.name}</span><span className="num meta">{n ? <b>{n}</b> : folderCount(f.id)}</span>
+                </button>
+              );
+            })}
+            <button className="mfolder mfolder--add" onClick={() => setEditFolder('new')} title="Ny mappe. Du kan også bede Assist om at lave og fylde mapper."><Icon name="plus" size="sm" /><span>{fl.length ? 'Mappe' : 'Ny mappe'}</span></button>
           </div>
           {everything.length > 0 && <input className="msearch" type="search" value={q} onChange={(x) => setQ(x.target.value)} placeholder="Søg i alle mails, også sendte og arkiverede" aria-label="Søg i mails" />}
           {words.length > 0 ? (
             <div className="msearch__ask"><span className="meta">{rows.length} fundet i alle konti</span>
               <Btn size="sm" variant="text" icon="assist" onClick={() => { queueAssist(`Find i mine mails: ${q.trim()}. Fortæl hvad du fandt, og hvad jeg skal bruge det til.`); go({ screen: 'assist' }); }}>Spørg Assist</Btn></div>
-          ) : box === 'inbox' ? (
-            <div className="mfilter" role="radiogroup" aria-label="Vis">
-              {FILTERS.map(([k, l]) => <button key={k} role="radio" aria-checked={filter === k} className={filter === k ? 'is-active' : ''} onClick={() => setFilter(k)}>{l} <span className="num">{count(k)}</span></button>)}
+          ) : (
+            <div className="mtools">
+              {box === 'inbox' ? (
+                <div className="mfilter" role="radiogroup" aria-label="Vis">
+                  {FILTERS.map(([k, l]) => <button key={k} role="radio" aria-checked={filter === k} className={filter === k ? 'is-active' : ''} onClick={() => setFilter(k)}>{l} <span className="num">{count(k)}</span></button>)}
+                </div>
+              ) : fl.some((f) => f.id === box) ? (
+                <div className="mfolderbar"><span className="meta ellipsis">{fl.find((f) => f.id === box)?.description || 'Træk mails herind, eller giv mappen regler, så nye mails havner her af sig selv.'}</span>
+                  <Btn size="sm" variant="text" icon="edit" onClick={() => setEditFolder(fl.find((f) => f.id === box) ?? null)}>Mappe og regler</Btn></div>
+              ) : <span />}
+              <select className="mselect msort" value={sort} onChange={(x) => setSort(x.target.value as Sort)} aria-label="Sortér">{SORTS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
             </div>
-          ) : null}
+          )}
         </div>
         <div className="mrows">
           {rows.map((m) => {
             const p = who(m);
             return (
-              <button key={m.id} id={`mrow-${m.id}`} className={`mrow ${m.unread ? 'is-unread' : ''} ${m.id === id ? 'is-selected' : ''}`} onClick={() => { go({ screen: 'inbox', id: m.id }); if (m.unread) setMailFlag(e, m, { unread: false }); }}>
+              <button key={m.id} id={`mrow-${m.id}`} draggable onDragStart={(ev) => { ev.dataTransfer.setData('text/centra-mail', m.id); ev.dataTransfer.effectAllowed = 'move'; }} className={`mrow ${m.unread ? 'is-unread' : ''} ${m.id === id ? 'is-selected' : ''}`} onClick={() => { go({ screen: 'inbox', id: m.id }); if (m.unread) setMailFlag(e, m, { unread: false }); }}>
                 {m.unread && <span className="unread-dot" aria-label="Ulæst" />}
                 <span className="avatar" style={vars({ '--h': p.hue })}>{p.initials}</span>
                 <span className="mrow__body">
                   <span className="mrow__who"><b className="ellipsis">{p.name}</b><span className="meta num mrow__time">{fmt.clock(m.at, now)}</span></span>
                   <span className="mrow__subj ellipsis">{m.subject}</span>
                   {m.ai?.summary && <span className="mrow__ai meta ellipsis">{m.ai.summary}</span>}
-                  <span className="mrow__mark meta"><span>{m.acctName ?? m.acct}{m.sent && box !== 'sent' ? ' · sendt' : ''}{m.archived ? ' · arkiveret' : ''}</span>{m.watch ? <Pill tone="focus" icon="assist">Du bad om denne</Pill> : m.needsReply ? <Pill tone="focus">Venter på svar</Pill> : m.attachment ? <><Icon name="paperclip" size="sm" /><span>{m.cat === 'Kvitteringer' ? 'Kvittering' : 'Vedhæftning'}</span></> : null}{m.draft && <Pill tone="calm">Udkast</Pill>}</span>
+                  <span className="mrow__mark meta"><span>{m.acctName ?? m.acct}{m.mbox && box !== m.mbox ? ` · ${fl.find((f) => f.id === m.mbox)?.name ?? ''}` : ''}{m.sent && box !== 'sent' ? ' · sendt' : ''}{m.archived ? ' · arkiveret' : ''}</span>{m.watch ? <Pill tone="focus" icon="assist">Du bad om denne</Pill> : m.needsReply ? <Pill tone="focus">Venter på svar</Pill> : m.attachment ? <><Icon name="paperclip" size="sm" /><span>{m.cat === 'Kvitteringer' ? 'Kvittering' : 'Vedhæftning'}</span></> : null}{m.draft && <Pill tone="calm">Udkast</Pill>}</span>
                 </span>
               </button>
             );
           })}
-          {!rows.length && <p className="meta pad">{!accts.length ? <>Ingen mailkonti endnu. <button className="tag" onClick={() => go({ screen: 'connections' })}>Tilføj Gmail, iCloud, one.com eller Simply</button></> : words.length ? 'Intet fundet. Prøv andre ord, eller spørg Assist.' : box === 'sent' ? 'Ingen sendte mails endnu. De hentes fra Sendt-mappen på din mailserver.' : box === 'archive' ? 'Intet i arkivet.' : filter === 'other' ? 'Ingen reklamer eller notifikationer. Dejligt.' : all.length ? 'Intet her.' : 'Henter dine mails …'}</p>}
+          {!rows.length && <p className="meta pad">{!accts.length ? <>Ingen mailkonti endnu. <button className="tag" onClick={() => go({ screen: 'connections' })}>Tilføj Gmail, iCloud, one.com eller Simply</button></> : words.length ? 'Intet fundet. Prøv andre ord, eller spørg Assist.' : box === 'sent' ? 'Ingen sendte mails endnu. De hentes fra Sendt-mappen på din mailserver.' : box === 'archive' ? 'Intet i arkivet.' : box !== 'inbox' ? 'Ingen mails i mappen endnu. Træk en mail herover, giv mappen regler, eller bed Assist om at sortere.' : filter === 'other' ? 'Ingen reklamer eller notifikationer. Dejligt.' : all.length ? 'Intet her.' : 'Henter dine mails …'}</p>}
         </div>
       </div>
       {id ? <Reader key={id} id={id} onMove={(m, a) => move(m, a, document.getElementById(`mrow-${m.id}`))} /> : <div className="reader" />}
+      {editFolder && <FolderSheet f={editFolder === 'new' ? null : editFolder} onClose={() => setEditFolder(null)} onSaved={(fid) => { setBox(fid); setEditFolder(null); }} onDeleted={() => { setBox('inbox'); setEditFolder(null); }} />}
       <ContactRail id={id} />
     </main>
   );
@@ -178,6 +224,7 @@ function Reader({ id, onMove }: { id: string; onMove: (m: any, a: 'archive' | 't
         <div className="reader__bar">
           <Btn size="sm" variant="text" icon="reply" onClick={() => setReply(text || '')}>{m.sent ? 'Skriv igen' : 'Svar'}</Btn>
           <Btn size="sm" variant="text" icon="archive" onClick={() => onMove(m, 'archive')}>Arkivér</Btn>
+          {!m.sent && <MoveTo m={m} />}
           <Btn size="sm" variant="text" icon="x" onClick={() => void askDelete(m).then((yes) => { if (yes) onMove(m, 'trash'); })}>{m.sent ? 'Fjern' : 'Slet'}</Btn>
           {m.source === 'lunchhub' && (m.lhStatus === 'besvaret'
             ? <Btn size="sm" variant="text" icon="reply" onClick={() => void setLunchHubStatus(e, m, 'ny').then(() => toast({ text: 'Markeret som ubesvaret i LunchHub' }), (x) => toast({ text: (x as Error).message }))}>Markér ubesvaret</Btn>
@@ -217,6 +264,89 @@ function Reader({ id, onMove }: { id: string; onMove: (m: any, a: 'archive' | 't
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** "Flyt til" a folder (or back to Indbakke). Moved by hand stays there: rules won't move it again. */
+function MoveTo({ m }: { m: any }) {
+  const e = useEngine();
+  const toast = useToast();
+  useList('mailfolder');
+  const fl = listFolders(e);
+  if (!fl.length) return null;
+  return (
+    <label className="moveto"><Icon name="folder" size="sm" />
+      <select value={m.mbox ?? ''} aria-label="Flyt til mappe" onChange={(x) => {
+        const target = x.target.value;
+        const before = moveToFolder(e, [m.id], target);
+        toast({ text: `Flyttet til ${target ? fl.find((f) => f.id === target)?.name : 'Indbakke'}`, action: { label: 'Fortryd', run: () => before.forEach((b) => e.set('mail', b.id, b.fields)) } });
+      }}>
+        <option value="">Indbakke</option>
+        {fl.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+      </select>
+    </label>
+  );
+}
+
+/** Make or change a folder: name, what belongs there (for Assist's sorting) and exact rules. */
+function FolderSheet({ f, onClose, onSaved, onDeleted }: { f: MailFolder | null; onClose: () => void; onSaved: (id: string) => void; onDeleted: () => void }) {
+  const e = useEngine();
+  const toast = useToast();
+  const [name, setName] = useState(f?.name ?? '');
+  const [desc, setDesc] = useState(f?.description ?? '');
+  const [rules, setRules] = useState<FolderRule[]>(() => (f?.rules?.length ? f.rules : [{ from: '', subject: '', words: '' }]));
+  const [sortNow, setSortNow] = useState(true);
+  const [err, setErr] = useState('');
+  const setRule = (i: number, p: Partial<FolderRule>) => setRules((r) => r.map((x, j) => (j === i ? { ...x, ...p } : x)));
+  function save(ev: React.FormEvent) {
+    ev.preventDefault();
+    const n = name.trim();
+    if (!n) return setErr('Giv mappen et navn.');
+    if (listFolders(e).some((x) => x.id !== f?.id && x.name.toLowerCase() === n.toLowerCase())) return setErr('Der er allerede en mappe med det navn.');
+    const clean = rules.map((r) => ({ from: r.from?.trim() ?? '', subject: r.subject?.trim() ?? '', words: r.words?.trim() ?? '' })).filter((r) => r.from || r.subject || r.words);
+    const id = f ? (e.set('mailfolder', f.id, { name: n, description: desc.trim(), rules: clean }), f.id) : e.create('mailfolder', { name: n, description: desc.trim(), rules: clean, order: listFolders(e).length, createdAt: new Date().toISOString() });
+    const moved = sortNow && clean.length ? sortByRules(e, undefined, id) : 0;
+    toast({ icon: 'folder', text: `${n} er gemt${moved ? ` · ${moved} mails flyttet herind` : ''}. Nye mails sorteres herind, når de kommer.` });
+    onSaved(id);
+  }
+  async function del() {
+    if (!f || !(await ask({ title: `Slet mappen ${f.name}?`, text: 'Mailene i den kommer tilbage i Indbakke. Intet bliver slettet.', ok: 'Slet mappe', danger: true }))) return;
+    const { id: _i, type: _t, ...fields } = f as any;
+    const moved = removeFolder(e, f.id);
+    toast({ text: `${f.name} er slettet`, action: { label: 'Fortryd', run: () => { e.set('mailfolder', f.id, { ...fields, _deleted: false }); moved.forEach((mid) => e.set('mail', mid, { mbox: f.id })); } } });
+    onDeleted();
+  }
+  return (
+    <div>
+      <div className="scrim" onClick={onClose} />
+      <form className="sheet foldersheet" role="dialog" aria-label={f ? `Ret ${f.name}` : 'Ny mappe'} onSubmit={save}>
+        <div className="sheet__body">
+          <h2>{f ? 'Mappe og regler' : 'Ny mappe'}</h2>
+          <label className="ufield"><span>Navn</span><input autoFocus value={name} onChange={(x) => setName(x.target.value)} placeholder="Fx Kvitteringer, Netto, DJ" /></label>
+          <label className="ufield"><span>Hvad hører til her? (Assist sorterer efter det)</span><input value={desc} onChange={(x) => setDesc(x.target.value)} placeholder="Fx alt om mine DJ-lektioner og bookinger" /></label>
+          <div className="frules">
+            <span className="meta">Faste regler: en mail, der passer på én regel, flyttes med det samme. Komma = et af ordene.</span>
+            {rules.map((r, i) => (
+              <div className="frule" key={i}>
+                <input value={r.from ?? ''} onChange={(x) => setRule(i, { from: x.target.value })} placeholder="Fra (navn eller mail)" aria-label="Fra" />
+                <input value={r.subject ?? ''} onChange={(x) => setRule(i, { subject: x.target.value })} placeholder="Emnet indeholder" aria-label="Emnet indeholder" />
+                <input value={r.words ?? ''} onChange={(x) => setRule(i, { words: x.target.value })} placeholder="Teksten indeholder" aria-label="Teksten indeholder" />
+                <Btn size="sm" type="button" variant="text" icon="x" aria-label="Fjern regel" onClick={() => setRules((x) => (x.length > 1 ? x.filter((_, j) => j !== i) : [{ from: '', subject: '', words: '' }]))} />
+              </div>
+            ))}
+            <Btn size="sm" type="button" variant="text" icon="plus" onClick={() => setRules((x) => [...x, { from: '', subject: '', words: '' }])}>Regel</Btn>
+          </div>
+          <label className="checkrow small"><input type="checkbox" checked={sortNow} onChange={(x) => setSortNow(x.target.checked)} />Flyt også mails, der allerede ligger i Indbakke</label>
+          {err && <p className="unlock__error" role="alert">{err}</p>}
+          <div className="sheet__foot">
+            {f && <Btn type="button" size="sm" variant="text" icon="x" onClick={() => void del()}>Slet mappe</Btn>}
+            <span className="push-right" />
+            <Btn type="button" variant="text" onClick={onClose}>Annullér</Btn>
+            <Btn type="submit" variant="primary">Gem</Btn>
+          </div>
+        </div>
+      </form>
     </div>
   );
 }

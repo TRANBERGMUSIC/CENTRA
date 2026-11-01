@@ -6,7 +6,8 @@
  * Nothing passes through any other server.
  */
 import type { SyncEngine } from '@centra/sync';
-import { TOOLS, runTool, contextFor, type Action } from './tools.ts';
+import { TOOLS, runTool, contextFor, setAttachments, type Action } from './tools.ts';
+import { fetchedHtml } from '../mailText.ts';
 import { recordUsage, routeModel, spentThisMonth, logUsage, addTokens, MODEL_NAMES, type Feature, type Usage } from './usage.ts';
 
 export type AiSettings = {
@@ -39,7 +40,7 @@ export const aiReady = (s: AiSettings) => (s.provider === 'claude' ? !!s.claudeK
 export type Block =
   | { type: 'text'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: any }
-  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
+  | { type: 'tool_result'; tool_use_id: string; content: string | Block[]; is_error?: boolean }
   | { type: 'thinking'; thinking: string; signature: string }
   | { type: 'redacted_thinking'; data: string }
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } };
@@ -56,14 +57,20 @@ Sådan arbejder du:
 - Når brugeren fortæller noget om sig selv, der stadig er sandt senere (rutiner, arbejdstider, personer, vaner, præferencer, steder), så gem det med remember. Ét faktum pr. kald.
 - Faste skemaer (arbejde, træning, undervisning) lægger du også i kalenderen med create_event og repeat_days. Er tiderne forskellige på nogle dage, laver du en aftale pr. tidsrum. Eksempel: "Netto 06–16 tirsdag–fredag, men fri 15 om torsdagen" → én aftale tir/ons/fre 06:00–16:00 og én tor 06:00–15:00, plus remember.
 - Diktat eller tanker, brugeren vil gemme, bliver til en note med create_note. Ryd op i tegnsætning og afsnit, men behold brugerens ord.
-- Mål og fremskridt: create_goal og log_goal_progress.
+- Noter: læg dem i en passende mappe (se Notemapper i konteksten; undermapper med "/"), og hold orden med organize_notes (lav mapper, flyt noter, tags, fastgør), når brugeren beder om det eller når noter tydeligt hører sammen.
+- Mail-mapper: brugeren kan bede dig om at sortere indbakken. Lav mapper med create_mail_folder (med regler for afsender/emne/ord og en beskrivelse, så nye mails sorteres af sig selv, når de kommer), flyt eksisterende mails med search_mail + move_mails, og ret mapper med update_mail_folder.
+- Mål: når brugeren fortæller om et mål, så sæt det op med create_goal og vælg den rigtige slags: noget der skal gøres én gang (once), et projekt med trin (milestones), noget der skal gøres et antal gange i en periode (count, fx "løbe 5 km 10 gange i år"), et tal der skal nås (measure) eller en ugentlig vane (habit). Find selv på et konkret næste skridt (next), og spørg kun, hvis noget afgørende mangler. Hold orden: fortæller brugeren, at de har gjort noget, så log det på det rigtige mål med log_goal_progress; ændrer de mening eller er færdige, så brug update_goal. Lav ikke dubletter.
 - Personer: når brugeren nævner nogen med telefon, mail, sociale medier, eller fortæller hvem de er/hvad de laver, så gem eller opdatér dem med save_contact (noter tilføjes). Brug find_contact for at finde den rette person ("hvem kunne hjælpe med …").
 - Udlæg: "jeg lagde X ud for …" → create_outlay med alle personer og varer (brug "mig" for brugeren, hvis de selv betaler en del). "Mads har betalt 100" → record_payment. "Jeg skylder Maria 150 for biografen" / "Mads betalte pizzaen" → create_outlay med paid_by. "Jeg har betalt Maria tilbage" → i_paid_back. "Hvem skylder mig?" / "Hvad skylder jeg?" → balances.
+- Penge frem og tilbage med én person ("pantede flasker med Jonas for 440, købte mad for 315, han gav mig snus til 64") → create_tally. Sig resultatet i én sætning (hvem skylder hvem hvor meget), og nævn kort, hvad du antog (fx at brugeren fik pantpengene), så det kan rettes.
 - Udgifter: faste betalinger og abonnementer → add_expense (interval month/year …). Spørg kort, hvis beløb eller interval mangler. list_expenses giver overblikket.
-- Mail: find med search_mail, læs med read_mail, og lav svarudkast med draft_reply (de sendes aldrig automatisk; brugeren sender selv fra indbakken). "Hold øje med en mail …" → watch_mail med afsender og/eller ord fra emnet. Er der ingen mailkonti, så sig at de forbindes under Forbindelser.
+- Mail: find med search_mail (giver kun et kort uddrag), og læs ALTID mailen fuldt ud med read_mail, før du svarer på detaljer eller lægger noget i kalenderen ud fra den (tider, varighed, adresser, priser, bookingnumre, links). read_mail giver hele mailen; flere på én gang med mail_ids. Står noget kun som starten af et tidligere værktøjssvar, så læs mailen igen i stedet for at gætte eller sige, at den er forkortet. Svarudkast laves med draft_reply efter my_writing_style (de sendes aldrig automatisk; brugeren sender selv fra indbakken). "Hold øje med en mail …" → watch_mail med afsender og/eller ord fra emnet. Er der ingen mailkonti, så sig at de forbindes under Forbindelser.
 - Gør det, brugeren beder om, med det samme og bekræft kort, hvad du har gjort. Alt kan fortrydes med én knap, så du behøver ikke spørge om lov. Spørg kun, hvis en nødvendig oplysning mangler (fx hvilken dag).
 - Brug id'er fra konteksten herunder. Find aldrig på fakta om brugeren.
+- Gemte billeder: brugeren gemmer billeder i CENTRA (Billeder) for at finde og bruge dem igen. "Find trøjen jeg tog billede af i forgårs" → search_photos med søgeord og datoer (regn "i går", "i forgårs", "i sidste uge" om til datoer), og se på de bedste med look_at_photos, før du svarer. "Gem informationerne fra billedet i går" → find det, læs det med look_at_photos, og lav fx en note eller aftale. Sender brugeren et billede og beder dig gemme det ("gem det her", "husk denne trøje"), så brug save_attached_photos med en god titel, beskrivelse, tags og al tekst fra billedet.
 - Billeder (skærmbilleder, fotos, kvitteringer, invitationer, beskeder): læs dem grundigt, også småt tekst. Spørger brugeren om noget, så svar ud fra billedet. Viser billedet noget, der hører hjemme i CENTRA (en aftale, en person, en kvittering eller et udlæg, en opgave, en mail der skal svares på), så gør det relevante med dine tools og sig kort, hvad du gjorde. Sig ærligt, hvis noget ikke kan læses.
+- Bliv klogere på brugeren: følg altid "Sådan vil brugeren have dine svar" i konteksten. Når brugeren retter dig eller siger, hvordan de vil have svar (kortere, uden lister, mere direkte, et andet sprog …), så gem det med remember (kind "Svarstil"). Siger de noget om, hvordan de selv skriver, så kind "Skrivestil".
+- Skriv svar med enkel markdown: **fed** til det vigtigste, punktlister med "- ", links som [tekst](adresse). Ingen overskrifter i korte svar.
 - Når brugeren er ny og ikke ved, hvor de skal starte, så stil ét spørgsmål ad gangen om deres hverdag: arbejde, faste aftaler, træning, mål, vigtige personer.`;
 
 function contextBlock(e: SyncEngine) {
@@ -115,7 +122,7 @@ async function ollama(s: AiSettings, sys: string, messages: Msg[], signal?: Abor
       const lastText = m.content.map((b) => b.type).lastIndexOf('text');
       for (const [i, b] of m.content.entries()) {
         if (b.type === 'text') out.push({ role: 'user', content: b.text, ...(images.length && i === lastText ? { images } : {}) });
-        if (b.type === 'tool_result') out.push({ role: 'tool', content: b.content });
+        if (b.type === 'tool_result') out.push({ role: 'tool', content: resultText(b.content) });
       }
     }
   }
@@ -175,6 +182,7 @@ export async function ask(e: SyncEngine, history: Msg[], text: string, opts: { s
   const ctx = contextBlock(e);
   // Repaired together with the new question (an unanswered tool call from last time is answered in
   // the same message, before the question).
+  setAttachments(opts.images ?? []);
   const messages: Msg[] = repair([...trim(history).map(withoutThinking).filter((m) => m.content.length), { role: 'user', content: [...pics, { type: 'text', text }] }]);
   const fresh = messages.length - 1; // the question just asked: it carries today's context when sent
   // Today's context goes after any tool answers in that message (Claude wants those first).
@@ -194,11 +202,14 @@ export async function ask(e: SyncEngine, history: Msg[], text: string, opts: { s
     // Cut off mid-way (too long an answer): the tool calls may be incomplete, so they are not run, but
     // each gets an answer, or the conversation can't continue.
     if (res.stop !== 'tool_use') { messages.push({ role: 'user', content: uses.map((u) => ({ type: 'tool_result', tool_use_id: u.id, content: 'Ikke udført: svaret blev afbrudt. Prøv igen kortere.', is_error: true }) as Block) }); continue; }
+    await prepareTools(e, uses);
     const results: Block[] = uses.map((u) => {
       try {
         const r = runTool(e, u.name, u.input ?? {});
         if (r.action) { actions.push(r.action); opts.onAction?.(r.action); }
-        return { type: 'tool_result', tool_use_id: u.id, content: JSON.stringify(r.result) };
+        // A tool can show Claude pictures too (saved photos): text first, then the images.
+        const pics = (r.images ?? []).map(imageBlock).filter((b): b is Block => !!b);
+        return { type: 'tool_result', tool_use_id: u.id, content: pics.length ? [{ type: 'text', text: JSON.stringify(r.result) } as Block, ...pics] : JSON.stringify(r.result) };
       } catch (err) {
         return { type: 'tool_result', tool_use_id: u.id, content: String((err as Error).message), is_error: true };
       }
@@ -209,6 +220,19 @@ export async function ask(e: SyncEngine, history: Msg[], text: string, opts: { s
   const reply = last.role === 'assistant' ? last.content.filter((b) => b.type === 'text').map((b: any) => b.text).join('\n').trim() : '';
   if (calls) logUsage(e, { feature: 'chat', model: route.model, label: text || 'Billede', detail: actions.map((a) => a.label).join(' · '), calls, usage: used, usd });
   return { messages: keepRecentImages(repair(trim(messages, 60))), reply: reply || (actions.length ? 'Klaret.' : ''), actions, via, model: via === 'claude' ? route.model : s.localModel, why: route.why, usd };
+}
+
+/** Before Assist reads a mail: a mail too big to keep in full here is fetched again from the server. */
+async function prepareTools(e: SyncEngine, uses: { name: string; input: any }[]) {
+  const ids = uses.filter((u) => u.name === 'read_mail').flatMap((u) => [...(Array.isArray(u.input?.mail_ids) ? u.input.mail_ids : []), ...(u.input?.mail_id ? [u.input.mail_id] : [])]).map(String);
+  if (!ids.length) return;
+  const { mailBody, mailAvailable } = await import('../mail.ts');
+  if (!mailAvailable()) return;
+  await Promise.all(ids.slice(0, 10).map(async (id) => {
+    const m = e.get(id) as any;
+    if (!m || m.type !== 'mail' || m.source === 'lunchhub' || fetchedHtml.has(id) || (m.full && !m.htmlTooBig)) return;
+    try { const b = await mailBody(e, m); if (b.html) fetchedHtml.set(id, b.html); } catch { /* read what is here */ }
+  }));
 }
 
 /** data:image/…;base64,… → an image block Claude (and a local model that can see) understands. */
@@ -238,9 +262,17 @@ export function keepRecentImages(msgs: Msg[], keep = 2): Msg[] {
 const withoutThinking = (m: Msg): Msg => (m.role === 'assistant' ? { ...m, content: m.content.filter((b) => b.type !== 'thinking' && b.type !== 'redacted_thinking') } : m);
 
 /** What tools answered in earlier questions (a whole mail, 80 contacts) is shortened: it was used then. */
-const OLD_RESULT = 500;
-export const shortenOld = (m: Msg): Msg => (m.role === 'user' && m.content.some((b) => b.type === 'tool_result' && b.content.length > OLD_RESULT)
-  ? { ...m, content: m.content.map((b) => (b.type === 'tool_result' && b.content.length > OLD_RESULT ? { ...b, content: b.content.slice(0, OLD_RESULT) + ' … (forkortet)' } : b)) }
+const OLD_RESULT = 1200;
+export const resultText = (c: string | Block[]) => (typeof c === 'string' ? c : c.map((b) => (b.type === 'text' ? b.text : b.type === 'image' ? '[billede]' : '')).join('\n'));
+const tooBig = (b: Block) => b.type === 'tool_result' && (typeof b.content !== 'string' || b.content.length > OLD_RESULT);
+export const shortenOld = (m: Msg): Msg => (m.role === 'user' && m.content.some(tooBig)
+  ? { ...m, content: m.content.map((b) => {
+      if (b.type !== 'tool_result' || !tooBig(b)) return b;
+      const text = resultText(b.content);
+      const pics = typeof b.content === 'string' ? 0 : b.content.filter((x) => x.type === 'image').length;
+      const note = pics ? ` [${pics === 1 ? 'Et billede' : pics + ' billeder'} blev vist tidligere. Brug look_at_photos for at se igen.]` : '';
+      return { ...b, content: (text.length > OLD_RESULT ? text.slice(0, OLD_RESULT) + ' … [Kun starten er gemt fra et tidligere spørgsmål. Brug værktøjet igen (fx read_mail) for at se det hele.]' : text) + note };
+    }) }
   : m);
 
 /**

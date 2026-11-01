@@ -12,7 +12,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["unstable", "macos-proxy"] }
+# The browser's VPN relay (see src/browser/relay.rs)
+tokio = { version = "1", features = ["net", "io-util", "time", "rt", "macros", "sync"] }
+# WireGuard for the browser (see src/browser/wg.rs): the protocol, and a TCP/IP stack inside the tunnel
+boringtun = { version = "0.7", default-features = false }
+smoltcp = { version = "0.12", default-features = false, features = ["std", "log", "medium-ip", "proto-ipv4", "proto-ipv6", "proto-dns", "socket-tcp", "socket-udp", "socket-dns"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"

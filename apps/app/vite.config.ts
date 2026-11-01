@@ -26,6 +26,7 @@ export default defineConfig({
     __GITHUB_REPOSITORY__: JSON.stringify(process.env.GITHUB_REPOSITORY ?? 'TRANBERGMUSIC/CENTRA'),
   },
   server: { port: 5173, strictPort: true, fs: { allow: ['../..'] } },
-  build: { target: 'es2022', outDir: 'dist', emptyOutDir: true },
+  // Two pages: CENTRA itself, and the browser window's toolbar.
+  build: { target: 'es2022', outDir: 'dist', emptyOutDir: true, rollupOptions: { input: { main: new URL('./index.html', import.meta.url).pathname, browser: new URL('./browser.html', import.meta.url).pathname } } },
   optimizeDeps: { include: ['libsodium-wrappers-sumo'] },
 });

@@ -6,8 +6,8 @@
 import type { SyncEngine } from '@centra/sync';
 
 export type Usage = { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number };
-export type Feature = 'chat' | 'kvittering' | 'udlaeg' | 'mailsortering' | 'test' | 'andet';
-export const FEATURES: Record<Feature, string> = { chat: 'Samtaler med Assist', kvittering: 'Kvitteringer', udlaeg: 'Udlæg skrevet med ord', mailsortering: 'Mailsortering', test: 'Test af forbindelse', andet: 'Andet' };
+export type Feature = 'chat' | 'kvittering' | 'udlaeg' | 'billeder' | 'mailsortering' | 'test' | 'andet';
+export const FEATURES: Record<Feature, string> = { chat: 'Samtaler med Assist', kvittering: 'Kvitteringer', udlaeg: 'Udlæg og regnestykker', billeder: 'Billeder', mailsortering: 'Mailsortering', test: 'Test af forbindelse', andet: 'Andet' };
 
 type Price = { input: number; cacheWrite: number; cacheRead: number; output: number };
 const PRICES: Record<string, Price | ((promptTokens: number) => Price)> = {

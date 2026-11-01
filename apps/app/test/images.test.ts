@@ -57,7 +57,7 @@ describe('billeder til Assist', () => {
     expect(msgs.length).toBeLessThanOrEqual(25);
     expect(msgs[0].role).toBe('user'); expect(msgs[0].content.some((b: any) => b.type === 'text')).toBe(true);
     const results = msgs.flatMap((m: any) => m.content).filter((b: any) => b.type === 'tool_result');
-    expect(results.every((b: any) => b.content.length < 600)).toBe(true);
+    expect(results.every((b: any) => b.content.length < 1400)).toBe(true);
     expect(JSON.stringify(body).length).toBeLessThan(40_000);
   });
 

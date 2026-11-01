@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "browser-toolbar",
+  "description": "The browser window's toolbar (CENTRA's own page). The web page under it gets nothing.",
+  "webviews": [
+    "browser-ui"
+  ],
+  "permissions": [
+    "core:event:default",
+    "core:window:allow-start-dragging"
+  ]
+}
