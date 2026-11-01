@@ -146,3 +146,9 @@ export function randomId(bytes = 16): string {
 export function subKey(parent: Bytes, purpose: string): Bytes {
   return s().crypto_generichash(32, utf8.encode('centra/' + purpose), parent);
 }
+
+/** A name that hides what it names: keyed BLAKE2b, hex. Used for storage keys, so ids don't show on disk. */
+export function blindName(key: Bytes, name: string): string {
+  const so = s();
+  return so.to_hex(so.crypto_generichash(16, utf8.encode(name), key));
+}

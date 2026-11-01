@@ -9,8 +9,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@capacitor/core": "^7.6.9",
-    "@capgo/capacitor-updater": "^7.53.0",
     "@gsap/react": "^2.1.2",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-opener": "^2.7.2",
@@ -23,7 +21,6 @@
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
-    "@capacitor/cli": "^7.6.9",
     "@tauri-apps/cli": "^2.12.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

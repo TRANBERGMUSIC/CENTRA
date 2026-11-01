@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { RouteProvider, SessionProvider, useEngine, type Route } from './state.tsx';
 import { Sidebar, TabBar, CommandPalette, ToastHost, useToast } from './ui/Shell.tsx';
 import { ConfirmHost } from './ui/Confirm.tsx';
@@ -27,6 +27,7 @@ import { useAppMotion } from './motion.ts';
 import { markReady, watchWebUpdates, justUpdated } from './webupdate.ts';
 import { resumeAfterUpdate } from './session.ts';
 import { Photos } from './screens/Photos.tsx';
+import { native } from './platform.ts';
 
 const readRoute = (): Route => {
   const [screen, id] = location.hash.replace(/^#\/?/, '').split('/');
@@ -47,7 +48,7 @@ export function App() {
   const [waiting, setWaiting] = useState<(() => void) | null>(null);
   useEffect(() => { markReady(); return watchWebUpdates(() => sessionRef.current, (apply) => setWaiting(() => apply)); }, []);
   // Right after such an update the vault opens again by itself (the Mac app held the key for the reload).
-  const [resuming, setResuming] = useState(() => '__TAURI_INTERNALS__' in window);
+  const [resuming, setResuming] = useState(() => native);
   const [updated] = useState(justUpdated);
   useEffect(() => {
     if (!resuming) return;
@@ -55,6 +56,7 @@ export function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const open = (s: Session) => {
+    if (import.meta.env.VITE_E2E === '1') (window as any).__session = s; // test builds only: lets e2e seed data
     s.relay.onClosedByServer = (code) => lock(code === 4001 ? 'Denne enhed er logget ud fra en anden enhed.' : 'Dit password er skiftet på en anden enhed. Log ind med det nye.');
     if (s.recoveryCode) setShowCode(s.recoveryCode);
     setSession(s);
@@ -97,6 +99,9 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
   const go = useCallback((r: Route) => { opened.current = false; location.hash = `/${r.screen}${r.id ? '/' + r.id : ''}`; }, []);
 
   useEffect(() => { const f = () => setRoute(readRoute()); addEventListener('hashchange', f); return () => removeEventListener('hashchange', f); }, []);
+  // A new screen (or opening/closing a note or mail on the phone) starts at the top, not where the last one was scrolled to.
+  // (A layout effect: it runs before the screens' own effects, so a screen can still scroll somewhere itself, like the calendar to now.)
+  useLayoutEffect(() => { scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior }); }, [route.screen, route.id]);
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       const mod = ev.metaKey || ev.ctrlKey;
@@ -116,7 +121,7 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
   }, []);
   // In the Mac app, web links, mailto:, tel: and sms: open in the right app instead of nowhere.
   useEffect(() => {
-    if (!('__TAURI_INTERNALS__' in window)) return;
+    if (!native) return;
     const click = (ev: MouseEvent) => {
       if (ev.defaultPrevented) return; // already handled (mail text, Assist answers)
       const a = (ev.target as HTMLElement).closest?.('a[href]') as HTMLAnchorElement | null;
@@ -130,7 +135,7 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
   // Links know the browser settings; switching private mode or VPN in the browser window is remembered here.
   useEffect(() => {
     bindLinks(e);
-    if (!('__TAURI_INTERNALS__' in window)) return () => bindLinks(null);
+    if (!native) return () => bindLinks(null);
     let off: (() => void) | undefined;
     void import('@tauri-apps/api/event').then(({ listen }) => listen<{ incognito?: boolean; vpnOn?: boolean; vpnActive?: string }>('browser-prefs', (ev) => {
       const p = ev.payload ?? {};

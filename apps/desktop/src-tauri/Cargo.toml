@@ -43,14 +43,17 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"
 
-# Touch ID unlock (see src/biometry): LocalAuthentication for the finger, the login keychain for the key
-[target.'cfg(target_os = "macos")'.dependencies]
+# Touch ID (Mac) and Face ID (iPhone) unlock (see src/biometry): LocalAuthentication for the
+# finger or face, the keychain for the key
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSError", "NSData", "NSArray", "NSCalendar", "NSObjCRuntime"] }
 objc2-local-authentication = { version = "0.3", default-features = false, features = ["std", "LAContext", "LAError", "LABiometryType", "block2"] }
 security-framework = "3"
-# Contacts import (see src/contacts)
+
+# Contacts import on the Mac (see src/contacts)
+[target.'cfg(target_os = "macos")'.dependencies]
 objc2-contacts = { version = "0.3", default-features = false, features = ["std", "block2", "CNContactStore", "CNContact", "CNContactFetchRequest", "CNFetchRequest", "CNLabeledValue", "CNPhoneNumber", "CNPostalAddress", "CNSocialProfile"] }
 
 [profile.release]

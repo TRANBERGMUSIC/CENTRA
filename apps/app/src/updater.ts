@@ -3,9 +3,8 @@
  *
  *  Desktop (Tauri):    the Tauri updater reads releases/latest/download/latest.json, verifies the
  *                      minisign signature, downloads, installs and relaunches.
- *  Mobile (Capacitor): the web layer updates over the air — ota.json on the latest release points
- *                      to a zipped web build; @capgo/capacitor-updater downloads it and swaps it in
- *                      on the next launch. Native changes still go through TestFlight / Play.
+ *  iPhone (Tauri):     new app versions come through TestFlight; the interface updates itself
+ *                      like on the Mac (webupdate.ts).
  *  Web:                GitHub Pages serves the newest build; version.json tells an open tab to reload.
  */
 import { desktop, mobileApp } from './platform.ts';
@@ -18,10 +17,9 @@ export const APP_VERSION = __APP_VERSION__;
 export const REPO = __GITHUB_REPOSITORY__;
 /** When this interface was built (the commit time): fast updates replace it without a new app. */
 export const WEB_VERSION = Number(__WEB_VERSION__);
-const latest = (file: string) => `https://github.com/${REPO}/releases/latest/download/${file}`;
 
 export type Platform = 'desktop' | 'mobile' | 'web';
-export const platform: Platform = desktop ? 'desktop' : mobileApp || (window as any).Capacitor?.isNativePlatform?.() ? 'mobile' : 'web';
+export const platform: Platform = desktop ? 'desktop' : mobileApp ? 'mobile' : 'web';
 
 export type Update = { version: string; notes?: string; install: () => Promise<void> };
 
@@ -41,22 +39,7 @@ export async function checkForUpdate(): Promise<Update | null> {
       return { version: u.version, notes: u.body, install: async () => { await u.downloadAndInstall(); await relaunch(); } };
     }
     // The iPhone app gets new versions through TestFlight, and interface updates like the Mac (webupdate.ts).
-    if (platform === 'mobile' && mobileApp) return null;
-    if (platform === 'mobile') {
-      const { CapacitorHttp } = await import('@capacitor/core');
-      const { CapacitorUpdater } = await import('@capgo/capacitor-updater');
-      await CapacitorUpdater.notifyAppReady();
-      const res = await CapacitorHttp.get({ url: latest('ota.json') });
-      const m = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
-      if (!m?.version || !newer(m.version, APP_VERSION)) return null;
-      return {
-        version: m.version, notes: m.notes,
-        install: async () => {
-          const bundle = await CapacitorUpdater.download({ url: m.url, version: m.version, checksum: m.checksum });
-          await CapacitorUpdater.set(bundle);
-        },
-      };
-    }
+    if (platform === 'mobile') return null;
     const r = await fetch(`./version.json?t=${Date.now()}`, { cache: 'no-store' });
     if (!r.ok) return null;
     const { version } = await r.json();

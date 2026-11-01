@@ -8,7 +8,7 @@ import { parseVCards, fromMac, plan, apply, type Planned, type MacContact, type 
 import { shrinkImage } from '../ai/receipt.ts';
 import { openExternal } from '../open.ts';
 
-import { desktop } from '../platform.ts';
+import { desktop, invoke } from '../platform.ts';
 
 /** data: URL → a small JPEG (photos from a vCard can be several MB). */
 async function shrinkDataUrl(url: string) {
@@ -51,7 +51,6 @@ export function ContactImport({ onClose }: { onClose: () => void }) {
   async function fromMacApp() {
     setErr(null);
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
       const status = await invoke<string>('contacts_status').catch(() => 'ask');
       if (status === 'denied' || status === 'restricted') throw new Error('denied');
       setBusy(status === 'ask'

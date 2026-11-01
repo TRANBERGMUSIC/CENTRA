@@ -1,4 +1,4 @@
-//! Touch ID unlock on the Mac (macOS LocalAuthentication + the login keychain).
+//! Touch ID unlock on the Mac, Face ID on the iPhone (LocalAuthentication + the keychain).
 //!
 //! The vault's account key is kept in the user's login keychain (encrypted by macOS with the Mac
 //! login), and CENTRA only reads it after Touch ID says yes. If fingerprints are added or removed,

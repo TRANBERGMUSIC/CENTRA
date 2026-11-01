@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEngine, useList, useRecord, useRoute, useNow, fmt } from '../state.tsx';
-import { Btn, Pill, vars } from '../ui/primitives.tsx';
+import { Btn, Pill, vars, useProgressive, More } from '../ui/primitives.tsx';
 import { Icon } from '../ui/Icon.tsx';
 import { MailView } from '../ui/MailView.tsx';
 import { useToast } from '../ui/Shell.tsx';
@@ -67,6 +67,7 @@ export function Inbox() {
   const rows = useMemo(() => everything.filter((m) => (acct === 'all' || m.acct === acct)
     && (words.length ? words.every((w) => `${m.fromName} ${m.fromEmail} ${(m.to ?? []).join(' ')} ${m.subject} ${m.body ?? m.preview} ${(m.attachments ?? []).join(' ')} ${m.acctName}`.toLowerCase().includes(w))
       : inBox(m, box) && (box !== 'inbox' || inFilter(m, filter)))).sort(sorter(sort)), [everything, acct, box, filter, q, sort]);
+  const [shown, moreAt] = useProgressive(rows.length, 60, `${acct}|${box}|${filter}|${q}|${sort}`);
   const id = (route.id && !route.id.startsWith('folder:') ? route.id : undefined) ?? rows[0]?.id;
   const folderCount = (f: string) => everything.filter((m) => !m.archived && m.mbox === f && (acct === 'all' || m.acct === acct)).length;
   const folderUnread = (f: string) => everything.filter((m) => !m.archived && m.mbox === f && m.unread && (acct === 'all' || m.acct === acct)).length;
@@ -164,7 +165,7 @@ export function Inbox() {
           )}
         </div>
         <div className="mrows">
-          {rows.map((m) => {
+          {rows.slice(0, shown).map((m) => {
             const p = who(m);
             return (
               <button key={m.id} id={`mrow-${m.id}`} draggable onDragStart={(ev) => { ev.dataTransfer.setData('text/centra-mail', m.id); ev.dataTransfer.effectAllowed = 'move'; }} className={`mrow ${m.unread ? 'is-unread' : ''} ${m.id === id ? 'is-selected' : ''}`} onClick={() => { go({ screen: 'inbox', id: m.id }); if (m.unread) setMailFlag(e, m, { unread: false }); }}>
@@ -179,6 +180,7 @@ export function Inbox() {
               </button>
             );
           })}
+          <More at={moreAt} left={rows.length - shown} />
           {!rows.length && <p className="meta pad">{!accts.length ? <>Ingen mailkonti endnu. <button className="tag" onClick={() => go({ screen: 'connections' })}>Tilføj Gmail, iCloud, one.com eller Simply</button></> : words.length ? 'Intet fundet. Prøv andre ord, eller spørg Assist.' : box === 'sent' ? 'Ingen sendte mails endnu. De hentes fra Sendt-mappen på din mailserver.' : box === 'archive' ? 'Intet i arkivet.' : box !== 'inbox' ? 'Ingen mails i mappen endnu. Træk en mail herover, giv mappen regler, eller bed Assist om at sortere.' : filter === 'other' ? 'Ingen reklamer eller notifikationer. Dejligt.' : all.length ? 'Intet her.' : 'Henter dine mails …'}</p>}
         </div>
       </div>

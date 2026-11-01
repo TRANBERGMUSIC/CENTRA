@@ -8,7 +8,7 @@
 import type { SyncEngine } from '@centra/sync';
 import { sortByRules } from './mailFolders.ts';
 import { syncAllLunchHub, setLunchHubStatus } from './lunchhub.ts';
-const isDesktop = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+import { isNative, invoke as native } from './platform.ts';
 
 export type Security = 'tls' | 'starttls' | 'none';
 export type MailAccount = {
@@ -34,12 +34,11 @@ export const PRESETS: Preset[] = [
     guide: 'Find IMAP- og SMTP-serverne i din udbyders hjælpesider. De fleste bruger port 993 (IMAP) og 465 eller 587 (SMTP).' },
 ];
 
-export const mailAvailable = isDesktop;
+export const mailAvailable = isNative;
 
 async function invoke<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
-  if (!mailAvailable()) throw new Error('Mail virker kun i CENTRA-appen på din Mac.');
-  const { invoke } = await import('@tauri-apps/api/core');
-  try { return await invoke<T>(cmd, args); } catch (e) { throw new Error(typeof e === 'string' ? e : (e as Error)?.message ?? String(e)); }
+  if (!mailAvailable()) throw new Error('Mail virker kun i CENTRA-appen på Mac og iPhone.');
+  return native<T>(cmd, args);
 }
 
 const wire = (a: MailAccount) => ({

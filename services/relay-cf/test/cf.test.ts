@@ -59,3 +59,47 @@ describe.skipIf(!URL)('Cloudflare relay', () => {
     mac.r.close();
   });
 });
+
+describe.skipIf(!URL)('Cloudflare relay: live and alive', () => {
+  beforeAll(ready);
+  it('answers heartbeats, delivers live, and a device that went quiet catches up after resume()', async () => {
+    const { KeyRing, randomKey } = await import('@centra/crypto');
+    const r0 = new WsRelay(URL!, { user: 'tranberg', device: 'hb-setup', name: 'x', platform: 'test' }, WebSocket as any);
+    const pre = await r0.prelogin();
+    const pw = pre.exists ? process.env.CF_RELAY_PASSWORD ?? '' : 'CentraTest-live-1';
+    if (!pre.exists) { const a = createAccount(pw, 'interactive'); await r0.register(a.account, a.auth, a.recoveryAuth); }
+    r0.close();
+    const keys = new KeyRing('kabcd', randomKey());
+    const mk = async (device: string) => {
+      const r = new WsRelay(URL!, { user: 'tranberg', device, name: device, platform: 'test' }, WebSocket as any);
+      const p = await r.prelogin();
+      await r.login(passwordSecrets(pw, p.kdf!).auth);
+      const e = new SyncEngine({ device, keys, store: new MemoryStore(), relay: r, flushMs: 5 });
+      await e.start();
+      return { r, e };
+    };
+    const mac = await mk('hb-mac'), phone = await mk('hb-phone');
+    // ping → pong
+    const pong = await new Promise<boolean>((res) => {
+      const ws = new (WebSocket as any)(URL + '/u/tranberg');
+      ws.on('open', () => ws.send('{"type":"ping"}'));
+      ws.on('message', (d: Buffer) => { res(String(d) === '{"type":"pong"}'); ws.close(); });
+    });
+    expect(pong).toBe(true);
+    // live
+    const id = mac.e.create('note', { title: 'Live fra Mac' });
+    await new Promise((r) => setTimeout(r, 800));
+    expect(phone.e.get(id)?.title).toBe('Live fra Mac');
+    // the phone's socket dies silently (sleep): nothing arrives, until the app comes back
+    (phone.r as any).ws.onmessage = null; (phone.r as any).ws.onclose = null;
+    (phone.r as any).ws._socket?.pause?.();
+    const id2 = mac.e.create('note', { title: 'Mens telefonen sov' });
+    await new Promise((r) => setTimeout(r, 600));
+    expect(phone.e.get(id2)).toBeNull();
+    phone.r.resume();
+    await new Promise((r) => setTimeout(r, 6000));
+    expect(phone.r.connected).toBe(true);
+    expect(phone.e.get(id2)?.title).toBe('Mens telefonen sov');
+    mac.r.close(); phone.r.close();
+  }, 30000);
+});

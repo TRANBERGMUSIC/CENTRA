@@ -6,7 +6,7 @@ import { ask } from '../ui/Confirm.tsx';
 import { browserSettings, saveBrowserSettings, activeVpn, vpnWire, wgEndpoint, openLink, type BrowserSettings, type VpnProfile, type VpnKind } from '../open.ts';
 
 const KIND_NAME: Record<VpnKind, string> = { wireguard: 'WireGuard', socks5: 'SOCKS5', http: 'HTTP-proxy' };
-import { desktop as desktopApp } from '../platform.ts';
+import { desktop as desktopApp, invoke } from '../platform.ts';
 const desktop = () => desktopApp;
 const rid = () => 'vpn-' + Math.random().toString(36).slice(2, 10);
 
@@ -24,7 +24,6 @@ export function BrowserPanel() {
   async function test(v: VpnProfile) {
     setChecking(v.id);
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
       const r = await invoke<{ ip: string; country: string; city: string }>('browser_vpn_test', { vpn: vpnWire(v) });
       setChecked((c) => ({ ...c, [v.id]: `Virker. Hjemmesider ser dig som ${r.ip}${r.country ? ` i ${[r.city, r.country].filter(Boolean).join(', ')}` : ''}.` }));
     } catch (x) {
@@ -110,7 +109,6 @@ function VpnEditor({ v, onClose, onSave }: { v: VpnProfile | null; onClose: () =
     const bad = check(); if (bad) return setErr(bad);
     setBusy(true);
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
       const r = await invoke<{ ip: string; country: string; city: string }>('browser_vpn_test', { vpn: vpnWire(f) });
       setOk(`Virker. Hjemmesider ser dig som ${r.ip}${r.country ? ` i ${[r.city, r.country].filter(Boolean).join(', ')}` : ''}.`);
     } catch (x) { setErr(String((x as Error)?.message ?? x)); } finally { setBusy(false); }

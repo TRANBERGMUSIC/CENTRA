@@ -222,12 +222,13 @@ function BioRow() {
   const [on, setOn] = useState(() => bioIsOn(session.user));
   const [busy, setBusy] = useState(false);
   useEffect(() => { void bioKind().then(setKind); }, []);
-  if (platform !== 'desktop') return null;
-  const name = BIO_NAME[kind === 'none' ? 'touchid' : kind];
+  if (!native) return null;
+  const name = BIO_NAME[kind === 'none' ? (ios ? 'faceid' : 'touchid') : kind];
+  const device = ios ? 'iPhonen' : "Mac'en";
   async function toggle(next: boolean) {
     setBusy(true);
     try {
-      if (next) { await bioEnable(session); toast({ icon: 'fingerprint', text: `${name} er slået til. Næste gang låser du op med fingeren.` }); }
+      if (next) { await bioEnable(session); toast({ icon: 'fingerprint', text: `${name} er slået til. Næste gang låser du op med ${kind === 'faceid' ? 'ansigtet' : 'fingeren'}.` }); }
       else { await bioDisable(session.user); toast({ icon: 'fingerprint', text: `${name} er slået fra` }); }
       setOn(next);
     } catch (e) {
@@ -236,7 +237,7 @@ function BioRow() {
     } finally { setBusy(false); }
   }
   return (
-    <div className="kv"><span>Lås op med {name}<span className="meta block">{kind === 'none' ? 'Denne Mac har ingen fingeraftrykslæser, eller der er ikke sat et fingeraftryk op.' : `Nøglen gemmes i Mac'ens nøglering og bruges kun efter ${name}. Dit password virker stadig altid.`}</span></span>
+    <div className="kv"><span>Lås op med {name}<span className="meta block">{kind === 'none' ? (ios ? 'Face ID er ikke sat op på iPhonen, eller CENTRA har ikke fået lov (Indstillinger → CENTRA).' : 'Denne Mac har ingen fingeraftrykslæser, eller der er ikke sat et fingeraftryk op.') : `Nøglen gemmes i ${device}s nøglering og bruges kun efter ${name}. Dit password virker stadig altid.`}</span></span>
       <label className="checkrow"><input type="checkbox" checked={on} disabled={busy || (kind === 'none' && !on)} onChange={(x) => void toggle(x.target.checked)} aria-label={`Lås op med ${name}`} /></label></div>
   );
 }

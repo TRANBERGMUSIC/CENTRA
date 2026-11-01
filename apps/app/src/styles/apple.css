@@ -699,3 +699,88 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { box-shadow: 
   .sheet { max-height: calc(100vh - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
   .lightbox { padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px); }
 }
+
+/* ---------------------------------------------------------------- calendar: lanes for overlapping events */
+.week__ev { left: calc(4px + (100% - 8px) * var(--lane, 0) / var(--of, 1)); right: auto; width: calc((100% - 8px) / var(--of, 1) - 2px); }
+.week__allday { margin: 0 0 6px; }
+
+/* ---------------------------------------------------------------- calendar on the iPhone: the day, the week above it */
+.calm { padding-bottom: 24px; }
+.calm__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 0 12px; }
+.calm__top h1 { font-size: 30px; line-height: 36px; letter-spacing: -0.02em; margin: 0; }
+.calm__year { color: var(--c-negative); font-weight: 600; }
+.calm__actions { display: flex; gap: 8px; align-items: center; }
+.calm__actions .btn--primary { width: 36px; height: 36px; padding: 0; justify-content: center; border-radius: 999px; }
+.calm__week { display: grid; grid-template-columns: 28px repeat(7, minmax(0, 1fr)) 28px; align-items: center; gap: 2px; margin: 0 -4px 10px; }
+.calm__nav { display: grid; place-items: center; height: 44px; border: 0; background: none; color: var(--c-faint); border-radius: 10px; }
+.calm__d { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0 5px; border: 0; background: none; color: var(--c-text); border-radius: 12px; font: inherit; min-height: 56px; }
+.calm__d span { font-size: 11px; line-height: 13px; color: var(--c-faint); text-transform: uppercase; }
+.calm__d b { font-size: 18px; line-height: 26px; font-weight: 500; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 999px; }
+.calm__d i { width: 4px; height: 4px; border-radius: 50%; background: transparent; }
+.calm__d i.is-on { background: var(--c-faint); }
+.calm__d.is-today b { color: var(--c-negative); font-weight: 600; }
+.calm__d.is-sel b { background: var(--c-text); color: var(--c-ground); font-weight: 600; }
+.calm__d.is-sel.is-today b { background: var(--c-negative); color: #fff; }
+.calm__label { margin: 0 0 8px; color: var(--c-text); font-size: 15px; line-height: 20px; }
+.calm__allday { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.calm__allday button { border: 0; font: inherit; font-size: 13px; padding: 4px 10px; border-radius: 8px; background: color-mix(in oklab, var(--viz-3) 20%, var(--c-surface)); color: var(--c-text); }
+.calm__grid { position: relative; height: calc(var(--hour) * 24); margin: 10px 0 0 44px; }
+.calm__h { position: absolute; left: -44px; right: 0; top: calc(var(--hour) * var(--at)); font-size: 11px; line-height: 0; color: var(--c-faint); pointer-events: none; }
+.calm__h::after { content: ''; position: absolute; left: 44px; right: 0; top: 0; border-top: 0.5px solid var(--sep); }
+.calm__slots { position: absolute; inset: 0; }
+.calm__ev { position: absolute; top: var(--top); height: var(--h); left: calc((100% - 4px) * var(--lane) / var(--of)); width: calc((100% - 4px) / var(--of) - 3px); border: 0; padding: 4px 8px; text-align: left; font: inherit; overflow: hidden; border-radius: 8px; background: color-mix(in oklab, var(--c-primary) 20%, var(--c-surface)); box-shadow: inset 3px 0 0 var(--c-primary); color: var(--c-text); display: flex; flex-direction: column; gap: 1px; }
+.calm__ev b { font-size: 14px; line-height: 18px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.calm__ev span { font-size: 12px; line-height: 16px; color: var(--c-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.calm__ev.is-short { flex-direction: row; align-items: center; gap: 6px; padding-block: 2px; }
+.calm__ev.is-feed { background: color-mix(in oklab, var(--viz-3) 20%, var(--c-surface)); box-shadow: inset 3px 0 0 var(--viz-3); }
+.calm__ev.is-past { opacity: 0.55; }
+.calm__now { position: absolute; left: 0; right: 0; top: var(--top); height: 0; border-top: 1.5px solid var(--c-negative); pointer-events: none; z-index: 2; }
+.calm__now span { position: absolute; left: -44px; top: -8px; font-size: 11px; line-height: 16px; font-weight: 600; color: var(--c-negative); background: var(--c-ground); padding-right: 2px; }
+
+/* ---------------------------------------------------------------- touch: feels like an app, not a web page */
+html { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+html.is-app, html.is-app body { overscroll-behavior: none; }
+html.is-app .sidebar, html.is-app .tabbar, html.is-app .btn, html.is-app .tag { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+@media (max-width: 640px) {
+  /* iOS zooms in on any field with text under 16 px; 16 px keeps the page still */
+  input:not([type=checkbox]):not([type=radio]):not([type=range]), textarea, select { font-size: max(16px, 1em); }
+}
+.calm__ev:not(.is-short) b { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--lines, 1); }
+.calm__ev.is-short b { flex: 0 1 auto; min-width: 0; }
+.calm__ev.is-short span { flex: 1 1 auto; }
+.calm__more { display: flex; justify-content: space-between; gap: 12px; margin-top: 18px; }
+.calm__more button { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 14px; border: 0; border-radius: 12px; background: var(--fill); color: var(--c-text); font: inherit; font-size: 15px; }
+.more-sentinel { height: 1px; }
+.calm__head { position: sticky; top: 0; z-index: 3; margin: 0 -16px; padding: calc(env(safe-area-inset-top, 0px) + 8px) 16px 6px; background: var(--c-ground); border-bottom: 0.5px solid var(--sep); }
+.calm__ev { z-index: 2; }
+.calm__now { z-index: 1; }
+.calm__now span { z-index: 3; }
+@media (max-width: 640px) { .inbox { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------------------------------------------------------------- phone width: nothing sticks out at the side */
+@media (max-width: 640px) {
+  [data-dir="a"] .titlerow, .otitlerow { flex-wrap: wrap; align-items: flex-start; row-gap: 10px; }
+  .titlerow .actions, .otitlerow > div:last-child { flex-wrap: wrap; justify-content: flex-start; }
+  .kv { flex-wrap: wrap; row-gap: 6px; }
+  .kv > span:first-child { flex: 1 1 180px; min-width: 0; }
+  .kv input:not([type=checkbox]), .kv select { max-width: 100%; min-width: 0; }
+  .kv > input:not([type=checkbox]), .kv > .secinput { flex: 1 1 100%; }
+  .connect { flex-wrap: wrap; }
+  .connect .ufield { flex: 1 1 100%; min-width: 0; }
+  .daystrip__callout { transform: translateX(calc(var(--at) * -100%)); }
+  .canvas, .panel { min-width: 0; max-width: 100%; }
+}
+@media (max-width: 640px) { .kvinput { min-width: 0; flex: 1 1 160px; } .kv .connect { flex: 1 1 100%; } }
+@media (max-width: 640px) {
+  /* Goals on the phone: the list first, a goal on its own page (like notes) */
+  .goals:not(.has-open) > .glist { display: block; }
+  .goals:not(.has-open) > .gdetail { display: none; }
+  .goals.has-open > .glist { display: none; }
+  .glist { height: auto !important; overflow: visible !important; }
+}
+@media (max-width: 640px) {
+  .nlist__head { flex-wrap: wrap; row-gap: 8px; }
+  .nlist__acts { flex-wrap: wrap; }
+}
+.nlist__head { flex-wrap: wrap; row-gap: 8px; }
+.nlist__acts { flex-wrap: wrap; }

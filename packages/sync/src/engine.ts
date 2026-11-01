@@ -10,7 +10,7 @@
 import * as Y from 'yjs';
 import { b64, sealJson, openJson, randomId, type KeyRing } from '@centra/crypto';
 import { Clock, type Hlc } from './hlc.ts';
-import type { Change, Envelope, EntityState, Relay, Snapshot, Store } from './types.ts';
+import type { Change, Envelope, EntityState, Relay, Snapshot, Store, StoreChanges } from './types.ts';
 
 export type EngineOptions = {
   device: string;
@@ -64,6 +64,15 @@ export class SyncEngine {
   private unsub: Array<() => void> = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private saving: Promise<void> = Promise.resolve();
+  /** What changed since the last save (the store writes only these). */
+  private dirtyEntities = new Set<string>();
+  private dirtyDocs = new Set<string>();
+  private savedOutbox = new Set<string>();
+  /** Ids per type, and each type's list as last built (rebuilt only when that type changes). */
+  private byType = new Map<string, Set<string>>();
+  private listCache = new Map<string, Record_[]>();
+  private typeVersions = new Map<string, number>();
   private pushing = false;
   private started = false;
   /** Time each remote envelope was applied, keyed by envelope id (used by latency tests and the sync indicator). */
@@ -102,6 +111,14 @@ export class SyncEngine {
 
   /** Pull everything after our cursor (page by page, the relay sends a few MB at a time), then push the outbox. */
   async catchUp(): Promise<void> {
+    // Asked again while one runs (wake-up, reconnect and timer at once): share the running one.
+    if (this.catching) return this.catching;
+    this.catching = this.pullAll().finally(() => { this.catching = null; });
+    return this.catching;
+  }
+  private catching: Promise<void> | null = null;
+
+  private async pullAll(): Promise<void> {
     for (let page = 0; page < 100_000; page++) {
       const before = this.cursor;
       const envs = await this.o.relay.pull(this.cursor);
@@ -161,13 +178,20 @@ export class SyncEngine {
     return out;
   }
 
+  /** Grows whenever a record of this type changes (lets the interface skip work when it didn't). */
+  typeVersion(type: string): number {
+    return this.typeVersions.get(type) ?? 0;
+  }
+
+  /** Every live record of a type. Built once per change of that type, so calling it often is cheap. */
   list(type: string): Record_[] {
-    const out: Record_[] = [];
-    for (const [id, e] of this.entities) if (e.t === type) {
-      const r = this.get(id);
-      if (r) out.push(r);
+    let l = this.listCache.get(type);
+    if (!l) {
+      l = [];
+      for (const id of this.byType.get(type) ?? []) { const r = this.get(id); if (r) l.push(r); }
+      this.listCache.set(type, l);
     }
-    return out;
+    return l.slice();
   }
 
   /** The HLC that last wrote a field; useful for "edited on iPhone 08.58". */
@@ -190,8 +214,10 @@ export class SyncEngine {
     this.docs.set(id, d);
     this.docTypes.set(id, type);
     d.on('update', (update: Uint8Array, origin: unknown) => {
+      this.dirtyDocs.add(id);
       if (origin === REMOTE) return;
-      this.enqueue([{ k: 'doc', e: id, t: type, u: b64.encode(update) }], new Set([id]));
+      // Typing in a note: sent and saved, but nothing else on screen needs to redraw for it.
+      this.enqueue([{ k: 'doc', e: id, t: type, u: b64.encode(update) }], new Set([id]), true);
     });
   }
 
@@ -222,10 +248,14 @@ export class SyncEngine {
     if (!e) {
       e = { t: c.t, f: {} };
       this.entities.set(c.e, e);
+      this.indexType(c.e, c.t);
     }
     const cur = e.f[c.f];
     if (cur && cur.h >= c.h) return false;
     e.f[c.f] = { v: c.v, h: c.h };
+    this.dirtyEntities.add(c.e);
+    this.listCache.delete(e.t);
+    this.typeVersions.set(e.t, (this.typeVersions.get(e.t) ?? 0) + 1);
     return true;
   }
 
@@ -264,9 +294,9 @@ export class SyncEngine {
 
   /* ------------------------------------------------------------------ outbound */
 
-  private enqueue(changes: Change[], ids: Set<string>) {
+  private enqueue(changes: Change[], ids: Set<string>, quiet = false) {
     this.pending.push(...changes);
-    this.emit(ids, 'local');
+    if (!quiet) this.emit(ids, 'local');
     this.scheduleSave();
     if (!this.flushTimer) this.flushTimer = setTimeout(() => void this.flush(), this.o.flushMs ?? 30);
   }
@@ -335,13 +365,36 @@ export class SyncEngine {
 
   private scheduleSave() {
     if (this.saveTimer) return;
-    this.saveTimer = setTimeout(() => void this.persist(), 150);
+    this.saveTimer = setTimeout(() => void this.persist(), 300);
   }
 
+  /** Saves what changed (or everything, for a store without incremental saves). Saves never overlap. */
   async persist(): Promise<void> {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = null;
-    await this.o.store.save(this.snapshot());
+    const run = this.saving.then(() => this.writeStore());
+    this.saving = run.catch(() => {});
+    return run;
+  }
+
+  private async writeStore(): Promise<void> {
+    const store = this.o.store;
+    if (!store.saveChanges) return store.save(this.snapshot());
+    const c: StoreChanges = { entities: {}, docs: {}, outbox: {}, meta: { cursor: this.cursor, seen: [...this.seen].slice(-5000), clock: this.clock.tick() } };
+    const ents = [...this.dirtyEntities], docs = [...this.dirtyDocs];
+    this.dirtyEntities.clear(); this.dirtyDocs.clear();
+    for (const id of ents) c.entities[id] = this.entities.get(id) ?? null;
+    for (const id of docs) { const d = this.docs.get(id); c.docs[id] = d ? this.docTypes.get(id) + '|' + b64.encode(Y.encodeStateAsUpdate(d)) : null; }
+    const now = new Set(this.outbox.map((e) => e.id));
+    for (const e of this.outbox) if (!this.savedOutbox.has(e.id)) c.outbox[e.id] = e;
+    for (const id of this.savedOutbox) if (!now.has(id)) c.outbox[id] = null;
+    try {
+      await store.saveChanges(c);
+      this.savedOutbox = now;
+    } catch (err) {
+      ents.forEach((id) => this.dirtyEntities.add(id)); docs.forEach((id) => this.dirtyDocs.add(id)); // try again next time
+      throw err;
+    }
   }
 
   snapshot(): Snapshot {
@@ -369,6 +422,15 @@ export class SyncEngine {
     this.cursor = s.cursor;
     this.seen = new Set(s.seen);
     if (s.clock) this.clock.receive(s.clock);
+    for (const [id, e] of this.entities) this.indexType(id, e.t);
+    if (this.o.store.needsFull) { this.entities.forEach((_, id) => this.dirtyEntities.add(id)); this.docs.forEach((_, id) => this.dirtyDocs.add(id)); }
+    else this.outbox.forEach((e) => this.savedOutbox.add(e.id));
+  }
+
+  private indexType(id: string, type: string) {
+    let set = this.byType.get(type);
+    if (!set) this.byType.set(type, (set = new Set()));
+    set.add(id);
   }
 
   /** Stable digest of the visible state; equal on every converged replica. */

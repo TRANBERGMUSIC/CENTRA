@@ -5,7 +5,7 @@
  */
 import type { SyncEngine } from '@centra/sync';
 
-import { desktop as desktopApp, native } from './platform.ts';
+import { desktop as desktopApp, native, invoke } from './platform.ts';
 
 /** The in-app browser (with VPN) is in the Mac app; on the iPhone links open in Safari. */
 const desktop = () => desktopApp;
@@ -73,7 +73,6 @@ export async function openLink(url: string) {
   if (!/^https?:\/\//i.test(u) || !desktop()) return openExternal(u);
   const s = engine ? browserSettings(engine) : DEFAULT_BROWSER;
   if (s.mode === 'safari') return openExternal(u);
-  const { invoke } = await import('@tauri-apps/api/core');
   try {
     await invoke('browser_open', { url: u, cfg: browserWire(s) });
   } catch {

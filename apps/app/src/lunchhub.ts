@@ -19,14 +19,12 @@ export type LhItem = {
 };
 type Me = { name?: string; username?: string; sites?: { id: string; name: string; domain?: string }[] };
 
-const desktop = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+import { isNative, invoke } from './platform.ts';
 export const DEFAULT_URL = 'https://lunchhub.dk';
 
 async function call<T>(c: Pick<LhConn, 'url' | 'token'>, method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
-  if (!desktop()) throw new Error('LunchHub virker kun i CENTRA-appen på din Mac.');
-  const { invoke } = await import('@tauri-apps/api/core');
-  try { return await invoke<T>('lunchhub_request', { base: c.url, token: c.token, method, path, body: body ?? null }); }
-  catch (e) { throw new Error(typeof e === 'string' ? e : (e as Error)?.message ?? String(e)); }
+  if (!isNative()) throw new Error('LunchHub virker kun i CENTRA-appen på Mac og iPhone.');
+  return invoke<T>('lunchhub_request', { base: c.url, token: c.token, method, path, body: body ?? null });
 }
 
 /** Checks the address and key, and says whose inbox it is. */

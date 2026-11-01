@@ -8,8 +8,7 @@
  */
 import type { Session } from './session.ts';
 
-const desktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-const invoke = async <T,>(cmd: string, args?: Record<string, unknown>) => (await import('@tauri-apps/api/core')).invoke<T>(cmd, args);
+import { native as desktop, invoke } from './platform.ts';
 
 /** Tells the Mac app this interface started fine, so it keeps it (otherwise it rolls back). */
 export function markReady() {

@@ -28,6 +28,9 @@ export class WsRelay implements Relay {
   private resolveOpen!: () => void;
   /** How to log back in after a reconnect (a plain login with the in-memory auth value). */
   private relogin: LoginFrame | null = null;
+  /** Heartbeat: when anything last came from the server, and the timer that checks it. */
+  private lastFrame = 0;
+  private beat: ReturnType<typeof setInterval> | null = null;
   connected = false;
   account: AccountPublic | null = null;
   devices: DeviceRecord[] = [];
@@ -47,20 +50,69 @@ export class WsRelay implements Relay {
     this.ws = ws;
     ws.onopen = () => {
       this.retry = 250;
+      this.lastFrame = Date.now();
       this.resolveOpen();
       if (this.relogin) ws.send(JSON.stringify({ ...this.relogin, type: 'login', rid: 'relogin' }));
+      this.startBeat();
     };
-    ws.onmessage = (ev) => this.onFrame(JSON.parse(String(ev.data)));
+    ws.onmessage = (ev) => { this.lastFrame = Date.now(); this.onFrame(JSON.parse(String(ev.data))); };
     ws.onclose = (ev) => {
-      this.connected = false;
-      this.pending.forEach((p) => p.reject(new RelayError('closed')));
-      this.pending.clear();
-      if (ev.code === 4001 || ev.code === 4002) { this.closed = true; this.onClosedByServer?.(ev.code); return; }
-      this.socketOpen = new Promise((r) => (this.resolveOpen = r));
+      if (this.ws !== ws) return;
+      if (ev.code === 4001 || ev.code === 4002) { this.dropped(); this.closed = true; this.onClosedByServer?.(ev.code); return; }
+      this.dropped();
       setTimeout(() => this.open(), this.retry);
       this.retry = Math.min(this.retry * 2, 10_000);
     };
     ws.onerror = () => {};
+  }
+
+  /** The connection is gone: fail what was waiting, and get ready for the next one. */
+  private dropped() {
+    this.connected = false;
+    this.stopBeat();
+    this.pending.forEach((p) => p.reject(new RelayError('closed')));
+    this.pending.clear();
+    this.socketOpen = new Promise((r) => (this.resolveOpen = r));
+  }
+
+  /** Throws the current socket away and opens a new one right now (it went quiet, or the app woke up). */
+  private reconnect() {
+    if (this.closed) return;
+    const old = this.ws;
+    this.ws = null;
+    if (old) { old.onopen = old.onmessage = old.onclose = old.onerror = null; try { old.close(); } catch { /* already gone */ } }
+    this.dropped();
+    this.retry = 250;
+    this.open();
+  }
+
+  /**
+   * Heartbeat every 20 s. A phone that slept, or a network that changed, can leave a socket that
+   * looks open but never delivers anything again; after 45 s without a word it is replaced.
+   */
+  private startBeat() {
+    this.stopBeat();
+    this.beat = setInterval(() => {
+      const ws = this.ws;
+      if (!ws || ws.readyState !== 1) return;
+      if (Date.now() - this.lastFrame > 45_000) return this.reconnect();
+      try { ws.send('{"type":"ping"}'); } catch { this.reconnect(); }
+    }, 20_000);
+  }
+  private stopBeat() { if (this.beat) clearInterval(this.beat); this.beat = null; }
+
+  /**
+   * The app is in front again, or the network is back: check the connection now instead of waiting
+   * for the next heartbeat. An answer within 4 s keeps it; silence opens a new one.
+   */
+  resume() {
+    if (this.closed) return;
+    const ws = this.ws;
+    if (!ws || ws.readyState > 1) return this.reconnect();
+    if (ws.readyState === 0) return; // still connecting
+    const before = this.lastFrame;
+    try { ws.send('{"type":"ping"}'); } catch { return this.reconnect(); }
+    setTimeout(() => { if (this.ws === ws && this.lastFrame === before) this.reconnect(); }, 4_000);
   }
 
   private onFrame(m: any) {
@@ -132,5 +184,5 @@ export class WsRelay implements Relay {
   subscribe(cb: (e: Envelope) => void) { this.subs.add(cb); return () => this.subs.delete(cb); }
   onOpen(cb: () => void) { this.opens.add(cb); return () => this.opens.delete(cb); }
 
-  close() { this.closed = true; this.relogin = null; this.ws?.close(); }
+  close() { this.closed = true; this.relogin = null; this.stopBeat(); this.ws?.close(); }
 }

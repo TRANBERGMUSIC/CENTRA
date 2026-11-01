@@ -2,8 +2,8 @@
 
 ## Stack og hvorfor (5 linjer)
 
-1. **Én React-kodebase (TypeScript + Vite) i alle skaller**: Tauri 2 på Mac og Windows, Capacitor på iPhone og Android, GitHub Pages på web. Det er samme UI og samme kode overalt.
-2. **Hvorfor ikke React Native**: GSAP, Lenis og React Bits er DOM-biblioteker. I en web-baseret UI virker de alle steder, og Tauri/Capacitor giver native vinduer, menuer, haptics, push og auto-opdatering.
+1. **Én React-kodebase (TypeScript + Vite) i alle skaller**: Tauri 2 på Mac, Windows og iPhone, GitHub Pages på web. Det er samme UI og samme kode overalt.
+2. **Hvorfor ikke React Native**: GSAP, Lenis og React Bits er DOM-biblioteker. I en web-baseret UI virker de alle steder, og Tauri giver native vinduer, menuer, haptics, push og auto-opdatering.
 3. **Lokal database på hver enhed** (IndexedDB nu, SQLite med FTS5 og vektorsøgning fra trin 3). Alt læses lokalt, så søgning holder sig under 100 ms, og appen virker offline.
 4. **Yjs (CRDT) til noternes tekst** og last-writer-wins pr. felt med hybride logiske ure til alt andet. To enheder kan skrive i samme note samtidig uden tab.
 5. **libsodium end-to-end**: en nøgle afledes af din passphrase (Argon2id) og krypterer alt indhold (XChaCha20-Poly1305), før det forlader enheden. Serveren (relæ eller Supabase) gemmer kun ciphertext.
@@ -15,7 +15,7 @@
 ```mermaid
 flowchart LR
   subgraph Enhed["Hver enhed (iPhone, Android, Mac, Windows, web)"]
-    UI["UI · apps/app (React)<br/>i Tauri · Capacitor · browser"]
+    UI["UI · apps/app (React)<br/>i Tauri (Mac, iPhone) · browser"]
     Core["@centra/core<br/>repositories · søgning · regler"]
     DB[("SQLite<br/>FTS5 + sqlite-vec")]
     Sync["@centra/sync<br/>Yjs + LWW-felter · outbox"]
@@ -69,7 +69,7 @@ Senere trin tilføjer `packages/mail-engine`, `packages/calendar-engine` og `pac
 | Platform | Mekanisme | Kilde |
 |---|---|---|
 | Mac, Windows | Tauri updater: download, minisign-verifikation, installation, genstart | `releases/latest/download/latest.json` |
-| iPhone, Android | @capgo/capacitor-updater skifter web-laget ud over luften. Native ændringer går via TestFlight og Play | `ota.json` + `centra-web-x.y.z.zip` |
+| iPhone | Grænsefladen opdaterer sig selv som på Mac'en (web.tar.gz). Nye app-versioner går via TestFlight | `web.json` + `web-<tid>.tar.gz` |
 | Web | GitHub Pages; `version.json` beder åbne faner om at genindlæse | Pages |
 
 `npm run release` bumper versionen, tagger og pusher. `.github/workflows/release.yml` bygger og udgiver.

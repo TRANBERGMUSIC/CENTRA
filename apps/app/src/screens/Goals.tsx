@@ -44,7 +44,7 @@ export function Goals() {
   );
 
   return (
-    <main className="goals" ref={ref}>
+    <main className={`goals ${route.id ? 'has-open' : ''}`} ref={ref}>
       <div className="glist" data-enter>
         <h1>Mål <span className="meta num">{goals.length}</span><Btn size="sm" icon="plus" onClick={() => setCreating(true)}>Nyt mål</Btn></h1>
         {areas.length > 1 && <div className="ntags gareas">{[null, ...areas].map((a) => <button key={a ?? 'all'} className={`tag ${area === a ? 'is-active' : ''}`} onClick={() => setArea(a)}>{a ?? 'Alle'}</button>)}</div>}
@@ -126,6 +126,7 @@ function GoalDetail({ g, s }: { g: Goal; s: ReturnType<typeof goalStats> }) {
 
   return (
     <div className="gdetail">
+      <button className="phone-back" onClick={() => go({ screen: 'goals' })}><Icon name="chevron-left" size="sm" />Mål</button>
       <div className="ghead">
         <div className="meta">{g.area} · {KIND_NAMES[g.kind] ?? g.kind}{g.kind === 'count' && g.each ? ` · ${g.each}` : ''}{g.due ? ' · frist ' + new Date(g.due + 'T12:00').toLocaleDateString('da-DK', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}{g.status === 'paused' ? ' · på pause' : ''}</div>
         <Btn size="sm" variant="text" icon="edit" aria-expanded={editing} onClick={() => setEditing((x) => !x)}>{editing ? 'Færdig' : 'Redigér'}</Btn>

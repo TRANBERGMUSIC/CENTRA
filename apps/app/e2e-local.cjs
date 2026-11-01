@@ -33,7 +33,14 @@ const PW1 = 'Lokal-test-password-1', PW2 = PW1 + '-ny', PW3 = PW1 + '-gendannet'
   // On disk: nothing readable.
   res.diskPlaintext = await p.evaluate(() => new Promise((resolve) => {
     const r = indexedDB.open('centra');
-    r.onsuccess = () => { const q = r.result.transaction('snapshots').objectStore('snapshots').getAll(); q.onsuccess = () => resolve(JSON.stringify(q.result).includes('Hemmelig plan') || JSON.stringify(q.result).includes('Lysplan')); };
+    r.onsuccess = () => {
+      const tx = r.result.transaction(['snapshots', 'kv']);
+      const a = tx.objectStore('snapshots').getAll(), k = tx.objectStore('kv').getAll(), keys = tx.objectStore('kv').getAllKeys();
+      tx.oncomplete = () => {
+        const text = JSON.stringify(a.result) + k.result.map((v) => new TextDecoder().decode(v)).join('') + JSON.stringify(keys.result);
+        resolve({ items: k.result.length, leak: /Hemmelig plan|Lysplan|"note"|"title"/.test(text) });
+      };
+    };
   }));
   res.localStoragePlaintext = await p.evaluate((pw) => JSON.stringify(localStorage).includes('Hemmelig') || JSON.stringify(localStorage).includes(pw), PW1);
 

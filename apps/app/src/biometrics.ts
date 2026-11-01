@@ -1,13 +1,12 @@
 /**
- * Unlock with Touch ID in the Mac app (apps/desktop/src-tauri/src/biometry). The account key sits in
- * the Mac's login keychain and is only read after the right finger; adding or removing a fingerprint
- * throws it away, so the password is needed again. Everything here is a no-op outside the Mac app.
+ * Unlock with Touch ID on the Mac and Face ID on the iPhone (apps/desktop/src-tauri/src/biometry).
+ * The account key sits in the keychain and is only read after the right finger or face; adding or
+ * removing one throws it away, so the password is needed again. A no-op outside the app.
  */
 import { openWithKey, type Session } from './session.ts';
 import { RelayError } from '@centra/sync';
 
-const desktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-const invoke = async <T,>(cmd: string, args?: Record<string, unknown>) => (await import('@tauri-apps/api/core')).invoke<T>(cmd, args);
+import { native as desktop, invoke } from './platform.ts';
 const flag = (user: string) => `centra.touchid.${user.trim().toLowerCase()}`;
 
 export type BioKind = 'touchid' | 'faceid' | 'opticid' | 'none';
@@ -35,11 +34,11 @@ export async function bioDisable(user: string) {
 export function bioProblem(code: string, name: string): string | null {
   switch (code) {
     case 'cancel': case 'fallback': return null;
-    case 'failed': return `${name} genkendte ikke fingeren. Prøv igen, eller brug dit password.`;
+    case 'failed': return `${name} genkendte dig ikke. Prøv igen, eller brug dit password.`;
     case 'lockout': return `${name} er låst efter for mange forsøg. Brug dit password.`;
-    case 'changed': return `Fingeraftrykkene på Mac'en er ændret, så ${name} er slået fra for en sikkerheds skyld. Log ind med password, og slå det til igen under Indstillinger.`;
+    case 'changed': return `${name} er ændret på enheden (et nyt fingeraftryk eller ansigt), så det er slået fra for en sikkerheds skyld. Log ind med password, og slå det til igen under Indstillinger.`;
     case 'missing': return `${name}-nøglen findes ikke længere. Log ind med password, og slå ${name} til igen under Indstillinger.`;
-    case 'not-enrolled': return `Der er ikke sat et fingeraftryk op på Mac'en. Gør det under Systemindstillinger → Touch ID og adgangskode.`;
+    case 'not-enrolled': return `${name} er ikke sat op på enheden endnu. Gør det i enhedens indstillinger.`;
     case 'unavailable': return `${name} er ikke tilgængelig lige nu (fx med låget lukket). Brug dit password.`;
     case 'need-password': return `Første gang med sync skal du logge ind med dit password. Derefter virker ${name} igen.`;
     case 'relay': return `Kunne ikke nå sync-serveren. Prøv igen, eller brug dit password.`;

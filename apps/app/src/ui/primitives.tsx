@@ -1,4 +1,4 @@
-import type { ReactNode, ButtonHTMLAttributes, CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode, type ButtonHTMLAttributes, type CSSProperties } from 'react';
 import { Icon, type IconName } from './Icon.tsx';
 
 /** CSS custom properties are the only style values components pass inline (positions, ratios, hues). */
@@ -50,3 +50,21 @@ export function Wordmark({ className = 'brand__word' }: { className?: string }) 
 export function Empty({ children }: { children: ReactNode }) {
   return <div className="empty meta">{children}</div>;
 }
+
+/**
+ * Long lists draw the first `step` rows and add more as you scroll near the end (900 mails would
+ * otherwise all be drawn at once). Put `<More at={more} />` after the rows; `reset` starts over.
+ */
+export function useProgressive(total: number, step = 60, reset?: unknown): [number, (el: HTMLElement | null) => void] {
+  const [limit, setLimit] = useState(step);
+  useEffect(() => setLimit(step), [reset, step]);
+  const io = useRef<IntersectionObserver | null>(null);
+  const at = useCallback((el: HTMLElement | null) => {
+    io.current?.disconnect();
+    if (!el) return;
+    io.current = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting)) setLimit((l) => l + step); }, { rootMargin: '600px' });
+    io.current.observe(el);
+  }, [step]);
+  return [Math.min(limit, total), at];
+}
+export const More = ({ at, left }: { at: (el: HTMLElement | null) => void; left: number }) => (left > 0 ? <div ref={at} className="more-sentinel" aria-hidden="true" /> : null);

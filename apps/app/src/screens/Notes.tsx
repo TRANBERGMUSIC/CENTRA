@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Y from 'yjs';
 import { useEngine, useList, useRecord, useRoute, useNow, fmt } from '../state.tsx';
-import { Btn } from '../ui/primitives.tsx';
+import { Btn, useProgressive, More } from '../ui/primitives.tsx';
 import { Icon } from '../ui/Icon.tsx';
 import { useLenis, useScreenEnter, flipState } from '../motion.ts';
 import { useToast } from '../ui/Shell.tsx';
@@ -41,6 +41,7 @@ export function Notes() {
     .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || (sort === 'title' ? (a.title || '').localeCompare(b.title || '', 'da') : sort === 'created' ? (b.createdAt ?? b.editedAt ?? '').localeCompare(a.createdAt ?? a.editedAt ?? '') : (b.editedAt ?? '').localeCompare(a.editedAt ?? ''))),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [all, view, q, sort]);
+  const [shown, moreAt] = useProgressive(list.length, 60, `${JSON.stringify(view)}|${q}|${sort}`);
   const id = route.id ?? list[0]?.id;
   const tree = folderTree(e);
   const here = view.kind === 'folder' ? view.path : INBOX;
@@ -135,13 +136,14 @@ export function Notes() {
         <div className="nlist__bar"><span className="strong ellipsis">{heading}</span>
           <select className="mselect" value={sort} onChange={(x) => setSort(x.target.value as NSort)} aria-label="Sortér noter"><option value="edited">Senest redigeret</option><option value="created">Senest oprettet</option><option value="title">Titel A–Å</option></select></div>
         <div className="nrows">
-          {list.map((n) => (
+          {list.slice(0, shown).map((n) => (
             <button key={n.id} data-flip-id={n.id} draggable onDragStart={(ev) => { ev.dataTransfer.setData('text/centra-note', n.id); ev.dataTransfer.effectAllowed = 'move'; }} className={`nrow ${n.id === id ? 'is-selected' : ''}`} onClick={() => go({ screen: 'notes', id: n.id })}>
               <span className="nrow__t"><span className="ellipsis">{n.title || 'Uden titel'}</span>{n.pinned && <Icon name="pin" size="sm" className="faint" />}</span>
               <span className="nrow__x">{e.doc(n.id).getText('body').toString().slice(0, 120) || 'Tom note'}</span>
               <span className="meta num nrow__m">{n.editedAt ? fmt.ago(n.editedAt, now) : ''}{(view.kind !== 'folder' || n.folder !== here) && n.folder ? ` · ${leaf(n.folder)}` : ''}{(n.tags ?? []).length ? ` · ${(n.tags as string[]).map((t) => '#' + t).join(' ')}` : ''}</span>
             </button>
           ))}
+          <More at={moreAt} left={list.length - shown} />
           {!list.length && <p className="meta pad">{words.length ? 'Intet fundet.' : view.kind === 'folder' ? 'Mappen er tom. Træk en note herover, eller tryk + for en ny.' : 'Ingen noter her endnu.'}</p>}
         </div>
       </div>
@@ -195,7 +197,13 @@ function Editor({ id }: { id: string }) {
     setText(next);
     touch();
   }
-  const touch = () => e.set('note', id, { editedAt: new Date().toISOString(), editedOn: navigator.userAgent.includes('iPhone') ? 'iPhone' : 'denne enhed' });
+  // "Redigeret" is stamped at most every few seconds while typing, not on every key.
+  const lastTouch = useRef(0);
+  const touch = () => {
+    if (Date.now() - lastTouch.current < 4000) return;
+    lastTouch.current = Date.now();
+    e.set('note', id, { editedAt: new Date().toISOString(), editedOn: navigator.userAgent.includes('iPhone') ? 'iPhone' : 'denne enhed' });
+  };
 
   useEffect(() => {
     const el = area.current;
@@ -205,9 +213,10 @@ function Editor({ id }: { id: string }) {
   const [tagIn, setTagIn] = useState('');
   const [newFolder, setNewFolder] = useState<string | null>(null);
   const notes = useList('note') as any[];
+  const links = useMemo(() => linksIn(text), [text]);
+  const back = useMemo(() => backlinks(e, note?.title ?? '', id), [e, note?.title, id, notes]);
+  const allTags = useMemo(() => [...new Set(notes.flatMap((n) => n.tags ?? []))], [notes]);
   if (!note) return <div className="editor" />;
-  const links = linksIn(text);
-  const back = backlinks(e, note.title ?? '', id);
   const ev = note.event ? (e.get(note.event) as any) : null;
   const mail = note.mail ? (e.get(note.mail) as any) : null;
 
@@ -248,7 +257,7 @@ function Editor({ id }: { id: string }) {
             {(note.tags ?? []).map((t: string) => <span key={t} className="tag ntag">#{t}<button aria-label={`Fjern #${t}`} onClick={() => e.set('note', id, { tags: (note.tags ?? []).filter((x: string) => x !== t) })}><Icon name="x" size="sm" /></button></span>)}
             <form className="ntag__add" onSubmit={(x) => { x.preventDefault(); const v = tagIn.trim().replace(/^#/, '').toLowerCase(); if (v && !(note.tags ?? []).includes(v)) e.set('note', id, { tags: [...(note.tags ?? []), v] }); setTagIn(''); }}>
               <input value={tagIn} onChange={(x) => setTagIn(x.target.value)} placeholder="+ tag" aria-label="Tilføj tag" list="note-tags" />
-              <datalist id="note-tags">{[...new Set((e.list('note') as any[]).flatMap((n) => n.tags ?? []))].map((t) => <option key={t} value={t} />)}</datalist>
+              <datalist id="note-tags">{allTags.map((t) => <option key={t} value={t} />)}</datalist>
             </form>
           </div>
           <textarea ref={area} className="doc__body" value={text} placeholder="Skriv løs. Link til en anden note med [[Notens titel]]." onChange={(x) => onBody(x.target.value)} aria-label="Indhold" />

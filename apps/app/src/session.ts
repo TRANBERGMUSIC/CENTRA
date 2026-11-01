@@ -9,7 +9,7 @@
  *    app open offline with the same password.
  */
 import { ready, wipe, subKey, sealJson, openJson, type KeyRing } from '@centra/crypto';
-import { OS } from './platform.ts';
+import { OS, native, invoke } from './platform.ts';
 import {
   SyncEngine, WsRelay, NullRelay, IndexedDbStore, EncryptedStore, RelayError, createAccount, passwordSecrets, unlock, changePassword as rewrap,
   recoverWithCode, newRecovery, rotateContentKey, absorbKeys, normalizeUser, unlockWithAk, type AccountPublic, type DeviceRecord, type Prelogin,
@@ -70,7 +70,7 @@ function deviceId(): string {
 export function deviceName(): string {
   const ua = navigator.userAgent;
   const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Mac/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : 'Linux';
-  const installed = '__TAURI_INTERNALS__' in window || matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone;
+  const installed = native || matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone;
   return `${os} · ${installed ? 'app' : 'browser'}`;
 }
 
@@ -233,9 +233,11 @@ async function openSession(relay: AnyRelay, user: string, account: AccountPublic
   const storeKey = subKey(ak, 'store/v1');
 
   const device = deviceId();
-  const engine = new SyncEngine({ device, keys, store: new EncryptedStore(new IndexedDbStore(`${user}:${device}`), storeKey), relay });
+  const disk = new IndexedDbStore(`${user}:${device}`);
+  const engine = new SyncEngine({ device, keys, store: new EncryptedStore(disk, storeKey, disk), relay });
   await engine.start({ compact: firstUpload });
   purgeSampleData(engine);
+  keepInSync(engine, relay);
 
   const verify = (pw: string) => {
     const s = passwordSecrets(pw, account.kdf);
@@ -262,12 +264,10 @@ async function openSession(relay: AnyRelay, user: string, account: AccountPublic
       return r.code;
     },
     async enableBiometrics() {
-      const { invoke } = await import('@tauri-apps/api/core');
       await invoke('bio_enable', { user, key: Array.from(ak) });
     },
     async stash() {
-      if (!('__TAURI_INTERNALS__' in window)) return false;
-      const { invoke } = await import('@tauri-apps/api/core');
+      if (!native) return false;
       await invoke('session_stash', { user, key: Array.from(ak) });
       return true;
     },
@@ -308,9 +308,8 @@ export async function openWithKey(userIn: string, raw: number[] | Uint8Array): P
 
 /** After an update reloads the window: the Mac app hands back the key it held (in memory, at most a minute). */
 export async function resumeAfterUpdate(): Promise<Session | null> {
-  if (!('__TAURI_INTERNALS__' in window)) return null;
+  if (!native) return null;
   try {
-    const { invoke } = await import('@tauri-apps/api/core');
     const got = await invoke<[string, number[]] | null>('session_take');
     return got ? await openWithKey(got[0], got[1]) : null;
   } catch {
@@ -366,6 +365,29 @@ const localGuard = {
   },
   reset() { localStorage.removeItem('centra.guard'); },
 };
+
+/**
+ * Live while the app is open, also on a phone that was put away: when the app comes back to the
+ * front (or the network returns) the connection is checked at once and anything missed is fetched;
+ * while it is open it asks once a minute as a safety net. Unsaved changes are written when it goes
+ * to the background, where iOS may stop it at any time.
+ */
+function keepInSync(engine: SyncEngine, relay: AnyRelay) {
+  const save = () => { if (document.visibilityState === 'hidden') void engine.persist().catch(() => {}); };
+  document.addEventListener('visibilitychange', save);
+  addEventListener('pagehide', () => void engine.persist().catch(() => {}));
+  if (!(relay instanceof WsRelay)) return;
+  const wake = () => {
+    if (document.visibilityState !== 'visible') return;
+    relay.resume();
+    if (relay.connected) void engine.catchUp().catch(() => {});
+  };
+  document.addEventListener('visibilitychange', wake);
+  addEventListener('focus', wake);
+  addEventListener('online', wake);
+  addEventListener('pageshow', wake);
+  setInterval(() => { if (document.visibilityState === 'visible' && relay.connected) void engine.catchUp().catch(() => {}); }, 60_000);
+}
 
 /** Earlier test builds filled a new account with invented sample content; it is removed for good on unlock. */
 function purgeSampleData(e: SyncEngine) {

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
-import { useEngine, useList, useRecord, useRoute, fmt } from '../state.tsx';
-import { Btn, vars } from '../ui/primitives.tsx';
+import { useEngine, useList, useRecord, useRoute, useNarrow, fmt } from '../state.tsx';
+import { Btn, vars, useProgressive, More } from '../ui/primitives.tsx';
 import { ask } from '../ui/Confirm.tsx';
 import { Icon } from '../ui/Icon.tsx';
 import { useToast } from '../ui/Shell.tsx';
@@ -15,6 +15,7 @@ import { rememberDeleted } from '../contactImport.ts';
 export function Contacts() {
   const e = useEngine();
   const { route, go } = useRoute();
+  const narrow = useNarrow();
   const ref = useRef<HTMLElement>(null);
   useScreenEnter(ref, 'contacts');
   const [q, setQ] = useState('');
@@ -23,12 +24,13 @@ export function Contacts() {
   const owes = Object.fromEntries(balances(e).map((b) => [b.person, b.left]));
   useList('outlay'); useList('payment');
   const list = all.filter((p) => (rel === 'Alle' || p.relation === rel) && (!q.trim() || `${p.name} ${p.phone ?? ''} ${p.email ?? ''} ${p.relation ?? ''} ${p.company ?? ''} ${p.notes ?? ''} ${(p.socials ?? []).map((s) => s.value).join(' ')}`.toLowerCase().includes(q.trim().toLowerCase())));
+  const [shown, moreAt] = useProgressive(list.length, 80, `${rel}|${q}`);
   const groups = useMemo(() => {
     const m = new Map<string, Person[]>();
-    for (const p of list) { const k = (p.name[0] ?? '#').toUpperCase(); m.set(k, [...(m.get(k) ?? []), p]); }
+    for (const p of list.slice(0, shown)) { const k = (p.name[0] ?? '#').toUpperCase(); m.set(k, [...(m.get(k) ?? []), p]); }
     return [...m.entries()];
-  }, [list]);
-  const id = route.id ?? (matchMedia('(max-width: 640px)').matches ? undefined : list[0]?.id);
+  }, [list, shown]);
+  const id = route.id ?? (narrow ? undefined : list[0]?.id);
   const newPerson = () => go({ screen: 'contacts', id: e.create('person', { name: '', createdAt: new Date().toISOString() }) });
   const rels = ['Alle', ...RELATIONS.filter((r) => all.some((p) => p.relation === r))];
   const toast = useToast();
@@ -74,6 +76,7 @@ export function Contacts() {
               ))}
             </div>
           ))}
+          <More at={moreAt} left={list.length - shown} />
           {!all.length && <p className="muted pad">Ingen kontakter endnu. Tryk Hent for at få dem fra din Mac, opret en, gem en afsender fra indbakken, eller tilføj folk, når du laver et udlæg. Du kan også sige til Assist: "Gem Mads som kontakt, han er min kollega i Netto, 20 30 40 50".</p>}
           {all.length > 0 && !list.length && <p className="muted pad">Ingen fundet.</p>}
         </div>

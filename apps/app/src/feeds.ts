@@ -4,7 +4,7 @@
  */
 import type { SyncEngine } from '@centra/sync';
 import { parseIcs } from './ics.ts';
-const isDesktop = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+import { isNative, invoke } from './platform.ts';
 
 export type CalFeed = { id: string; name: string; url: string; lastSync?: string; lastError?: string; count?: number; enabled?: boolean };
 
@@ -17,10 +17,7 @@ export const FEED_GUIDES: [string, string][] = [
 const hash = (s: string) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); };
 
 async function download(url: string): Promise<string> {
-  if (isDesktop()) {
-    const { invoke } = await import('@tauri-apps/api/core');
-    try { return await invoke<string>('fetch_calendar', { url }); } catch (e) { throw new Error(typeof e === 'string' ? e : String(e)); }
-  }
+  if (isNative()) return invoke<string>('fetch_calendar', { url });
   const r = await fetch(url.replace(/^webcal:/, 'https:'));
   if (!r.ok) throw new Error(`Kalenderen svarede ${r.status}`);
   return r.text();

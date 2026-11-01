@@ -29,10 +29,21 @@ export default {
   },
 };
 
-/** One account: its log, its devices, its lock-out state, and its open connections. */
+/**
+ * One account: its log, its devices, its lock-out state, and its open connections.
+ *
+ * Connections use Cloudflare's hibernation API: between messages the object sleeps (no cost, and
+ * nothing to evict), while the sockets stay open. Heartbeats ({"type":"ping"}) are answered by
+ * Cloudflare itself without waking it. Who a socket belongs to lives in the socket's attachment,
+ * so a woken object knows its logged-in devices again and live changes keep reaching them.
+ */
+type Attachment = { u: string; user?: string; device?: string; authed?: boolean };
+
 export class Account extends DurableObject<Env> {
   private core: RelayCore;
   private user: string | null = null;
+  private conns = new Map<WebSocket, Conn>();
+  private queues = new Map<WebSocket, Promise<void>>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -64,22 +75,59 @@ export class Account extends DurableObject<Env> {
     const allowed = (env.ALLOWED_USERS ?? 'tranberg').split(',').map(normalizeUser).filter(Boolean);
     // This object only ever serves the account it is named after.
     this.core = new RelayCore({ allowedUsers: allowed, store: (u) => { if (!this.user || u !== this.user) throw new Error('wrong account'); return store; } });
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('{"type":"ping"}', '{"type":"pong"}'));
+    // Woken from hibernation: the sockets are still there; the logged-in ones get their place back.
+    for (const ws of ctx.getWebSockets()) {
+      const c = this.connFor(ws);
+      this.core.restore(c);
+    }
+  }
+
+  private connFor(ws: WebSocket): Conn {
+    let c = this.conns.get(ws);
+    if (c) return c;
+    const a = (ws.deserializeAttachment() ?? {}) as Attachment;
+    if (a.u) this.user = a.u;
+    const conn: Conn = {
+      user: a.user, device: a.device, authed: a.authed,
+      send: (m) => { try { ws.send(JSON.stringify(m)); } catch {} },
+      close: (code, reason) => { try { ws.close(code, reason); } catch {} },
+      saved: () => ws.serializeAttachment({ u: this.user!, user: conn.user, device: conn.device, authed: conn.authed } satisfies Attachment),
+    };
+    this.conns.set(ws, conn);
+    return conn;
   }
 
   async fetch(req: Request): Promise<Response> {
     this.user = req.headers.get('x-centra-user');
     const [client, server] = Object.values(new WebSocketPair());
-    server.accept();
-    const conn: Conn = {
-      send: (m) => { try { server.send(JSON.stringify(m)); } catch {} },
-      close: (code, reason) => { try { server.close(code, reason); } catch {} },
-    };
-    let queue = Promise.resolve();
-    server.addEventListener('message', (ev) => {
-      queue = queue.then(() => this.core.handle(conn, typeof ev.data === 'string' ? ev.data : new TextDecoder().decode(ev.data as ArrayBuffer)));
-    });
-    server.addEventListener('close', () => this.core.disconnect(conn));
-    server.addEventListener('error', () => this.core.disconnect(conn));
+    this.ctx.acceptWebSocket(server);
+    server.serializeAttachment({ u: this.user! } satisfies Attachment);
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
+    const conn = this.connFor(ws);
+    const text = typeof data === 'string' ? data : new TextDecoder().decode(data);
+    // One message at a time per socket, in order.
+    const next = (this.queues.get(ws) ?? Promise.resolve()).then(() => this.core.handle(conn, text)).catch(() => {});
+    this.queues.set(ws, next);
+    await next;
+  }
+
+  async webSocketClose(ws: WebSocket, code: number) {
+    this.gone(ws);
+    try { ws.close(code === 1005 || code === 1006 ? 1000 : code, 'bye'); } catch {}
+  }
+
+  async webSocketError(ws: WebSocket) {
+    this.gone(ws);
+  }
+
+  private gone(ws: WebSocket) {
+    const c = this.conns.get(ws);
+    if (c) this.core.disconnect(c);
+    this.conns.delete(ws);
+    this.queues.delete(ws);
   }
 }

@@ -113,7 +113,8 @@ export function useNavPill(nav: RefObject<HTMLElement | null>, key: unknown) {
 /** Smooth, inertial scrolling for a reading pane (note editor, mail reader). Skipped under reduced motion. */
 export function useLenis(wrapper: RefObject<HTMLElement | null>, content: RefObject<HTMLElement | null>, key?: unknown) {
   useEffect(() => {
-    if (reduced() || !wrapper.current || !content.current) return;
+    // Touch screens scroll natively (smoothing fights the finger and the caret in a note).
+    if (reduced() || matchMedia('(pointer: coarse)').matches || !wrapper.current || !content.current) return;
     const lenis = new Lenis({ wrapper: wrapper.current, content: content.current, duration: 0.9, allowNestedScroll: true, anchors: true });
     const tick = (t: number) => lenis.raf(t * 1000);
     gsap.ticker.add(tick);

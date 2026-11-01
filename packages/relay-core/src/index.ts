@@ -37,6 +37,8 @@ export interface Conn {
   user?: string;
   device?: string;
   authed?: boolean;
+  /** Called when the connection has logged in, so a host can remember it (Cloudflare: across hibernation). */
+  saved?: () => void;
   bucket?: { tokens: number; at: number };
 }
 
@@ -99,6 +101,8 @@ export class RelayCore {
     try { m = JSON.parse(raw); } catch { return conn.close(1007, 'bad json'); }
     if (!m || typeof m.type !== 'string') return;
     const rid = typeof m.rid === 'string' && m.rid.length < 20 ? m.rid : undefined;
+    // Heartbeat: lets a device notice a dead connection (Cloudflare answers this without waking the object).
+    if (m.type === 'ping') return conn.send({ type: 'pong' });
     const err = (code: string, extra: Record<string, unknown> = {}) => conn.send({ type: 'error', rid, code, ...extra });
 
     try {
@@ -189,6 +193,14 @@ export class RelayCore {
     }
   }
 
+  /** Registers a connection that logged in earlier (after the Cloudflare object woke from hibernation). */
+  restore(conn: Conn) {
+    if (!conn.user || !conn.authed) return;
+    let set = this.conns.get(conn.user);
+    if (!set) this.conns.set(conn.user, (set = new Set()));
+    set.add(conn);
+  }
+
   disconnect(conn: Conn) {
     if (!conn.user) return;
     this.conns.get(conn.user)?.delete(conn);
@@ -275,9 +287,8 @@ export class RelayCore {
     conn.user = user;
     conn.device = m.device;
     conn.authed = true;
-    let set = this.conns.get(user);
-    if (!set) this.conns.set(user, (set = new Set()));
-    set.add(conn);
+    conn.saved?.();
+    this.restore(conn);
     const acc = (await store.getAccount())!;
     conn.send({ type: 'welcome', rid: typeof m.rid === 'string' ? m.rid.slice(0, 20) : undefined, account: acc.pub, devices: this.withOnline(user, next) });
     await this.broadcastDevices(user);

@@ -1,67 +1,220 @@
-import { useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { occurrences, type CalEvent } from '../calendar.ts';
-import { Btn } from '../ui/primitives.tsx';
-import { useList, useNow, fmt } from '../state.tsx';
-import { vars } from '../ui/primitives.tsx';
+import { Btn, vars } from '../ui/primitives.tsx';
+import { useList, useNow, useNarrow, fmt } from '../state.tsx';
 import { useScreenEnter } from '../motion.ts';
 import { Icon } from '../ui/Icon.tsx';
 import { EventEditor } from '../ui/EventEditor.tsx';
 
-/** The week: your own events, weekly repeats and subscribed calendars. Click an event to change or delete it. */
+type Open = null | { event?: CalEvent; occurrence?: CalEvent; start?: Date };
+const DAY = 86400000;
+const startOf = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+const mondayOf = (d: Date) => addDays(startOf(d), -((d.getDay() + 6) % 7));
+const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+const isAllDay = (x: CalEvent) => !!(x as { allDay?: boolean }).allDay;
+
+/**
+ * Side by side when events overlap: each event gets a lane and the number of lanes in its group,
+ * so two meetings at 10.00 sit next to each other instead of on top of each other.
+ */
+export function lanes(evs: CalEvent[]): Map<string, { lane: number; of: number }> {
+  const out = new Map<string, { lane: number; of: number }>();
+  const sorted = [...evs].sort((a, b) => a.start.localeCompare(b.start) || b.end.localeCompare(a.end));
+  let group: CalEvent[] = [], ends: number[] = [], groupEnd = 0;
+  const close = () => { for (const e of group) out.get(e.id)!.of = ends.length; group = []; ends = []; };
+  for (const e of sorted) {
+    const s = new Date(e.start).getTime(), en = Math.max(new Date(e.end).getTime(), s + 15 * 60000);
+    if (group.length && s >= groupEnd) close();
+    let lane = ends.findIndex((t) => t <= s);
+    if (lane < 0) { lane = ends.length; ends.push(en); } else ends[lane] = en;
+    out.set(e.id, { lane, of: 1 });
+    group.push(e);
+    groupEnd = Math.max(groupEnd, en);
+  }
+  close();
+  return out;
+}
+
+/** The calendar: a week on the Mac, a day with the week above it on the iPhone. */
 export function Calendar() {
+  const narrow = useNarrow();
+  const all = useList('event') as unknown as CalEvent[];
+  const [open, setOpen] = useState<Open>(null);
+  const edit = (x: CalEvent) => setOpen({ event: all.find((y) => y.id === (x.sourceId ?? x.id)), occurrence: x });
+  return (
+    <>
+      {narrow ? <DayView all={all} onEdit={edit} onNew={(start) => setOpen({ start })} /> : <WeekView all={all} onEdit={edit} onNew={(start) => setOpen({ start })} />}
+      {open && <EventEditor event={open.event} occurrence={open.occurrence} defaultStart={open.start} onClose={() => setOpen(null)} />}
+    </>
+  );
+}
+
+type ViewProps = { all: CalEvent[]; onEdit: (x: CalEvent) => void; onNew: (start: Date) => void };
+const nextHour = (now: Date) => { const d = new Date(now); d.setMinutes(0, 0, 0); d.setHours(d.getHours() + 1); return d; };
+
+/* ---------------------------------------------------------------- Mac: the week */
+function WeekView({ all, onEdit, onNew }: ViewProps) {
   const now = useNow();
   const ref = useRef<HTMLElement>(null);
   useScreenEnter(ref, 'calendar');
   const [week, setWeek] = useState(0);
-  const [open, setOpen] = useState<null | { event?: CalEvent; occurrence?: CalEvent; start?: Date }>(null);
-  const all = useList('event') as unknown as CalEvent[];
-  const monday = new Date(now); monday.setHours(0, 0, 0, 0); monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7) + week * 7);
-  const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(monday); d.setDate(d.getDate() + i); return d; });
-  const events = occurrences(all, new Date(monday.getTime() - 86400000 * 30), new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 7));
-  const H0 = 5, H1 = 23;
-  const f = (d: Date) => Math.min(1, Math.max(0, (d.getHours() * 60 + d.getMinutes() - H0 * 60) / ((H1 - H0) * 60)));
+  const monday = addDays(mondayOf(now), week * 7);
+  const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+  const events = useMemo(() => occurrences(all, new Date(monday.getTime() - DAY * 30), addDays(monday, 7)), [all, monday.getTime()]);
+  const H0 = 5, H1 = 24;
+  const f = (d: Date, day: Date) => Math.min(1, Math.max(0, ((d.getTime() - day.getTime()) / 60000 - H0 * 60) / ((H1 - H0) * 60)));
   return (
     <main className="canvas" ref={ref}>
       <div className="titlerow" data-enter><div><h1>Uge {weekNo(monday)}</h1><p>{fmt.dayLabel(days[0])} – {fmt.dayLabel(days[6]).toLowerCase()}. {all.length ? 'Klik på en aftale for at rette den, dobbeltklik i en dag for at oprette.' : 'Tom endnu. Opret en aftale, tilknyt din Google- eller iCloud-kalender under Forbindelser, eller fortæl Assist om din arbejdstid.'}</p></div>
         <div className="actions">
-          <Btn size="sm" icon="plus" onClick={() => { const d = new Date(now); d.setMinutes(0, 0, 0); d.setHours(d.getHours() + 1); setOpen({ start: d }); }}>Ny aftale</Btn>
+          <Btn size="sm" icon="plus" onClick={() => onNew(nextHour(now))}>Ny aftale</Btn>
           <Btn size="sm" variant="text" icon="chevron-left" aria-label="Forrige uge" onClick={() => setWeek((w) => w - 1)} />
           <Btn size="sm" onClick={() => setWeek(0)} disabled={week === 0}>Denne uge</Btn>
           <Btn size="sm" variant="text" aria-label="Næste uge" onClick={() => setWeek((w) => w + 1)}><span className="flip-x"><Icon name="chevron-left" size="sm" /></span></Btn>
         </div></div>
       <div className="week" data-enter>
-        <div className="week__hours meta num">{Array.from({ length: (H1 - H0) / 2 + 1 }, (_, i) => H0 + i * 2).map((h) => <span key={h} style={vars({ '--at': (h - H0) / (H1 - H0) })}>{String(h).padStart(2, '0')}</span>)}</div>
+        <div className="week__hours meta num">{Array.from({ length: Math.floor((H1 - H0) / 2) + 1 }, (_, i) => H0 + i * 2).map((h) => <span key={h} style={vars({ '--at': (h - H0) / (H1 - H0) })}>{String(h).padStart(2, '0')}</span>)}</div>
         {days.map((d) => {
-          const isToday = d.toDateString() === now.toDateString();
-          const dayEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
-          const evs = events.filter((x) => !(x as any).allDay && new Date(x.start).toDateString() === d.toDateString());
-          const allDay = events.filter((x) => (x as any).allDay && new Date(x.start) < dayEnd && new Date(x.end) > d);
+          const isToday = sameDay(d, now);
+          const dayEnd = addDays(d, 1);
+          const evs = events.filter((x) => !isAllDay(x) && new Date(x.start) < dayEnd && new Date(x.end) > d);
+          const allDay = events.filter((x) => isAllDay(x) && new Date(x.start) < dayEnd && new Date(x.end) > d);
+          const lane = lanes(evs);
           return (
             <div key={d.toISOString()} className={`week__day ${isToday ? 'is-today' : ''}`}>
-              <div className="week__head"><span className="meta">{d.toLocaleDateString('da-DK', { weekday: 'short' })}</span><span className="num">{d.getDate()}</span>
-                {allDay.length > 0 && <div className="week__allday">{allDay.map((x) => <button key={x.id} title={x.title} onClick={() => setOpen({ event: all.find((y) => y.id === (x.sourceId ?? x.id)), occurrence: x })}>{x.title}</button>)}</div>}
-              </div>
+              <div className="week__head"><span className="meta">{d.toLocaleDateString('da-DK', { weekday: 'short' }).replace('.', '')}</span><span className="num">{d.getDate()}</span></div>
+              {allDay.length > 0 && <div className="week__allday">{allDay.map((x) => <button key={x.id} title={x.title} onClick={() => onEdit(x)}>{x.title}</button>)}</div>}
               <div className="week__col" onDoubleClick={(ev) => {
                 if (ev.target !== ev.currentTarget) return;
                 const r = ev.currentTarget.getBoundingClientRect();
                 const mins = H0 * 60 + Math.round((((ev.clientY - r.top) / r.height) * (H1 - H0) * 60) / 30) * 30;
-                const st = new Date(d); st.setHours(0, mins, 0, 0); setOpen({ start: st });
+                const st = new Date(d); st.setHours(0, mins, 0, 0); onNew(st);
               }}>
-                {evs.map((x) => (
-                  <button key={x.id} className={`week__ev ${new Date(x.end) < now ? 'is-past' : ''} ${x.focus ? 'is-focusblock' : ''} ${(x as any).feed ? 'is-feed' : ''}`} style={vars({ '--start': f(new Date(x.start)), '--len': f(new Date(x.end)) - f(new Date(x.start)) })}
-                    onClick={() => setOpen({ event: all.find((y) => y.id === (x.sourceId ?? x.id)), occurrence: x })} aria-label={`${x.title} ${fmt.hm(x.start)}–${fmt.hm(x.end)}. Redigér`}>
-                    <b>{x.title}</b><span className="num">{fmt.hm(x.start)}–{fmt.hm(x.end)}</span>
-                  </button>
-                ))}
-                {isToday && <div className="week__now" style={vars({ '--at': f(now) })} />}
+                {evs.map((x) => {
+                  const s = f(new Date(x.start), d), l = lane.get(x.id)!;
+                  return (
+                    <button key={x.id} className={`week__ev ${new Date(x.end) < now ? 'is-past' : ''} ${x.focus ? 'is-focusblock' : ''} ${(x as any).feed ? 'is-feed' : ''}`}
+                      style={vars({ '--start': s, '--len': Math.max(0.02, f(new Date(x.end), d) - s), '--lane': l.lane, '--of': l.of })}
+                      onClick={() => onEdit(x)} aria-label={`${x.title} ${fmt.hm(x.start)}–${fmt.hm(x.end)}. Redigér`}>
+                      <b>{x.title}</b><span className="num">{fmt.hm(x.start)}–{fmt.hm(x.end)}</span>
+                    </button>
+                  );
+                })}
+                {isToday && <div className="week__now" style={vars({ '--at': f(now, d) })} />}
               </div>
             </div>
           );
         })}
       </div>
-      {open && <EventEditor event={open.event} occurrence={open.occurrence} defaultStart={open.start} onClose={() => setOpen(null)} />}
     </main>
   );
+}
+
+/* ---------------------------------------------------------------- iPhone: the day, the week above it */
+const HOUR = 56; // px per hour on the phone
+
+function DayView({ all, onEdit, onNew }: ViewProps) {
+  const now = useNow();
+  const ref = useRef<HTMLElement>(null);
+  const grid = useRef<HTMLDivElement>(null);
+  const head = useRef<HTMLDivElement>(null);
+  useScreenEnter(ref, 'calendar');
+  const [sel, setSel] = useState(() => startOf(new Date()));
+  const monday = mondayOf(sel);
+  const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+  const weekEvents = useMemo(() => occurrences(all, new Date(monday.getTime() - DAY * 30), addDays(monday, 7)), [all, monday.getTime()]);
+  const end = addDays(sel, 1);
+  const inDay = weekEvents.filter((x) => new Date(x.start) < end && new Date(x.end) > sel);
+  const timed = inDay.filter((x) => !isAllDay(x));
+  const allDay = inDay.filter(isAllDay);
+  const lane = lanes(timed);
+  const busy = (d: Date) => weekEvents.some((x) => new Date(x.start) < addDays(d, 1) && new Date(x.end) > d);
+  const y = (d: Date) => Math.min(24, Math.max(0, (d.getTime() - sel.getTime()) / 3600000)) * HOUR;
+
+  // Opens at the time that matters: now on today, else the day's first event, else 08.
+  useEffect(() => {
+    const el = grid.current;
+    if (!el) return;
+    const first = timed[0] ? new Date(timed[0].start) : null;
+    const at = sameDay(sel, now) ? y(now) - 2 * HOUR : first ? y(first) - HOUR : 8 * HOUR;
+    // The day and the week stay at the top (sticky); the hours scroll under them.
+    const top = el.getBoundingClientRect().top + scrollY + Math.max(0, at) - (head.current?.offsetHeight ?? 0) - 24;
+    scrollTo({ top: Math.max(0, top), behavior: 'instant' as ScrollBehavior });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel.getTime()]);
+
+  // Swipe sideways for the day before or after.
+  const touch = useRef<{ x: number; y: number } | null>(null);
+  const onTouchEnd = (ev: React.TouchEvent) => {
+    const t = touch.current, p = ev.changedTouches[0];
+    touch.current = null;
+    if (!t) return;
+    const dx = p.clientX - t.x, dy = p.clientY - t.y;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) setSel((d) => addDays(d, dx < 0 ? 1 : -1));
+  };
+
+  const label = sameDay(sel, now) ? 'I dag' : sameDay(sel, addDays(now, 1)) ? 'I morgen' : sameDay(sel, addDays(now, -1)) ? 'I går' : '';
+  return (
+    <main className="canvas calm" ref={ref}>
+      <div className="calm__head" ref={head}>
+      <div className="calm__top" data-enter>
+        <h1>{sel.toLocaleDateString('da-DK', { month: 'long' }).replace(/^./, (c) => c.toUpperCase())} <span className="calm__year">{sel.getFullYear()}</span></h1>
+        <div className="calm__actions">
+          {!sameDay(sel, now) && <Btn size="sm" onClick={() => setSel(startOf(new Date()))}>I dag</Btn>}
+          <Btn size="sm" variant="primary" icon="plus" aria-label="Ny aftale" onClick={() => { const s = sameDay(sel, now) ? nextHour(now) : new Date(sel.getTime() + 9 * 3600000); onNew(s); }} />
+        </div>
+      </div>
+      <div className="calm__week" data-enter role="tablist" aria-label={`Uge ${weekNo(monday)}`}>
+        <button className="calm__nav" aria-label="Forrige uge" onClick={() => setSel((d) => addDays(d, -7))}><Icon name="chevron-left" size="sm" /></button>
+        {days.map((d) => (
+          <button key={d.getTime()} role="tab" aria-selected={sameDay(d, sel)} className={`calm__d ${sameDay(d, sel) ? 'is-sel' : ''} ${sameDay(d, now) ? 'is-today' : ''}`} onClick={() => setSel(d)}>
+            <span>{d.toLocaleDateString('da-DK', { weekday: 'narrow' })}</span>
+            <b className="num">{d.getDate()}</b>
+            <i className={busy(d) ? 'is-on' : ''} />
+          </button>
+        ))}
+        <button className="calm__nav" aria-label="Næste uge" onClick={() => setSel((d) => addDays(d, 7))}><span className="flip-x"><Icon name="chevron-left" size="sm" /></span></button>
+      </div>
+      <p className="calm__label">{label ? <b>{label}</b> : null}{label ? ' · ' : ''}{fmt.dayLabel(sel)}<span className="meta"> · {timed.length + allDay.length ? `${timed.length + allDay.length} ${timed.length + allDay.length === 1 ? 'aftale' : 'aftaler'}` : 'ingen aftaler'}</span></p>
+      {allDay.length > 0 && <div className="calm__allday">{allDay.map((x) => <button key={x.id} onClick={() => onEdit(x)}>{x.title}</button>)}</div>}
+      </div>
+      <div className="calm__grid" ref={grid} style={vars({ '--hour': HOUR + 'px' })}
+        onTouchStart={(ev) => { const p = ev.touches[0]; touch.current = { x: p.clientX, y: p.clientY }; }} onTouchEnd={onTouchEnd}
+        onClick={(ev) => {
+          if (!(ev.target as HTMLElement).classList.contains('calm__slots')) return;
+          const r = (ev.target as HTMLElement).getBoundingClientRect();
+          const mins = Math.floor(((ev.clientY - r.top) / HOUR) * 2) * 30;
+          onNew(new Date(sel.getTime() + mins * 60000));
+        }}>
+        {Array.from({ length: 25 }, (_, h) => <span key={h} className="calm__h num" style={vars({ '--at': h })}>{h < 24 ? String(h).padStart(2, '0') : ''}</span>)}
+        <div className="calm__slots" aria-label="Tryk for at oprette en aftale" />
+        {timed.map((x) => {
+          const s = new Date(x.start), e = new Date(x.end), l = lane.get(x.id)!;
+          const h = Math.max(24, y(e) - y(s) - 2);
+          return (
+            <button key={x.id} className={`calm__ev ${e < now ? 'is-past' : ''} ${(x as any).feed ? 'is-feed' : ''} ${h < 40 ? 'is-short' : ''}`} style={vars({ '--top': y(s) + 'px', '--h': h + 'px', '--lane': l.lane, '--of': l.of })}
+              onClick={() => onEdit(x)} aria-label={`${x.title} ${fmt.hm(x.start)}–${fmt.hm(x.end)}. Redigér`}>
+              <b style={vars({ '--lines': Math.max(1, Math.floor((h - 26) / 18)) })}>{x.title}</b><span className="num">{fmt.hm(x.start)}–{fmt.hm(x.end)}{x.place ? ' · ' + x.place : ''}</span>
+            </button>
+          );
+        })}
+        {sameDay(sel, now) && <div className="calm__now" style={vars({ '--top': y(now) + 'px' })}><span className="num">{fmt.hm(now)}</span></div>}
+      </div>
+      <div className="calm__more">
+        <button onClick={() => { setSel((d) => addDays(d, -1)); }}><Icon name="chevron-left" size="sm" />{dayName(addDays(sel, -1), now)}</button>
+        <button onClick={() => { setSel((d) => addDays(d, 1)); }}>{dayName(addDays(sel, 1), now)}<span className="flip-x"><Icon name="chevron-left" size="sm" /></span></button>
+      </div>
+    </main>
+  );
+}
+
+/** "I morgen", "I går" or "Tirsdag 3. nov." for the buttons under the day. */
+function dayName(d: Date, now: Date) {
+  if (sameDay(d, addDays(now, 1))) return 'I morgen';
+  if (sameDay(d, addDays(now, -1))) return 'I går';
+  if (sameDay(d, now)) return 'I dag';
+  return d.toLocaleDateString('da-DK', { weekday: 'long', day: 'numeric', month: 'short' }).replace(/^./, (c) => c.toUpperCase());
 }
 
 function weekNo(d: Date) {

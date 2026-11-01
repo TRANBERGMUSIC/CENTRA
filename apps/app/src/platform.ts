@@ -14,3 +14,12 @@ export const OS: OsName = native ? ((w.__CENTRA_OS as OsName) || 'macos') : 'web
 export const ios = OS === 'ios';
 export const mobileApp = OS === 'ios' || OS === 'android';
 export const desktop = native && !mobileApp;
+
+/** Checked at call time (tests set it up after import). */
+export const isNative = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+/** Calls the app's Rust side. Errors come back as plain text (Rust sends strings). */
+export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const core = await import('@tauri-apps/api/core');
+  try { return await core.invoke<T>(cmd, args); } catch (e) { throw new Error(typeof e === 'string' ? e : (e as Error)?.message ?? String(e)); }
+}

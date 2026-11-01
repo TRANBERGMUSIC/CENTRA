@@ -35,6 +35,28 @@ export type Snapshot = {
 export interface Store {
   load(): Promise<Snapshot | null>;
   save(s: Snapshot): Promise<void>;
+  /**
+   * Optional: write only what changed since the last save (a few records instead of everything).
+   * `null` removes. When present, the engine uses it for every save; `needsFull` (set by `load`)
+   * asks for one complete write first, e.g. after reading an older whole-snapshot format.
+   */
+  saveChanges?(c: StoreChanges): Promise<void>;
+  needsFull?: boolean;
+}
+
+export type StoreMeta = { cursor: number; seen: string[]; clock?: Hlc };
+export type StoreChanges = {
+  entities: Record<string, EntityState | null>;
+  docs: Record<string, string | null>;
+  outbox: Record<string, Envelope | null>;
+  meta: StoreMeta;
+};
+
+/** Raw key/value storage for the incremental format (IndexedDB in the apps, a Map in tests). */
+export interface KvStore {
+  /** Every value whose key starts with `prefix`. */
+  all(prefix: string): Promise<Map<string, Uint8Array>>;
+  write(puts: Map<string, Uint8Array>, dels: string[]): Promise<void>;
 }
 
 export interface Relay {

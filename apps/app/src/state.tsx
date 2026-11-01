@@ -23,20 +23,24 @@ function useVersion(e: SyncEngine): number {
   return useSyncExternalStore(store.subscribe, store.get);
 }
 
+/** Records of one type. The same array comes back until a record of that type changes, so memos downstream hold. */
 export function useList<T = Record_>(type: string, sort?: (a: any, b: any) => number): (T & Record_)[] {
   const e = useEngine();
-  const v = useVersion(e);
+  useVersion(e);
+  const tv = e.typeVersion(type);
   return useMemo(() => {
     const l = e.list(type) as (T & Record_)[];
     return sort ? l.sort(sort) : l;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [e, v, type]);
+  }, [e, tv, type]);
 }
 
 export function useRecord<T = Record_>(id: string | null | undefined): (T & Record_) | null {
   const e = useEngine();
-  const v = useVersion(e);
-  return useMemo(() => (id ? (e.get(id) as (T & Record_) | null) : null), [e, v, id]);
+  useVersion(e);
+  const type = id ? (e.get(id)?.type as string | undefined) : undefined;
+  const tv = type ? e.typeVersion(type) : -1;
+  return useMemo(() => (id ? (e.get(id) as (T & Record_) | null) : null), [e, tv, id]);
 }
 
 /** Sync status for the sidebar line: last sync time, pending changes, connection. */
@@ -99,3 +103,12 @@ export const fmt = {
 };
 
 export const greeting = (d: Date) => (d.getHours() < 5 ? 'God nat' : d.getHours() < 10 ? 'God morgen' : d.getHours() < 17 ? 'God eftermiddag' : 'God aften');
+
+/* ---------------------------------------------------------------- layout */
+const NARROW = '(max-width: 640px)';
+const narrowStore = {
+  subscribe: (cb: () => void) => { const m = matchMedia(NARROW); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb); },
+  get: () => matchMedia(NARROW).matches,
+};
+/** True at phone width (the same breakpoint the stylesheets use). */
+export const useNarrow = () => useSyncExternalStore(narrowStore.subscribe, narrowStore.get);
