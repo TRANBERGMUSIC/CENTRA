@@ -60,5 +60,7 @@ objc2-contacts = { version = "0.3", default-features = false, features = ["std",
 codegen-units = 1
 lto = true
 opt-level = "s"
-panic = "abort"
+# A mistake in one command (an unexpected empty value from macOS, say) becomes an error message
+# instead of closing the whole app.
+panic = "unwind"
 strip = true

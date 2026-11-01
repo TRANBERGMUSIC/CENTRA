@@ -9,8 +9,9 @@ use std::time::Duration;
 
 use base64::Engine;
 use block2::RcBlock;
+use objc2::msg_send;
 use objc2::rc::Retained;
-use objc2::runtime::{Bool, ProtocolObject};
+use objc2::runtime::{AnyObject, Bool, ProtocolObject};
 use objc2::AnyThread;
 use objc2_contacts::{
     CNAuthorizationStatus, CNContact, CNContactBirthdayKey, CNContactEmailAddressesKey, CNContactFamilyNameKey, CNContactFetchRequest,
@@ -49,6 +50,13 @@ pub struct MacContact {
 
 fn s(x: Retained<NSString>) -> String {
     x.to_string().trim().to_string()
+}
+
+/// A text property that Apple declares as always there but that can be missing in real address books
+/// (a social profile with only a link, an address without a city). Read as optional, so a missing one
+/// is an empty string instead of a crash.
+fn os(x: Option<Retained<NSString>>) -> String {
+    x.map(s).unwrap_or_default()
 }
 
 fn label<T: objc2::Message + objc2_foundation::NSCopying + objc2_foundation::NSSecureCoding>(lv: &CNLabeledValue<T>) -> String {
@@ -128,24 +136,44 @@ pub fn fetch() -> Result<Vec<MacContact>, String> {
                 ..Default::default()
             };
             for lv in c.phoneNumbers().iter() {
-                m.phones.push(Labeled { label: label(&lv), value: s(lv.value().stringValue()) });
+                let v: Option<Retained<AnyObject>> = msg_send![&*lv, value];
+                let Some(v) = v else { continue };
+                let n: Option<Retained<NSString>> = msg_send![&*v, stringValue];
+                let value = os(n);
+                if !value.is_empty() { m.phones.push(Labeled { label: label(&lv), value }); }
             }
             for lv in c.emailAddresses().iter() {
-                m.emails.push(Labeled { label: label(&lv), value: s(lv.value()) });
+                let v: Option<Retained<NSString>> = msg_send![&*lv, value];
+                let value = os(v);
+                if !value.is_empty() { m.emails.push(Labeled { label: label(&lv), value }); }
             }
             for lv in c.postalAddresses().iter() {
-                let a = lv.value();
-                let parts = [s(a.street()), [s(a.postalCode()), s(a.city())].join(" ").trim().to_string(), s(a.country())];
+                let a: Option<Retained<AnyObject>> = msg_send![&*lv, value];
+                let Some(a) = a else { continue };
+                let street: Option<Retained<NSString>> = msg_send![&*a, street];
+                let zip: Option<Retained<NSString>> = msg_send![&*a, postalCode];
+                let city: Option<Retained<NSString>> = msg_send![&*a, city];
+                let country: Option<Retained<NSString>> = msg_send![&*a, country];
+                let parts = [os(street), [os(zip), os(city)].join(" ").trim().to_string(), os(country)];
                 let value = parts.into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join(", ");
                 m.addresses.push(Labeled { label: label(&lv), value });
             }
             for lv in c.urlAddresses().iter() {
-                m.urls.push(Labeled { label: label(&lv), value: s(lv.value()) });
+                let v: Option<Retained<NSString>> = msg_send![&*lv, value];
+                let value = os(v);
+                if !value.is_empty() { m.urls.push(Labeled { label: label(&lv), value }); }
             }
             for lv in c.socialProfiles().iter() {
-                let p = lv.value();
-                let user = s(p.username());
-                m.socials.push(Labeled { label: s(p.service()), value: if user.is_empty() { s(p.urlString()) } else { user } });
+                let p: Option<Retained<AnyObject>> = msg_send![&*lv, value];
+                let Some(p) = p else { continue };
+                let user: Option<Retained<NSString>> = msg_send![&*p, username];
+                let service: Option<Retained<NSString>> = msg_send![&*p, service];
+                let url: Option<Retained<NSString>> = msg_send![&*p, urlString];
+                let (user, url) = (os(user), os(url));
+                let value = if user.is_empty() { url } else { user };
+                if !value.is_empty() {
+                    m.socials.push(Labeled { label: os(service), value });
+                }
             }
             if let Some(b) = c.birthday() {
                 let (y, mo, d) = (b.year(), b.month(), b.day());

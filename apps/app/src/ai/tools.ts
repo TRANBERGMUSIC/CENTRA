@@ -34,6 +34,31 @@ const str = (description: string) => ({ type: 'string', description });
 const num = (description: string) => ({ type: 'number', description });
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required });
 
+/** Every kind of thing in CENTRA, with the Danish name Assist and the user use for it. */
+const KINDS: Record<string, string> = {
+  note: 'note', event: 'aftale', goal: 'mål', goalUpdate: 'målopdatering', person: 'kontakt', outlay: 'udlæg', tally: 'regnestykke',
+  payment: 'betaling', expense: 'fast udgift', memory: 'hukommelse', photo: 'billede', mail: 'mail', mailfolder: 'mailmappe',
+  notefolder: 'notemappe', calcat: 'kalendertype', suggestion: 'forslag', mailacct: 'mailkonto', lhconn: 'LunchHub-forbindelse', feed: 'kalenderabonnement',
+};
+const KIND_KEYS = Object.keys(KINDS);
+/** One line about a record, for find_items. */
+function summary(e: SyncEngine, r: any): string {
+  const name = r.title || r.name || r.subject || r.statement || r.text || r.path || r.label || '';
+  const bits: string[] = [];
+  if (r.start) bits.push(new Date(r.start).toLocaleString('da-DK', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }));
+  if (r.date) bits.push(r.date);
+  if (r.at && !r.start && !r.date) bits.push(String(r.at).slice(0, 10));
+  if (typeof r.amount === 'number') bits.push(kr(r.amount));
+  if (r.person) bits.push('med ' + personName(e, r.person));
+  if (r.type === 'tally') { try { bits.push(tallyNet(r as Tally) >= 0 ? `${personName(e, r.person)} skylder dig ${kr(tallyNet(r as Tally))}` : `du skylder ${personName(e, r.person)} ${kr(-tallyNet(r as Tally))}`); } catch { /* fine */ } }
+  if (r.type === 'outlay' && Array.isArray(r.items)) bits.push(kr(r.items.reduce((a: number, x: any) => a + (Number(x.amount) || 0), 0)));
+  if (r.fromName) bits.push('fra ' + r.fromName);
+  if (r.phone) bits.push(r.phone);
+  if (r.email) bits.push(r.email);
+  if (r.folder) bits.push(r.folder);
+  return [String(name).slice(0, 120), ...bits].filter(Boolean).join(' · ');
+}
+
 export const TOOLS: ToolDef[] = [
   {
     name: 'remember',
@@ -254,6 +279,30 @@ export const TOOLS: ToolDef[] = [
     name: 'my_writing_style',
     description: 'How the user writes: what they have said about their style, and their own most recent sent mails (to the same person first, if given). Use before writing anything in the user\'s name.',
     input_schema: obj({ to: str('optional: e-mail address of the person the text is for') }, []),
+  },
+  {
+    name: 'find_items',
+    description: 'Find anything in CENTRA by words, of any kind (tally = regnestykke, outlay = udlæg, person = kontakt, memory = hukommelse …). Gives id, kind and a summary, for update_item or delete_items. Empty query = the newest.',
+    input_schema: obj({
+      query: str('words to look for (names, titles, amounts, text); empty = newest'),
+      kinds: { type: 'array', items: { type: 'string', enum: KIND_KEYS }, description: 'which kinds to look in; omit for all except mail' },
+      limit: num('max results, default 20'),
+    }),
+  },
+  {
+    name: 'get_item',
+    description: 'Everything stored about one thing (all fields; a note\'s text; a regnestykke\'s lines with who owes whom), by id. Use before update_item when you need the current values.',
+    input_schema: obj({ id: str('the id') }, ['id']),
+  },
+  {
+    name: 'update_item',
+    description: 'Change anything in CENTRA by id: set any fields to new values (same names and shapes as get_item shows). A note\'s text: field "body" replaces the whole text. A regnestykke: give "lines" in the same form as get_item (kind expense|income|gift, by me|person, whose both|me|person). Set a field to null to clear it. Can be undone.',
+    input_schema: obj({ id: str('the id'), fields: { type: 'object', description: 'field name → new value' } }, ['id', 'fields']),
+  },
+  {
+    name: 'delete_items',
+    description: 'Delete anything in CENTRA by id, one or many. Can be undone with one click, so just do it; ask first only if unclear or more than 10 things.',
+    input_schema: obj({ ids: { type: 'array', items: { type: 'string' }, description: 'the ids to delete' } }, ['ids']),
   },
 ];
 
@@ -611,6 +660,61 @@ export function runTool(e: SyncEngine, name: string, input: any): ToolResult {
       }
       if (!ids.length) throw new Error('Intet gemt');
       return { result: { ok: true, ids }, action: { label: `Gemt i Billeder: ${ids.map((id) => (e.get(id) as any)?.title).join(', ')}`, undo: { kind: 'removeMany', type: 'photo', ids }, open: { screen: 'photos', id: ids[0] } } };
+    }
+    case 'find_items': {
+      const words = String(input.query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+      const kinds: string[] = (input.kinds?.length ? input.kinds : KIND_KEYS.filter((k) => k !== 'mail')).filter((k: string) => KINDS[k]);
+      const limit = Math.min(100, Math.max(1, Number(input.limit) || 20));
+      const found: { id: string; kind: string; summary: string; when: string }[] = [];
+      for (const k of kinds) for (const r of e.list(k) as any[]) {
+        const hay = (JSON.stringify(r) + (k === 'note' ? ' ' + e.doc(r.id).getText('body').toString() : '') + (r.person ? ' ' + personName(e, r.person) : '')).toLowerCase();
+        if (words.every((w) => hay.includes(w))) found.push({ id: r.id, kind: KINDS[k], summary: summary(e, r), when: String(r.editedAt ?? r.createdAt ?? r.at ?? r.date ?? r.start ?? '') });
+      }
+      found.sort((a, b) => b.when.localeCompare(a.when));
+      return { result: { count: found.length, items: found.slice(0, limit).map(({ when: _w, ...x }) => x) } };
+    }
+    case 'get_item': {
+      const r = e.get(String(input.id)) as any;
+      if (!r) throw new Error('Findes ikke (måske allerede slettet)');
+      const out: Record<string, unknown> = { ...r, kind: KINDS[r.type] ?? r.type };
+      if (r.type === 'note') out.body = e.doc(r.id).getText('body').toString();
+      if (r.type === 'tally') { out.person_name = personName(e, r.person); out.net = tallyNet(r as Tally); out.lines_explained = (r.lines ?? []).map((l: any) => lineExplain(l, personName(e, r.person))); }
+      if (r.person && r.type !== 'tally') out.person_name = personName(e, r.person);
+      for (const k of ['image', 'thumb', 'html']) if (typeof out[k] === 'string' && (out[k] as string).length > 400) out[k] = `(${Math.round((out[k] as string).length / 1000)} kB, ikke vist)`;
+      return { result: out };
+    }
+    case 'update_item': {
+      const r = e.get(String(input.id)) as any;
+      if (!r) throw new Error('Findes ikke (måske slettet)');
+      const fields = { ...(input.fields ?? {}) } as Record<string, unknown>;
+      for (const k of ['id', 'type', '_deleted']) delete fields[k];
+      const steps: Undo[] = [];
+      if (r.type === 'note' && typeof fields.body === 'string') {
+        const t = e.doc(r.id).getText('body');
+        steps.push({ kind: 'noteText', id: r.id, text: t.toString() });
+        e.doc(r.id).transact(() => { t.delete(0, t.length); t.insert(0, fields.body as string); });
+        delete fields.body;
+        fields.editedAt = nowIso();
+      }
+      if (r.type === 'tally' && Array.isArray(fields.lines)) fields.lines = toLines((fields.lines as any[]).map((l) => ({ ...l, by: l.by === 'mig' ? 'me' : l.by, whose: l.whose === 'begge' ? 'both' : l.whose === 'mig' ? 'me' : l.whose })), () => Math.random().toString(36).slice(2, 10), r.lines ?? []);
+      const prev = Object.fromEntries(Object.keys(fields).map((k) => [k, r[k] ?? null]));
+      if (Object.keys(fields).length) { e.set(r.type, r.id, fields); steps.push({ kind: 'restore', type: r.type, id: r.id, fields: prev }); }
+      const what = `${KINDS[r.type] ?? r.type} ${r.title || r.name || r.subject || r.statement || ''}`.trim();
+      return { result: { ok: true, changed: Object.keys(fields).concat(steps.some((x) => x.kind === 'noteText') ? ['body'] : []) }, action: { label: `Rettet: ${what}`, undo: { kind: 'many', steps } } };
+    }
+    case 'delete_items': {
+      const ids: string[] = (input.ids ?? []).map(String);
+      const steps: Undo[] = [], names: string[] = [], missing: string[] = [];
+      for (const id of ids) {
+        const r = e.get(id) as any;
+        if (!r) { missing.push(id); continue; }
+        const { id: _i, type: _t, ...fields } = r;
+        e.remove(r.type, id);
+        steps.push({ kind: 'restore', type: r.type, id, fields: { ...fields, _deleted: false } });
+        names.push(`${KINDS[r.type] ?? r.type} ${r.title || r.name || r.subject || r.statement || ''}`.trim());
+      }
+      if (!steps.length) throw new Error('Fandt intet at slette (allerede slettet?)');
+      return { result: { ok: true, deleted: steps.length, missing }, action: { label: `Slettet: ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` og ${names.length - 3} mere` : ''}`, undo: { kind: 'many', steps } } };
     }
     case 'my_writing_style': {
       const to = String(input.to ?? '').toLowerCase();

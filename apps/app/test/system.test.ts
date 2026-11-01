@@ -165,3 +165,33 @@ describe('billeder', () => {
     setAttachments([]);
   });
 });
+
+describe('Assist kan alt', () => {
+  it('finder og sletter et gammelt regnestykke med Jonas, og det kan fortrydes', async () => {
+    const e = await engine();
+    const r = runTool(e, 'create_tally', { person: 'Jonas', title: 'Pant og mad', lines: [{ text: 'Pant', amount: 440, kind: 'income', by: 'mig', whose: 'begge' }] }) as any;
+    const n = runTool(e, 'create_note', { title: 'Indkøb', body: '- [ ] mælk' }) as any;
+    const found = runTool(e, 'find_items', { query: 'jonas', kinds: ['tally'] }).result as any;
+    expect(found.items).toHaveLength(1);
+    expect(found.items[0].kind).toBe('regnestykke');
+    expect(found.items[0].summary).toContain('Jonas');
+    // any kind, by words, without saying which
+    expect((runTool(e, 'find_items', { query: 'mælk' }).result as any).items[0].kind).toBe('note');
+    const del = runTool(e, 'delete_items', { ids: [found.items[0].id] }) as any;
+    expect(e.list('tally')).toHaveLength(0);
+    expect(del.action.label).toContain('regnestykke');
+    applyUndo(e, del.action.undo);
+    expect(e.list('tally')).toHaveLength(1);
+    expect((e.get(r.result.id) as any).lines).toHaveLength(1);
+    // change anything: a note's text and a field, then undo both
+    const noteId = n.result.id ?? (e.list('note') as any[])[0].id;
+    const up = runTool(e, 'update_item', { id: noteId, fields: { body: '- [x] mælk', title: 'Handel' } }) as any;
+    expect(e.doc(noteId).getText('body').toString()).toBe('- [x] mælk');
+    expect((e.get(noteId) as any).title).toBe('Handel');
+    expect((runTool(e, 'get_item', { id: noteId }).result as any).body).toBe('- [x] mælk');
+    applyUndo(e, up.action.undo);
+    expect(e.doc(noteId).getText('body').toString()).toBe('- [ ] mælk');
+    expect((e.get(noteId) as any).title).toBe('Indkøb');
+    expect(() => runTool(e, 'delete_items', { ids: ['findes-ikke'] })).toThrow();
+  });
+});
