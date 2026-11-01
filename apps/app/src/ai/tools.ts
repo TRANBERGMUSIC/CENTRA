@@ -2,6 +2,7 @@
  * What Assist can do in CENTRA. Every tool works on the encrypted local engine and returns an undo
  * step, so anything Assist did can be taken back with one click ("Fortryd").
  */
+import { calTypes, typeForName } from '../calTypes.ts';
 import type { SyncEngine } from '@centra/sync';
 import { fullText, fetchedHtml } from '../mailText.ts';
 import { folders, sortByRules, moveToFolder, folderByName, type FolderRule } from '../mailFolders.ts';
@@ -76,6 +77,7 @@ export const TOOLS: ToolDef[] = [
       repeat_until: str('optional last date YYYY-MM-DD'),
       place: str('optional place'),
       calendar: str('optional calendar name: "Arbejde", "Privat", "Træning", "Påmindelser"'),
+      kind: str('the event\'s type, which sets its colour: one of Kalendertyper in the context when it fits (e.g. "Arbejde" for shifts, "Personlig"); a new name makes a new type'),
     }, ['title', 'date', 'start_time', 'end_time']),
   },
   {
@@ -306,7 +308,8 @@ export function runTool(e: SyncEngine, name: string, input: any): ToolResult {
       if (en <= s) en = new Date(en.getTime() + 86400000); // night shift past midnight
       const days = (input.repeat_days ?? []).map((d: string) => DAYS[String(d).slice(0, 3).toLowerCase()]).filter((d: number | undefined) => d !== undefined);
       const repeat = days.length ? { days, ...(input.repeat_until ? { until: ymd(input.repeat_until) } : {}) } : undefined;
-      const id = e.create('event', { title: String(input.title), start: s.toISOString(), end: en.toISOString(), place: input.place, cal: input.calendar ?? (repeat ? 'Faste' : 'Privat'), ...(repeat ? { repeat } : {}), by: 'Assist' });
+      const cat = input.kind ? typeForName(e, String(input.kind)) : /arbejd|vagt|netto/i.test(`${input.title} ${input.calendar ?? ''}`) ? typeForName(e, 'Arbejde') : 'calcat-personal';
+      const id = e.create('event', { title: String(input.title), start: s.toISOString(), end: en.toISOString(), place: input.place, cal: input.calendar ?? (repeat ? 'Faste' : 'Privat'), cat, ...(repeat ? { repeat } : {}), by: 'Assist' });
       const when = repeat ? `${repeatLabel(repeat)} ${input.start_time}–${input.end_time}` : `${new Date(date + 'T12:00').toLocaleDateString('da-DK', { weekday: 'short', day: 'numeric', month: 'short' })} ${input.start_time}–${input.end_time}`;
       return { result: { ok: true, id }, action: { label: `I kalenderen: ${input.title}, ${when}`, undo: { kind: 'remove', type: 'event', id }, open: { screen: 'calendar' } } };
     }
@@ -683,6 +686,7 @@ export function contextFor(e: SyncEngine): string {
     sec('Enkeltaftaler de næste 8 dage', soon, '(ingen)'),
     sec('Mål', goals, '(ingen)'),
     sec('Notemapper', noteFolders.length ? [noteFolders.join(' · ')] : [], '(kun Indbakke)'),
+    sec('Kalendertyper', [calTypes(e).map((t) => t.name).join(' · ')], ''),
     sec('Seneste noter', notes, '(ingen)'),
     sec('Kontakter (brug find_contact for detaljer)', contacts, '(ingen endnu)'),
     sec('Udlæg: skylder brugeren penge', owing, '(ingen)'),

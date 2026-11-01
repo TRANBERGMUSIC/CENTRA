@@ -2,7 +2,7 @@
  * Fast interface updates in the Mac app (see apps/desktop/src-tauri/src/webupdate.rs).
  *
  * A push that only changes the interface is built and signed in about a minute and published as
- * `web.tar.gz`. The app looks for it every minute (and when the window comes back), installs it in
+ * `web.tar.gz`. The app looks for it every 30 seconds (and when the window comes back), installs it in
  * the background, and switches to it with a reload: straight away on the lock screen, and while
  * you are logged in as soon as you have paused for a moment, keeping you logged in.
  */
@@ -60,7 +60,7 @@ export function watchWebUpdates(getSession: () => Session | null, onWaiting: (ap
   ['pointerdown', 'keydown', 'wheel'].forEach((e) => addEventListener(e, input, { passive: true }));
   addEventListener('focus', focus);
   document.addEventListener('visibilitychange', focus);
-  const poll = setInterval(check, 60_000);
+  const poll = setInterval(check, 30_000);
   const idle = setInterval(maybeApply, 3_000);
   void check();
   return () => {

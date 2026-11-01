@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { useEngine } from '../state.tsx';
-import { Btn } from './primitives.tsx';
+import { useEngine, useList } from '../state.tsx';
+import { Btn, vars } from './primitives.tsx';
+import { calTypes, createType, typeOf, SWATCHES, type CalType } from '../calTypes.ts';
 import { useToast } from './Shell.tsx';
 import { dayKey, type CalEvent } from '../calendar.ts';
 
@@ -23,6 +24,9 @@ export function EventEditor({ event, occurrence, defaultStart, onClose }: { even
   const [end, setEnd] = useState(hm(e0));
   const [place, setPlace] = useState(base?.place ?? '');
   const [days, setDays] = useState<number[]>(base?.repeat?.days ?? []);
+  useList('calcat');
+  const types = calTypes(e);
+  const [cat, setCat] = useState<string>(() => (base ? typeOf(types, base as any)?.id ?? 'calcat-personal' : lastType() ?? 'calcat-personal'));
   const [err, setErr] = useState<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const readOnly = !!(base as any)?.feed;
@@ -40,7 +44,8 @@ export function EventEditor({ event, occurrence, defaultStart, onClose }: { even
     const s = new Date(`${date}T${start}`), en0 = new Date(`${date}T${end}`);
     if (isNaN(s.getTime()) || isNaN(en0.getTime())) return setErr('Tjek dato og tidspunkter.');
     const en = en0 <= s ? new Date(en0.getTime() + 86400000) : en0;
-    const fields: Record<string, unknown> = { title: title.trim(), start: s.toISOString(), end: en.toISOString(), place: place.trim() || undefined, repeat: days.length ? { ...(base?.repeat ?? {}), days } : null };
+    const fields: Record<string, unknown> = { title: title.trim(), start: s.toISOString(), end: en.toISOString(), place: place.trim() || undefined, repeat: days.length ? { ...(base?.repeat ?? {}), days } : null, cat };
+    rememberType(cat);
     if (base) {
       const { id: _i, type: _t, ...prev } = base as any;
       e.set('event', base.id, fields);
@@ -82,6 +87,7 @@ export function EventEditor({ event, occurrence, defaultStart, onClose }: { even
               <label className="ufield"><span>Til</span><input type="time" value={end} onChange={(x) => setEnd(x.target.value)} /></label>
             </div>
             <label className="ufield"><span>Sted</span><input value={place} onChange={(x) => setPlace(x.target.value)} placeholder="Valgfrit" /></label>
+            <TypePicker types={types} value={cat} onChange={setCat} onCreate={(name, color) => { try { setCat(createType(e, name, color)); } catch (x) { setErr((x as Error).message); } }} />
             <div className="ufield"><span>Gentag hver uge</span>
               <div className="daypick" role="group" aria-label="Gentag på">
                 {DAYS.map(([d, l]) => <button key={d} type="button" aria-pressed={days.includes(d)} className={days.includes(d) ? 'is-active' : ''} onClick={() => setDays((x) => x.includes(d) ? x.filter((y) => y !== d) : [...x, d])}>{l}</button>)}
@@ -99,6 +105,38 @@ export function EventEditor({ event, occurrence, defaultStart, onClose }: { even
           </form>
         )}
       </div>
+    </div>
+  );
+}
+
+/** The last type you picked is the starting point for the next new event. */
+const LAST = 'centra.lastCalType';
+function lastType() { try { return localStorage.getItem(LAST); } catch { return null; } }
+function rememberType(id: string) { try { localStorage.setItem(LAST, id); } catch { /* fine */ } }
+
+/** Choose the event's type, or make a new one with a colour from the wheel. */
+function TypePicker({ types, value, onChange, onCreate }: { types: CalType[]; value: string; onChange: (id: string) => void; onCreate: (name: string, color: string) => void }) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+  const [color, setColor] = useState(() => SWATCHES.find((c) => !types.some((t) => t.color.toLowerCase() === c.toLowerCase())) ?? SWATCHES[0]);
+  return (
+    <div className="ufield"><span>Type</span>
+      <div className="typepick" role="radiogroup" aria-label="Type">
+        {types.map((t) => (
+          <button key={t.id} type="button" role="radio" aria-checked={t.id === value} className={`typechip ${t.id === value ? 'is-on' : ''}`} style={vars({ '--tc': t.color })} onClick={() => onChange(t.id)}>
+            <i aria-hidden="true" />{t.name}
+          </button>
+        ))}
+        {!adding && <button type="button" className="typechip typechip--add" onClick={() => setAdding(true)}>+ Ny type</button>}
+      </div>
+      {adding && (
+        <div className="typenew">
+          <label className="typenew__color" style={vars({ '--tc': color })} title="Vælg farve"><input type="color" value={color} onChange={(x) => setColor(x.target.value)} aria-label="Farve" /></label>
+          <input className="typenew__name" autoFocus value={name} onChange={(x) => setName(x.target.value)} placeholder="Fx Træning, Familie, Musik" aria-label="Navn på typen"
+            onKeyDown={(x) => { if (x.key === 'Enter') { x.preventDefault(); if (name.trim()) { onCreate(name, color); setAdding(false); setName(''); } } if (x.key === 'Escape') { x.stopPropagation(); setAdding(false); } }} />
+          <Btn type="button" size="sm" variant="primary" disabled={!name.trim()} onClick={() => { onCreate(name, color); setAdding(false); setName(''); }}>Tilføj</Btn>
+        </div>
+      )}
     </div>
   );
 }

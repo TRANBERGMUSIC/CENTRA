@@ -1,0 +1,28 @@
+# The sync server (Cloudflare Worker + Durable Object) on its own: a change to it is live in about
+# 30 seconds, without building the apps. Needs the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets.
+name: Sync server
+on:
+  push:
+    branches: [main]
+    paths: ['services/relay-cf/**', 'packages/relay-core/**', '.github/workflows/relay.yml']
+  workflow_dispatch:
+
+concurrency: { group: relay, cancel-in-progress: false }
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --no-audit --no-fund
+      - run: npx vitest run packages/relay-core
+      - name: Deploy
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then echo "Ingen CLOUDFLARE_API_TOKEN: springer over."; exit 0; fi
+          cd services/relay-cf && npx --yes wrangler@4 deploy

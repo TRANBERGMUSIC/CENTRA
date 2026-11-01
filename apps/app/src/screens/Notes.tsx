@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import * as Y from 'yjs';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useEngine, useList, useRecord, useRoute, useNow, fmt } from '../state.tsx';
 import { Btn, useProgressive, More } from '../ui/primitives.tsx';
 import { Icon } from '../ui/Icon.tsx';
-import { useLenis, useScreenEnter, flipState } from '../motion.ts';
+import { useLenis, useScreenEnter, flipState, gsap, useGSAP, reduced, narrow } from '../motion.ts';
+// The editor (CodeMirror) loads when a note is opened, not with the rest of the app.
+const NoteEditor = lazy(() => import('../ui/NoteEditor.tsx').then((m) => ({ default: m.NoteEditor })));
 import { useToast } from '../ui/Shell.tsx';
 import { ask } from '../ui/Confirm.tsx';
-import { INBOX, TEMPLATES, clean, leaf, parentOf, folderTree, folderPaths, createFolder, renameFolder, deleteFolder, inFolder, linksIn, backlinks, type FolderNode } from '../notes.ts';
+import { INBOX, TEMPLATES, clean, leaf, parentOf, folderTree, folderPaths, createFolder, renameFolder, deleteFolder, inFolder, linksIn, backlinks, plainText, type FolderNode } from '../notes.ts';
 
 /**
  * Notes: folders (as deep as you like), pinned notes, tags, search and sorting on the left; the note
@@ -15,6 +16,9 @@ import { INBOX, TEMPLATES, clean, leaf, parentOf, folderTree, folderPaths, creat
  */
 type View = { kind: 'all' } | { kind: 'pinned' } | { kind: 'folder'; path: string } | { kind: 'tag'; tag: string };
 type NSort = 'edited' | 'created' | 'title';
+
+/** Made in the last few seconds (here or on another device): it slides into the list. */
+const isNew = (n: { createdAt?: string }) => !!n.createdAt && Date.now() - new Date(n.createdAt).getTime() < 4000;
 
 export function Notes() {
   const e = useEngine();
@@ -137,9 +141,9 @@ export function Notes() {
           <select className="mselect" value={sort} onChange={(x) => setSort(x.target.value as NSort)} aria-label="Sortér noter"><option value="edited">Senest redigeret</option><option value="created">Senest oprettet</option><option value="title">Titel A–Å</option></select></div>
         <div className="nrows">
           {list.slice(0, shown).map((n) => (
-            <button key={n.id} data-flip-id={n.id} draggable onDragStart={(ev) => { ev.dataTransfer.setData('text/centra-note', n.id); ev.dataTransfer.effectAllowed = 'move'; }} className={`nrow ${n.id === id ? 'is-selected' : ''}`} onClick={() => go({ screen: 'notes', id: n.id })}>
+            <button key={n.id} data-flip-id={n.id} draggable onDragStart={(ev) => { ev.dataTransfer.setData('text/centra-note', n.id); ev.dataTransfer.effectAllowed = 'move'; }} className={`nrow ${n.id === id ? 'is-selected' : ''} ${isNew(n) ? 'is-new' : ''}`} onClick={() => go({ screen: 'notes', id: n.id })}>
               <span className="nrow__t"><span className="ellipsis">{n.title || 'Uden titel'}</span>{n.pinned && <Icon name="pin" size="sm" className="faint" />}</span>
-              <span className="nrow__x">{e.doc(n.id).getText('body').toString().slice(0, 120) || 'Tom note'}</span>
+              <span className="nrow__x">{plainText(e.doc(n.id).getText('body').toString().slice(0, 200)).slice(0, 120) || 'Tom note'}</span>
               <span className="meta num nrow__m">{n.editedAt ? fmt.ago(n.editedAt, now) : ''}{(view.kind !== 'folder' || n.folder !== here) && n.folder ? ` · ${leaf(n.folder)}` : ''}{(n.tags ?? []).length ? ` · ${(n.tags as string[]).map((t) => '#' + t).join(' ')}` : ''}</span>
             </button>
           ))}
@@ -159,56 +163,35 @@ function Editor({ id }: { id: string }) {
   const toast = useToast();
   const wrap = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
-  const area = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState(() => e.doc(id).getText('body').toString());
   useLenis(wrap, content, id);
-
-  // Remote edits flow into the textarea while keeping the caret where the user left it.
+  // The text (for the links under the note) follows edits from here and from other devices, a moment later.
   useEffect(() => {
     const yt = e.doc(id).getText('body');
-    const onChange = (ev: Y.YTextEvent, tr: Y.Transaction) => {
-      if (tr.local) return;
-      const el = area.current;
-      let caret = el?.selectionStart ?? 0;
-      let pos = 0;
-      for (const d of ev.delta) {
-        if (d.retain) pos += d.retain;
-        if (typeof d.insert === 'string') { if (pos < caret) caret += d.insert.length; pos += d.insert.length; }
-        if (d.delete) { if (pos < caret) caret -= Math.min(d.delete, caret - pos); }
-      }
-      setText(yt.toString());
-      requestAnimationFrame(() => el?.setSelectionRange(caret, caret));
-    };
-    yt.observe(onChange);
-    return () => yt.unobserve(onChange);
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const on = () => { if (!t) t = setTimeout(() => { t = null; setText(yt.toString()); }, 400); };
+    yt.observe(on);
+    return () => { yt.unobserve(on); if (t) clearTimeout(t); };
   }, [e, id]);
+  // Switching notes on the Mac: the new one fades in where the old one was.
+  useGSAP(() => {
+    if (reduced() || narrow()) return;
+    gsap.from(content.current!.querySelectorAll('.doc'), { opacity: 0, y: 6, duration: 0.28, ease: 'power3.out', clearProps: 'transform,opacity' });
+  }, { dependencies: [id], scope: wrap });
 
-  function onBody(next: string) {
-    const yt = e.doc(id).getText('body');
-    const prev = yt.toString();
-    let a = 0;
-    while (a < prev.length && a < next.length && prev[a] === next[a]) a++;
-    let b = 0;
-    while (b < prev.length - a && b < next.length - a && prev[prev.length - 1 - b] === next[next.length - 1 - b]) b++;
-    e.doc(id).transact(() => {
-      if (prev.length - a - b > 0) yt.delete(a, prev.length - a - b);
-      if (next.length - a - b > 0) yt.insert(a, next.slice(a, next.length - b));
-    });
-    setText(next);
-    touch();
-  }
   // "Redigeret" is stamped at most every few seconds while typing, not on every key.
   const lastTouch = useRef(0);
+  const unstamped = useRef(false);
+  const stamp = () => { unstamped.current = false; lastTouch.current = Date.now(); e.set('note', id, { editedAt: new Date().toISOString(), editedOn: navigator.userAgent.includes('iPhone') ? 'iPhone' : 'denne enhed' }); };
+  const later = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touch = () => {
-    if (Date.now() - lastTouch.current < 4000) return;
-    lastTouch.current = Date.now();
-    e.set('note', id, { editedAt: new Date().toISOString(), editedOn: navigator.userAgent.includes('iPhone') ? 'iPhone' : 'denne enhed' });
+    const wait = 4000 - (Date.now() - lastTouch.current);
+    if (wait <= 0) return stamp();
+    unstamped.current = true;
+    if (!later.current) later.current = setTimeout(() => { later.current = null; if (unstamped.current) stamp(); }, wait);
   };
-
-  useEffect(() => {
-    const el = area.current;
-    if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }
-  }, [text]);
+  // Leaving the note: the last edits get their stamp too (the list's preview and order follow it).
+  useEffect(() => () => { if (later.current) clearTimeout(later.current); later.current = null; if (unstamped.current) stamp(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [tagIn, setTagIn] = useState('');
   const [newFolder, setNewFolder] = useState<string | null>(null);
@@ -260,7 +243,7 @@ function Editor({ id }: { id: string }) {
               <datalist id="note-tags">{allTags.map((t) => <option key={t} value={t} />)}</datalist>
             </form>
           </div>
-          <textarea ref={area} className="doc__body" value={text} placeholder="Skriv løs. Link til en anden note med [[Notens titel]]." onChange={(x) => onBody(x.target.value)} aria-label="Indhold" />
+          <Suspense fallback={<div className="doc__body cmhost" />}><NoteEditor text={e.doc(id).getText('body')} placeholderText="Skriv løs. - giver punkter, [] en tjekliste, [[Notens titel]] et link." onLocalEdit={touch} /></Suspense>
           {(links.length > 0 || back.length > 0) && (
             <div className="nlinks">
               {links.length > 0 && <div><span className="meta">Links i noten</span>{links.map((l) => { const t = notes.find((n) => (n.title || '').trim().toLowerCase() === l.toLowerCase()); return <button key={l} className="linkchip" onClick={() => { if (t) go({ screen: 'notes', id: t.id }); else { const nid = e.create('note', { title: l, folder: note.folder || INBOX, tags: [], editedAt: new Date().toISOString(), createdAt: new Date().toISOString() }); go({ screen: 'notes', id: nid }); } }}><Icon name="notes" />{l}{!t && <span className="meta"> · lav den</span>}</button>; })}</div>}

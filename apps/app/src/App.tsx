@@ -23,7 +23,7 @@ import { syncAll } from './mail.ts';
 import { syncAllLunchHub } from './lunchhub.ts';
 import { triageMails } from './ai/triage.ts';
 import { syncFeeds } from './feeds.ts';
-import { useAppMotion } from './motion.ts';
+import { useAppMotion, usePageTransition } from './motion.ts';
 import { markReady, watchWebUpdates, justUpdated } from './webupdate.ts';
 import { resumeAfterUpdate } from './session.ts';
 import { Photos } from './screens/Photos.tsx';
@@ -102,6 +102,7 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
   // A new screen (or opening/closing a note or mail on the phone) starts at the top, not where the last one was scrolled to.
   // (A layout effect: it runs before the screens' own effects, so a screen can still scroll somewhere itself, like the calendar to now.)
   useLayoutEffect(() => { scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior }); }, [route.screen, route.id]);
+  usePageTransition(route);
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       const mod = ev.metaKey || ev.ctrlKey;
@@ -194,7 +195,7 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
         <Sidebar onSearch={() => setPalette(true)} />
         <button className="pull" onClick={() => setPalette(true)}>Søg eller spørg</button>
         {screen}
-        <TabBar />
+        <TabBar onSearch={() => setPalette(true)} />
       </div>
       <CommandPalette open={palette} onClose={() => setPalette(false)} />
     </RouteProvider>

@@ -79,3 +79,31 @@ export const TEMPLATES: { id: string; name: string; title: string; folder?: stri
   { id: 'idea', name: 'Idé', title: 'Idé: ', folder: 'Ideer', body: 'Idéen kort\n\n\nHvem er den til\n\n\nFørste skridt\n- [ ] ' },
   { id: 'list', name: 'Liste', title: '', body: '- [ ] \n- [ ] \n- [ ] ' },
 ];
+
+/** A note's text without the Markdown signs (lists and previews): "• mælk", "☐ æg", "☑ brød". */
+export function plainText(md: string): string {
+  return md
+    .replace(/^(\s*)[-*+] \[[xX]\] /gm, '$1☑ ').replace(/^(\s*)[-*+] \[ \] /gm, '$1☐ ')
+    .replace(/^(\s*)[-*+] /gm, '$1• ').replace(/^#{1,6} /gm, '')
+    .replace(/(\*\*|__|\+\+|~~)(.+?)\1/g, '$2').replace(/(^|[^*])\*([^*\n]+)\*/g, '$1$2').replace(/`([^`\n]+)`/g, '$1');
+}
+
+/** The checklist lines in a note's text ("- [ ] mælk"), with where their box sits, for ticking off elsewhere. */
+export type CheckItem = { at: number; done: boolean; text: string };
+export function checkItems(md: string): CheckItem[] {
+  const out: CheckItem[] = [];
+  let pos = 0;
+  for (const line of md.split('\n')) {
+    const m = /^(\s*[-*+] \[)([ xX])\] (.*)$/.exec(line);
+    if (m) out.push({ at: pos + m[1].length, done: m[2] !== ' ', text: plainText(m[3]) });
+    pos += line.length + 1;
+  }
+  return out;
+}
+/** Ticks a box on or off (`at` from checkItems), in the note's shared text. */
+export function toggleCheck(text: { toString(): string; delete(i: number, n: number): void; insert(i: number, s: string): void; doc: { transact(f: () => void): void } | null }, at: number) {
+  const cur = text.toString()[at];
+  if (cur === undefined || !/[ xX]/.test(cur)) return;
+  const run = () => { text.delete(at, 1); text.insert(at, cur === ' ' ? 'x' : ' '); };
+  if (text.doc) text.doc.transact(run); else run();
+}

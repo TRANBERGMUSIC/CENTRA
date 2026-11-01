@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { explain } from '../session.ts';
 import { lock } from '../lock.ts';
 import { useEngine, useList, useRoute, useSession, useSyncStatus, fmt } from '../state.tsx';
-import { Btn, Panel } from '../ui/primitives.tsx';
+import { Btn, Panel, vars } from '../ui/primitives.tsx';
 import { ask } from '../ui/Confirm.tsx';
 import { BrowserPanel } from './BrowserSettings.tsx';
 import { desktop, ios, native } from '../platform.ts';
+import { calTypes, createType, updateType, deleteType, SWATCHES } from '../calTypes.ts';
 import { useToast } from '../ui/Shell.tsx';
 import { useScreenEnter } from '../motion.ts';
 import { APP_VERSION, WEB_VERSION, REPO, checkForUpdate, platform, type Update } from '../updater.ts';
@@ -95,6 +96,7 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
           <div className="kv"><span>Slået fra<span className="meta block">CENTRA kører på denne computer, og alt gemmes krypteret med en nøgle fra dit password. Sync til iPhone slår til, når din sync-server er sat op (se docs/IPHONE.md).</span></span><span className="meta">Kun denne enhed</span></div>
         </Panel>
         )}
+        <CalTypesPanel />
         <Panel title="Mail" className="span-12">
           <div className="kv"><span>Vis billeder i mails automatisk<span className="meta block">Billeder hentes fra afsenderens server, når du åbner mailen. Slår du det fra, viser CENTRA en knap i stedet, og afsenderen kan ikke se, at du har læst den. Usynlige sporings-pixels fjernes altid.</span></span>
             <label className="checkrow"><input type="checkbox" checked={remoteImagesOn(e)} onChange={(x) => { setRemoteImages(e, x.target.checked); toast({ text: x.target.checked ? 'Billeder vises automatisk' : 'Billeder vises først, når du beder om det' }); }} aria-label="Vis billeder i mails automatisk" /></label></div>
@@ -215,6 +217,36 @@ function SecurityPanel() {
 }
 
 /** Touch ID on/off. Turning it on asks for the finger once; the key then lives in the Mac's keychain. */
+/** Calendar types: rename, recolour (the colour wheel), add and delete. */
+function CalTypesPanel() {
+  const e = useEngine();
+  const toast = useToast();
+  const list = useList('calcat');
+  const types = useMemo(() => calTypes(e), [e, list]);
+  const [name, setName] = useState('');
+  const [color, setColor] = useState(SWATCHES[2]);
+  return (
+    <Panel title="Kalendertyper" className="span-12" count={types.length}>
+      <p className="meta">Aftaler vises i deres types farve. Tryk på farven for at vælge en ny på farvehjulet.</p>
+      {types.map((t) => (
+        <div key={t.id} className="typerow">
+          <label className="typenew__color" style={vars({ '--tc': t.color })} title="Skift farve"><input type="color" value={t.color} onChange={(x) => updateType(e, t.id, { color: x.target.value })} aria-label={`Farve for ${t.name}`} /></label>
+          <input className="typenew__name" defaultValue={t.name} aria-label="Navn" onBlur={(x) => x.target.value.trim() && x.target.value.trim() !== t.name && updateType(e, t.id, { name: x.target.value })} />
+          <Btn size="sm" variant="text" icon="x" aria-label={`Slet ${t.name}`} onClick={async () => {
+            if (!(await ask({ title: `Slet typen ${t.name}?`, text: 'Aftalerne bliver liggende og får standardfarven.', ok: 'Slet', danger: true }))) return;
+            deleteType(e, t.id); toast({ text: `${t.name} er slettet` });
+          }} />
+        </div>
+      ))}
+      <form className="typerow" onSubmit={(x) => { x.preventDefault(); try { createType(e, name, color); setName(''); } catch (err) { toast({ text: (err as Error).message }); } }}>
+        <label className="typenew__color" style={vars({ '--tc': color })} title="Vælg farve"><input type="color" value={color} onChange={(x) => setColor(x.target.value)} aria-label="Farve" /></label>
+        <input className="typenew__name" value={name} onChange={(x) => setName(x.target.value)} placeholder="Ny type, fx Træning" aria-label="Ny type" />
+        <Btn size="sm" type="submit" disabled={!name.trim()}>Tilføj</Btn>
+      </form>
+    </Panel>
+  );
+}
+
 function BioRow() {
   const session = useSession();
   const toast = useToast();

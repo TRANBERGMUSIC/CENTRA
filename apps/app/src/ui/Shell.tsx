@@ -1,24 +1,33 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Icon, type IconName } from './Icon.tsx';
 import { Wordmark } from './primitives.tsx';
 import { useEngine, useList, useRoute, useSession, useSyncStatus, fmt, type Route } from '../state.tsx';
-import { balances, debts, ME } from '../money.ts';
+import { balances, debts, kr, ME } from '../money.ts';
 import { gsap, useGSAP, reduced, ease, dur, useNavPill } from '../motion.ts';
 import { Logo } from './Logo.tsx';
 import { lock } from '../lock.ts';
 import { queueAssist } from '../screens/Assist.tsx';
-import { repeatLabel } from '../calendar.ts';
+import { repeatLabel, occurrences } from '../calendar.ts';
 
 /* ---------------------------------------------------------------- notifications (see Notifications.tsx) */
 export { useToast, NotificationHost as ToastHost } from './Notifications.tsx';
 
 /* ---------------------------------------------------------------- navigation */
-const NAV: [Route['screen'], IconName, string][] = [
-  ['today', 'today', 'I dag'], ['notes', 'notes', 'Noter'], ['calendar', 'calendar', 'Kalender'],
-  ['inbox', 'inbox', 'Indbakke'], ['goals', 'goals', 'Mål'], ['outlays', 'receipt', 'Udlæg'], ['expenses', 'wallet', 'Udgifter'],
-  ['contacts', 'contacts', 'Kontakter'], ['photos', 'camera', 'Billeder'], ['assist', 'assist', 'Assist'],
+/**
+ * Everything in CENTRA, in categories. The Mac's sidebar and the iPhone's menu are both drawn from
+ * this list, so a new part (or a whole new category, like a bigger Økonomi) goes in one place.
+ * Assist stays outside the menu: one tap away on both.
+ */
+type NavItem = [Route['screen'], IconName, string];
+export const SECTIONS: { title: string; items: NavItem[] }[] = [
+  { title: 'Overblik', items: [['today', 'today', 'I dag'], ['calendar', 'calendar', 'Kalender']] },
+  { title: 'Kommunikation', items: [['inbox', 'inbox', 'Indbakke'], ['contacts', 'contacts', 'Kontakter']] },
+  { title: 'Noter og mål', items: [['notes', 'notes', 'Noter'], ['goals', 'goals', 'Mål'], ['photos', 'camera', 'Billeder']] },
+  { title: 'Økonomi', items: [['outlays', 'receipt', 'Udlæg'], ['expenses', 'wallet', 'Udgifter'], ['usage', 'hash', 'Claude-forbrug']] },
+  { title: 'System', items: [['connections', 'link', 'Forbindelser'], ['settings', 'settings', 'Indstillinger']] },
 ];
-const PHONE_TABS: Route['screen'][] = ['today', 'calendar', 'outlays', 'notes', 'assist'];
+const ALL: NavItem[] = [...SECTIONS.flatMap((x) => x.items), ['assist', 'assist', 'Assist']];
+export const screenName = (k: Route['screen']) => ALL.find((x) => x[0] === k)?.[2] ?? 'CENTRA';
 
 function useCounts() {
   const mails = useList('mail');
@@ -60,11 +69,16 @@ export function Sidebar({ onSearch }: { onSearch: () => void }) {
       <button className="searchbtn" onClick={onSearch}><Icon name="search" /><span>Søg eller spørg</span><span className="kbd">⌘K</span></button>
       <nav ref={navRef}>
         <span className="nav-pill" aria-hidden="true" />
-        {NAV.map(([k, i, l]) => (
-          <button key={k} className={`nav-item ${route.screen === k ? 'is-active' : ''}`} aria-current={route.screen === k ? 'page' : undefined} onClick={() => go({ screen: k })}>
-            <Icon name={i} /><span>{l}</span>
-            {counts[k] ? <span className={`count num ${k === 'inbox' ? 'is-due' : ''}`}>{counts[k]}</span> : null}
-          </button>
+        {[{ title: '', items: [['assist', 'assist', 'Assist'] as NavItem] }, ...SECTIONS.filter((x) => x.title !== 'System')].map((sec) => (
+          <div key={sec.title || 'assist'} className="nav-sec">
+            {sec.title && <div className="nav-group">{sec.title}</div>}
+            {sec.items.map(([k, i, l]) => (
+              <button key={k} className={`nav-item ${route.screen === k ? 'is-active' : ''}`} aria-current={route.screen === k ? 'page' : undefined} onClick={() => go({ screen: k })}>
+                <Icon name={i} /><span>{l}</span>
+                {counts[k] ? <span className={`count num ${k === 'inbox' ? 'is-due' : ''}`}>{counts[k]}</span> : null}
+              </button>
+            ))}
+          </div>
         ))}
       </nav>
       {pinned.length > 0 && <div className="nav-group">Fastgjort</div>}
@@ -81,18 +95,140 @@ export function Sidebar({ onSearch }: { onSearch: () => void }) {
   );
 }
 
-export function TabBar() {
+/**
+ * The iPhone's bar: Menu (with where you are) and Assist. The menu is a sheet with every part of
+ * CENTRA in its category; it comes up from the bottom and follows your finger back down.
+ */
+export function TabBar({ onSearch }: { onSearch: () => void }) {
   const { route, go } = useRoute();
   const counts = useCounts();
+  const [open, setOpen] = useState(false);
+  const total = counts.inbox + counts.outlays;
+  useEffect(() => setOpen(false), [route.screen, route.id]);
   return (
-    <nav className="tabbar" aria-label="Faner">
-      {NAV.filter(([k]) => PHONE_TABS.includes(k)).map(([k, i, l]) => (
-        <button key={k} className={route.screen === k ? 'is-active' : ''} onClick={() => go({ screen: k })} aria-current={route.screen === k ? 'page' : undefined}>
-          <Icon name={i} size="tab" />{l}
-          {k === 'inbox' && counts.inbox ? <span className="badge num">{counts.inbox}</span> : null}
+    <>
+      <nav className="mbar" aria-label="Navigation">
+        <button className="mbar__menu" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-expanded={open}>
+          <Icon name="menu" size="tab" />
+          <span className="mbar__where">{screenName(route.screen)}</span>
+          {total > 0 && <span className="badge num">{total}</span>}
         </button>
-      ))}
-    </nav>
+        <button className={`mbar__assist ${route.screen === 'assist' ? 'is-active' : ''}`} onClick={() => go({ screen: 'assist' })} aria-label="Assist">
+          <Icon name="assist" size="tab" />
+          {counts.assist ? <span className="badge num">{counts.assist}</span> : null}
+        </button>
+      </nav>
+      {open && <MenuSheet counts={counts} onClose={() => setOpen(false)} onSearch={onSearch} />}
+    </>
+  );
+}
+
+/** Each category's colour in the menu (from the brand's light: amber, flare, rose, violet). */
+const TONE: Record<string, string> = { Kommunikation: 'violet', 'Noter og mål': 'amber', Økonomi: 'rose', System: 'mist' };
+
+/**
+ * The iPhone's menu: you and the search at the top, today and the calendar as two cards, then every
+ * other part of CENTRA in its category, each with a line of what's going on there.
+ */
+function MenuSheet({ counts, onClose, onSearch }: { counts: Record<string, number>; onClose: () => void; onSearch: () => void }) {
+  const { route, go } = useRoute();
+  const { user } = useSession();
+  const e = useEngine();
+  const now = new Date();
+  const events = useList('event') as any[];
+  const notes = useList('note'), persons = useList('person'), photos = useList('photo'), goals = useList('goal'), accts = useList('mailacct'), costs = useList('expense');
+  const day0 = new Date(now); day0.setHours(0, 0, 0, 0);
+  const today = occurrences(events, day0, new Date(day0.getTime() + 86400000));
+  const next = today.find((x) => new Date(x.end) > now);
+  const owed = balances(e).reduce((a, b) => a + Math.max(0, b.left), 0), owe = debts(e).reduce((a, b) => a + Math.max(0, b.left), 0);
+  const info: Partial<Record<Route['screen'], string>> = {
+    inbox: counts.inbox ? `${counts.inbox} venter på svar` : 'Intet venter',
+    contacts: `${persons.length} ${persons.length === 1 ? 'kontakt' : 'kontakter'}`,
+    notes: `${notes.length} ${notes.length === 1 ? 'note' : 'noter'}`,
+    goals: goals.length ? `${goals.length} ${goals.length === 1 ? 'mål' : 'mål'}` : 'Ingen endnu',
+    photos: `${photos.length} ${photos.length === 1 ? 'billede' : 'billeder'}`,
+    outlays: owed || owe ? [owed && `Til gode ${kr(owed, { short: true })}`, owe && `skylder ${kr(owe, { short: true })}`].filter(Boolean).join(' · ') : 'Alt er gjort op',
+    expenses: costs.length ? `${costs.length} faste udgifter` : 'Ingen endnu',
+    connections: accts.length ? `${accts.length} ${accts.length === 1 ? 'konto' : 'konti'}` : 'Mail og kalender',
+  };
+
+  const box = useRef<HTMLDivElement>(null);
+  const sheet = useRef<HTMLDivElement>(null);
+  const closing = useRef(false);
+  const close = (then?: () => void) => {
+    if (closing.current) return;
+    closing.current = true;
+    const done = () => { onClose(); then?.(); };
+    if (reduced()) return done();
+    gsap.timeline({ onComplete: done })
+      .to(sheet.current, { yPercent: 100, duration: 0.26, ease: 'power3.in' })
+      .to(box.current!.querySelector('.scrim'), { opacity: 0, duration: 0.22 }, '<');
+  };
+  const open = (k: Route['screen']) => { go({ screen: k }); close(); };
+  useGSAP(() => {
+    if (reduced()) return;
+    gsap.timeline()
+      .from('.scrim', { opacity: 0, duration: 0.22 })
+      .from(sheet.current, { yPercent: 100, duration: 0.5, ease: 'expo.out' }, '<')
+      .from('.mmenu [data-in]', { y: 16, opacity: 0, duration: 0.42, ease: 'power3.out', stagger: 0.035, clearProps: 'transform,opacity' }, 0.06);
+  }, { scope: box });
+  useEffect(() => {
+    const k = (ev: KeyboardEvent) => ev.key === 'Escape' && close();
+    addEventListener('keydown', k);
+    return () => removeEventListener('keydown', k);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Drag the sheet down to close it: it follows the finger; let go past a quarter, or flick.
+  const drag = useRef<{ y: number; t: number } | null>(null);
+  const onStart = (ev: React.TouchEvent) => { if ((sheet.current?.scrollTop ?? 0) <= 0) drag.current = { y: ev.touches[0].clientY, t: performance.now() }; };
+  const onMove = (ev: React.TouchEvent) => { const d = drag.current; if (d) gsap.set(sheet.current, { y: Math.max(0, ev.touches[0].clientY - d.y) }); };
+  const onEnd = (ev: React.TouchEvent) => {
+    const d = drag.current; drag.current = null; if (!d) return;
+    const dy = ev.changedTouches[0].clientY - d.y, v = dy / Math.max(1, performance.now() - d.t);
+    if (dy > (sheet.current?.offsetHeight ?? 400) / 4 || v > 0.5) close();
+    else gsap.to(sheet.current, { y: 0, duration: 0.45, ease: 'back.out(1.3)' });
+  };
+  const name = user.charAt(0).toUpperCase() + user.slice(1);
+  return (
+    <div ref={box}>
+      <div className="scrim" onClick={() => close()} />
+      <div className="mmenu" ref={sheet} role="dialog" aria-label="Menu" onTouchStart={onStart} onTouchMove={onMove} onTouchEnd={onEnd}>
+        <div className="mmenu__grab" aria-hidden="true" />
+        <div className="mmenu__me" data-in>
+          <span className="mmenu__avatar" aria-hidden="true">{user.slice(0, 1).toUpperCase()}</span>
+          <div className="mmenu__who"><b>{name}</b><SyncLine /></div>
+          <button className="mmenu__lock" onClick={() => lock()} aria-label="Lås CENTRA">Lås</button>
+        </div>
+        <button className="mmenu__search" data-in onClick={() => close(onSearch)}><Icon name="search" size="sm" /><span>Søg i alt, eller spørg</span></button>
+        <div className="mmenu__cards" data-in>
+          <button className={`mcard mcard--today ${route.screen === 'today' ? 'is-active' : ''}`} onClick={() => open('today')}>
+            <span className="mcard__ic"><Icon name="today" /></span>
+            <span className="mcard__k">I dag</span>
+            <span className="mcard__v">{now.toLocaleDateString('da-DK', { weekday: 'long' }).replace(/^./, (c) => c.toUpperCase())} {now.getDate()}.</span>
+          </button>
+          <button className={`mcard mcard--cal ${route.screen === 'calendar' ? 'is-active' : ''}`} onClick={() => open('calendar')}>
+            <span className="mcard__ic"><Icon name="calendar" /></span>
+            <span className="mcard__k">Kalender</span>
+            <span className="mcard__v">{next ? `${fmt.hm(next.start)} ${next.title}` : today.length ? 'Dagen er overstået' : 'Ingen aftaler i dag'}</span>
+          </button>
+        </div>
+        {SECTIONS.filter((x) => x.title !== 'Overblik').map((sec) => (
+          <section key={sec.title} className={`mgroup mgroup--${TONE[sec.title] ?? 'mist'}`} data-in>
+            <h2>{sec.title}</h2>
+            <div className="mgroup__list">
+              {sec.items.map(([k, i, l]) => (
+                <button key={k} className={`mrow2 ${route.screen === k ? 'is-active' : ''}`} onClick={() => open(k)} aria-current={route.screen === k ? 'page' : undefined}>
+                  <span className="mrow2__ic"><Icon name={i} size="sm" /></span>
+                  <span className="mrow2__t"><span>{l}</span>{info[k] && <span className="mrow2__s">{info[k]}</span>}</span>
+                  {k === 'inbox' && counts.inbox ? <span className="mrow2__badge num">{counts.inbox}</span> : null}
+                  <span className="mrow2__go" aria-hidden="true"><Icon name="chevron-right" size="sm" /></span>
+                </button>
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -109,6 +245,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const input = useRef<HTMLInputElement>(null);
 
   const hits = useMemo<Hit[]>(() => {
+    if (!open) return []; // closed: nothing to search (it would read every note on every change)
     const t = q.trim().toLowerCase();
     const commands: Hit[] = [
       { kind: 'Kommando', icon: 'plus', title: 'Ny note', sub: '⌘N', run: () => go({ screen: 'notes', id: engine.create('note', { title: '', folder: 'Indbakke', tags: [], editedAt: new Date().toISOString() }) }) },
@@ -133,7 +270,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     const ask = commands.find((c) => c.kind === 'Assist')!;
     const found = [...commands.filter((c) => c !== ask), ...content].filter((h: any) => `${h.title} ${h.sub ?? ''} ${h.text ?? ''}`.toLowerCase().includes(t)).slice(0, 11);
     return [...found, ask];
-  }, [q, notes, mails, events, goals, persons, outlays, engine, go]);
+  }, [open, q, notes, mails, events, goals, persons, outlays, engine, go]);
 
   useEffect(() => { setSel(0); }, [q]);
   useEffect(() => { if (open) { setQ(''); setTimeout(() => input.current?.focus(), 0); } }, [open]);

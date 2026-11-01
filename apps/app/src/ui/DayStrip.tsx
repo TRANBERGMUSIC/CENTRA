@@ -3,7 +3,7 @@ import { fmt } from '../state.tsx';
 import { vars } from './primitives.tsx';
 import { gsap, useGSAP, reduced, dur } from '../motion.ts';
 
-type Ev = { id: string; title: string; place?: string; start: string; end: string; focus?: boolean };
+type Ev = { id: string; title: string; place?: string; start: string; end: string; focus?: boolean; color?: string };
 const H0 = 5, H1 = 23;
 
 const minsOf = (d: Date) => d.getHours() * 60 + d.getMinutes();
@@ -30,7 +30,7 @@ export function DayStrip({ events, now, nextId }: { events: Ev[]; now: Date; nex
           const s = minsOf(new Date(e.start)), en = minsOf(new Date(e.end));
           const state = new Date(e.end) <= now ? 'is-past' : e.id === nextId ? 'is-next' : e.focus ? 'is-focusblock' : '';
           return (
-            <div key={e.id} className={`daystrip__ev ${state} ${en - s < 60 ? 'is-narrow' : ''}`} style={vars({ '--start': frac(s), '--len': frac(en) - frac(s) })} title={`${e.title} ${fmt.hm(e.start)}–${fmt.hm(e.end)}`}>
+            <div key={e.id} className={`daystrip__ev ${state} ${en - s < 60 ? 'is-narrow' : ''}`} style={vars({ '--start': frac(s), '--len': frac(en) - frac(s), ...(e.color ? { '--ev': e.color } : {}) })} title={`${e.title} ${fmt.hm(e.start)}–${fmt.hm(e.end)}`}>
               <b>{e.title}</b><span className="num">{fmt.hm(e.start)}{e.place ? ' · ' + e.place : ''}</span>
             </div>
           );

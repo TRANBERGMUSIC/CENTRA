@@ -1,10 +1,13 @@
-# A push that changes the native app builds and publishes a new CENTRA. Nothing to run by hand.
-# (Interface-only pushes go out as fast updates through web.yml; run this one by hand to force a full build.)
+# A push that changes the native app (Rust, Tauri config, icons) builds and publishes a new CENTRA.
+# Everything else is faster on its own:
+#   interface (apps/app, packages)  web.yml    ~25 s, installed apps switch within a minute
+#   sync server (relay)             relay.yml  ~30 s
+# Run this one by hand to force a full build (tick "windows" for a Windows installer too).
 #
 #   relay    Cloudflare Worker = the sync server (only when the CLOUDFLARE_API_TOKEN secret exists);
 #            when it exists every app below is built with sync switched on
 #   web      GitHub Pages: the installable phone/web app (only when Pages is switched on)
-#   desktop  Mac (.dmg, universal) and Windows (.exe/.msi) on the GitHub release
+#   desktop  Mac (.dmg, Apple silicon) on the GitHub release; Windows only when asked for
 #   ios      iPhone app to TestFlight (only when the Apple secrets exist, see docs/IPHONE.md)
 #
 # Auto-update: installed desktop apps read latest.json from the newest release; that file is signed
@@ -18,12 +21,17 @@ on:
     # changes reach installed apps in about a minute through web.yml instead.
     paths:
       - 'apps/desktop/**'
-      - 'services/**'
-      - 'packages/relay-core/**'
-      - 'scripts/**'
+      - 'scripts/ios-testflight.sh'
+      - 'scripts/set-version.mjs'
+      - 'scripts/updater-artifacts.mjs'
       - 'installer/**'
       - '.github/workflows/release.yml'
   workflow_dispatch:
+    inputs:
+      windows:
+        description: 'Byg også Windows-installeren'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -69,19 +77,16 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CENTRA_RELAY_URL: ${{ vars.CENTRA_RELAY_URL }}
         run: |
-          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -z "$CENTRA_RELAY_URL" ]; then
-            npm ci
-            npx vitest run packages/relay-core
-            (cd services/relay-cf && npx --yes wrangler@4 deploy)
-          else
-            echo "Ingen CLOUDFLARE_API_TOKEN: ingen sync-server (appen kører kun på denne enhed, medmindre CENTRA_RELAY_URL er sat)."
-          fi
-          URL=$(bash scripts/relay-url.sh)
+          # The server itself is deployed by relay.yml; here only its address (and a deploy if it doesn't answer).
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -z "$CENTRA_RELAY_URL" ]; then npm ci --no-audit --no-fund >/dev/null; fi
+          URL=$(bash scripts/relay-url.sh --ensure)
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           if [ -n "$URL" ]; then echo "sync=on" >> "$GITHUB_OUTPUT"; echo "Sync slået til: $URL"; else echo "sync=off" >> "$GITHUB_OUTPUT"; fi
 
   web:
     needs: [version, relay]
+    # GitHub Pages (the web version in a browser): only when the repository variable CENTRA_PAGES is "on"
+    if: vars.CENTRA_PAGES == 'on'
     runs-on: ubuntu-latest
     continue-on-error: true   # GitHub Pages must be switched on once (Settings → Pages → GitHub Actions)
     environment: { name: github-pages, url: '${{ steps.deploy.outputs.page_url }}' }
@@ -108,16 +113,12 @@ jobs:
     needs: [version, relay]
     strategy:
       fail-fast: false
+      # The Mac app for Apple silicon (your Mac): half the compile time of a universal build. Only the
+      # .app here; the .dmg is made with hdiutil below (Tauri's own DMG script drives Finder via
+      # AppleScript, which often fails on headless CI machines). Windows only when run by hand with
+      # "windows" ticked.
       matrix:
-        include:
-          # Intel Mac runners: GitHub's Apple-silicon pool is often queued for a long time.
-          # The build is still universal (runs natively on both Apple silicon and Intel Macs).
-          # Only the .app here; the .dmg is made with hdiutil below (Tauri's own DMG script
-          # drives Finder via AppleScript, which often fails on headless CI machines).
-          - os: macos-15-intel
-            args: --target universal-apple-darwin --bundles app
-          - os: windows-latest
-            args: ''
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.windows && '[{"os":"macos-latest","args":"--target aarch64-apple-darwin --bundles app"},{"os":"windows-latest","args":""}]' || '[{"os":"macos-latest","args":"--target aarch64-apple-darwin --bundles app"}]') }}
     runs-on: ${{ matrix.os }}
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -128,7 +129,7 @@ jobs:
         with: { node-version: 22, cache: npm }
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ startsWith(matrix.os, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ startsWith(matrix.os, 'macos') && 'aarch64-apple-darwin' || '' }}
       - uses: swatinem/rust-cache@v2
         with: { workspaces: 'apps/desktop/src-tauri -> target' }
       - run: npm ci
@@ -198,10 +199,10 @@ jobs:
         env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
         run: |
           V=${{ needs.version.outputs.version }}
-          APP=apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos/CENTRA.app
+          APP=apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/CENTRA.app
           mkdir -p dmg && cp -R "$APP" dmg/ && ln -s /Applications dmg/Programmer
-          hdiutil create -volname CENTRA -srcfolder dmg -ov -format UDZO "CENTRA_${V}_universal.dmg"
-          gh release upload ${{ needs.version.outputs.tag }} "CENTRA_${V}_universal.dmg" --clobber
+          hdiutil create -volname CENTRA -srcfolder dmg -ov -format UDZO "CENTRA_${V}_mac.dmg"
+          gh release upload ${{ needs.version.outputs.tag }} "CENTRA_${V}_mac.dmg" --clobber
           gh release delete-asset ${{ needs.version.outputs.tag }} mac-build-fejl.txt -y 2>/dev/null || true
 
   # iPhone app via TestFlight. Switches itself on when the Apple secrets exist (see docs/IPHONE.md).

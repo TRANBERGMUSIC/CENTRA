@@ -9,7 +9,7 @@ import { Flip } from 'gsap/Flip';
 import { useGSAP } from '@gsap/react';
 import Lenis from 'lenis';
 import 'lenis/dist/lenis.css';
-import { useEffect, useLayoutEffect, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import { motion as T } from '@centra/design-system';
 
 gsap.registerPlugin(useGSAP, Flip);
@@ -33,6 +33,12 @@ export function useScreenEnter(scope: RefObject<HTMLElement | null>, key: unknow
   useGSAP(() => {
     if (reduced()) return;
     const root = scope.current!;
+    // On the phone: shorter and without blur (blur is costly there, and a phone screen should feel instant).
+    if (narrow()) {
+      const parts = root.querySelectorAll(':scope [data-enter], :scope .kpi');
+      gsap.from(parts, { y: 10, opacity: 0, duration: 0.34, ease: 'power3.out', stagger: 0.03, clearProps: 'transform,opacity' });
+      return;
+    }
     const parts = root.querySelectorAll(':scope [data-enter], :scope .kpi');
     const rows = Array.from(root.querySelectorAll<HTMLElement>(ROWS)).filter((el, i, all) => all.indexOf(el) < 40 && !el.closest('[hidden]')).slice(0, 28);
     gsap.timeline()
@@ -134,6 +140,35 @@ export function collapseOut(el: HTMLElement, after: () => void) {
 export function flipState(targets: string | Element[] | NodeListOf<Element>) {
   const state = Flip.getState(targets);
   return () => Flip.from(state, { duration: s(250), ease: ease.standard, absolute: false, nested: true });
+}
+
+/** Phone width (the stylesheets' breakpoint). */
+export const narrow = () => window.matchMedia('(max-width: 640px)').matches;
+
+/**
+ * Something new takes the place of something else, coming from a side: `dir` 1 = from the right
+ * (next day, a page further in), -1 = from the left (back). Quick, ease-out, transform/opacity only.
+ */
+export function slideIn(targets: gsap.TweenTarget, dir: number, distance = 44, duration = 0.34) {
+  if (reduced() || !dir) return;
+  gsap.fromTo(targets, { x: dir * distance, opacity: 0 }, { x: 0, opacity: 1, duration, ease: 'expo.out', overwrite: true, clearProps: 'transform,opacity' });
+}
+
+/**
+ * Moving between pages on the phone, like iOS: further in (a note from the list) slides in from
+ * the right, back slides in from the left, another tab fades up. One element moves; nothing twice.
+ */
+export function usePageTransition(route: { screen: string; id?: string }) {
+  const last = useRef(route);
+  useLayoutEffect(() => {
+    const prev = last.current;
+    last.current = route;
+    if (reduced() || !narrow() || (prev.screen === route.screen && prev.id === route.id)) return;
+    const page = document.querySelector<HTMLElement>('.app > main, .app main');
+    if (!page) return;
+    if (prev.screen !== route.screen) return; // another tab: the screen's own entrance plays
+    slideIn(page, route.id && !prev.id ? 1 : !route.id && prev.id ? -1 : 1, route.id && !prev.id ? 72 : 48, 0.38);
+  }, [route.screen, route.id]);
 }
 
 export { gsap, useGSAP, Flip };
