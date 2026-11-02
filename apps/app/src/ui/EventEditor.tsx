@@ -6,6 +6,7 @@ import { calTypes, createType, typeOf, SWATCHES, type CalType } from '../calType
 import { useToast } from './Shell.tsx';
 import { dayKey, type CalEvent } from '../calendar.ts';
 import { NOTES, setEventNotes, stampNotes } from '../eventNotes.ts';
+import { ALERTS } from '../due.ts';
 
 const NoteEditor = lazy(() => import('./NoteEditor.tsx').then((m) => ({ default: m.NoteEditor })));
 
@@ -40,6 +41,7 @@ export function EventEditor({ event, occurrence, defaultStart, onClose }: { even
   const [end, setEnd] = useState(hm(e0));
   const [place, setPlace] = useState(base?.place ?? '');
   const [days, setDays] = useState<number[]>(base?.repeat?.days ?? []);
+  const [alert, setAlert] = useState<number | null>((base as any)?.alert ?? null);
   useList('calcat');
   const types = calTypes(e);
   const [cat, setCat] = useState<string>(() => (base ? typeOf(types, base as any)?.id ?? 'calcat-personal' : lastType() ?? 'calcat-personal'));
@@ -66,7 +68,7 @@ export function EventEditor({ event, occurrence, defaultStart, onClose }: { even
     const s = new Date(`${date}T${start}`), en0 = new Date(`${date}T${end}`);
     if (isNaN(s.getTime()) || isNaN(en0.getTime())) return setErr('Tjek dato og tidspunkter.');
     const en = en0 <= s ? new Date(en0.getTime() + 86400000) : en0;
-    const fields: Record<string, unknown> = { title: title.trim(), start: s.toISOString(), end: en.toISOString(), place: place.trim() || undefined, repeat: days.length ? { ...(base?.repeat ?? {}), days } : null, cat };
+    const fields: Record<string, unknown> = { title: title.trim(), start: s.toISOString(), end: en.toISOString(), place: place.trim() || undefined, repeat: days.length ? { ...(base?.repeat ?? {}), days } : null, cat, alert };
     rememberType(cat);
     if (base) {
       const { id: _i, type: _t, ...prev } = base as any;
@@ -99,6 +101,11 @@ export function EventEditor({ event, occurrence, defaultStart, onClose }: { even
             <h2>{base!.title}</h2>
             <p className="muted">{new Date(occurrence?.start ?? base!.start).toLocaleString('da-DK', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}{base!.place ? ' · ' + base!.place : ''}</p>
             <p className="meta">{(base as any).cal ?? 'Tilknyttet kalender'}</p>
+            <label className="ufield"><span>Påmindelse</span>
+              <select value={alert == null ? '' : String(alert)} onChange={(x) => { const v = x.target.value === '' ? null : Number(x.target.value); setAlert(v); e.set('event', base!.id, { alert: v }); }}>
+                {ALERTS.map(([v, l]) => <option key={l} value={v == null ? '' : String(v)}>{l}</option>)}
+              </select>
+            </label>
             <EventNotes text={notes} onEdit={onNotesEdit} />
             <div className="unlock__row"><Btn variant="primary" onClick={onClose}>Luk</Btn></div>
           </div>
@@ -111,6 +118,11 @@ export function EventEditor({ event, occurrence, defaultStart, onClose }: { even
               <label className="ufield"><span>Til</span><input type="time" value={end} onChange={(x) => setEnd(x.target.value)} /></label>
             </div>
             <label className="ufield"><span>Sted</span><input value={place} onChange={(x) => setPlace(x.target.value)} placeholder="Valgfrit" /></label>
+            <label className="ufield"><span>Påmindelse</span>
+              <select value={alert == null ? '' : String(alert)} onChange={(x) => setAlert(x.target.value === '' ? null : Number(x.target.value))}>
+                {ALERTS.map(([v, l]) => <option key={l} value={v == null ? '' : String(v)}>{l}</option>)}
+              </select>
+            </label>
             <TypePicker types={types} value={cat} onChange={setCat} onCreate={(name, color) => { try { setCat(createType(e, name, color)); } catch (x) { setErr((x as Error).message); } }} />
             <div className="ufield"><span>Gentag hver uge</span>
               <div className="daypick" role="group" aria-label="Gentag på">

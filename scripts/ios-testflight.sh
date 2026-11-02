@@ -38,34 +38,45 @@ rm -rf src-tauri/gen/apple
 npx tauri ios init --ci
 
 APPLE_DIR=src-tauri/gen/apple
-# Siri ("Hey Siri, husk i CENTRA", scripts/ios/CentraIntents.swift): the Swift file goes into the app's
-# sources, the app target gets a Swift version (the project is Objective-C otherwise) through a small
-# extra spec that includes Tauri's project.yml, and the project is generated again. Done before the
-# Info.plist edits below, because generating rewrites the Info.plist. Never stops the build: if any of
-# it goes wrong, the app is built without Siri.
-SIRI_FILE=""
-siri_prep() {
-  local main target
-  main=$(find "$APPLE_DIR/Sources" -name 'main.mm' 2>/dev/null | head -1)
-  [ -n "$main" ] && [ -f "$APPLE_DIR/project.yml" ] || return 1
-  target=$(ruby -ryaml -e 'f = ARGV[0]; y = YAML.respond_to?(:unsafe_load_file) ? YAML.unsafe_load_file(f) : YAML.load_file(f); puts y["targets"].keys.grep(/_iOS$/).first' "$APPLE_DIR/project.yml") || return 1
-  [ -n "$target" ] || return 1
-  cp "$ROOT/scripts/ios/CentraIntents.swift" "$(dirname "$main")/" || return 1
-  SIRI_FILE="$(dirname "$main")/CentraIntents.swift"
-  printf 'include:\n  - project.yml\ntargets:\n  %s:\n    settings:\n      base:\n        SWIFT_VERSION: "5.0"\n' "$target" > "$APPLE_DIR/siri.yml"
-  (cd "$APPLE_DIR" && xcodegen generate --spec siri.yml) || return 1
-}
-if siri_prep; then echo "Siri: med ($SIRI_FILE)"; else
-  echo "::warning::Siri-delen kunne ikke sættes op; bygger uden."
-  [ -n "$SIRI_FILE" ] && rm -f "$SIRI_FILE"; SIRI_FILE=""
-  (cd "$APPLE_DIR" && xcodegen generate --spec project.yml) || true
+# The app's own Swift (scripts/ios/*.swift): Siri ("husk i CENTRA"), push from the sync server and
+# the alarm clock (AlarmKit). They go into the app's sources, the app target gets a Swift version
+# (it's Objective-C otherwise) and push its entitlement, through a small extra spec that includes
+# Tauri's project.yml; then the project is generated again. Never stops the build: if a build with
+# all of it fails, the alarm goes first, then all of it, so the app always ships.
+MAIN_MM=$(find "$APPLE_DIR/Sources" -name 'main.mm' 2>/dev/null | head -1 || true)
+SRC_DIR=""; [ -n "$MAIN_MM" ] && SRC_DIR=$(dirname "$MAIN_MM")
+TARGET=""
+if [ -f "$APPLE_DIR/project.yml" ]; then
+  TARGET=$(ruby -ryaml -e 'f = ARGV[0]; y = YAML.respond_to?(:unsafe_load_file) ? YAML.unsafe_load_file(f) : YAML.load_file(f); puts y["targets"].keys.grep(/_iOS$/).first' "$APPLE_DIR/project.yml" 2>/dev/null || true)
 fi
-# App icon (made from the brand icon, without transparency, which App Store Connect refuses)
-ICONSET=$(find "$APPLE_DIR" -type d -name 'AppIcon.appiconset' | head -1)
-if [ -n "$ICONSET" ]; then cp src-tauri/icons/ios/*.png "$ICONSET/"; fi
-# Info.plist: permissions texts and "standard encryption only" (no export questions for each build)
-PLIST=$(find "$APPLE_DIR" -name Info.plist -path '*_iOS*' | head -1)
-if [ -n "$PLIST" ]; then
+ENT="$APPLE_DIR/CentraPush.entitlements"
+TAURI_ENT=$(find "$APPLE_DIR" -name '*.entitlements' -path '*_iOS*' 2>/dev/null | head -1 || true)
+# gen <swift files…>: the project with these files (none: Tauri's own project)
+gen() {
+  [ -n "$SRC_DIR" ] && rm -f "$SRC_DIR"/Centra*.swift
+  [ -n "$TAURI_ENT" ] && { /usr/libexec/PlistBuddy -c "Delete :aps-environment" "$TAURI_ENT" >/dev/null 2>&1 || true; }
+  if [ -z "$SRC_DIR" ] || [ -z "$TARGET" ] || [ $# -eq 0 ]; then (cd "$APPLE_DIR" && xcodegen generate --spec project.yml) || true; return; fi
+  for f in "$@"; do cp "$ROOT/scripts/ios/$f" "$SRC_DIR/"; done
+  local ent=""
+  if printf '%s\n' "$@" | grep -q CentraPush.swift; then
+    # aps-environment production: TestFlight and the App Store use Apple's production push service.
+    # Into Tauri's own entitlements file when it has one, else a file of our own.
+    if [ -n "$TAURI_ENT" ]; then
+      /usr/libexec/PlistBuddy -c "Add :aps-environment string production" "$TAURI_ENT"
+    else
+      printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>aps-environment</key><string>production</string></dict></plist>\n' > "$ENT"
+      ent="        CODE_SIGN_ENTITLEMENTS: CentraPush.entitlements\n"
+    fi
+  fi
+  printf "include:\n  - project.yml\ntargets:\n  %s:\n    settings:\n      base:\n        SWIFT_VERSION: \"5.0\"\n$ent" "$TARGET" > "$APPLE_DIR/centra.yml"
+  (cd "$APPLE_DIR" && xcodegen generate --spec centra.yml) || { (cd "$APPLE_DIR" && xcodegen generate --spec project.yml); return 1; }
+}
+# App icon, Info.plist texts and settings (again after every generate, which rewrites the Info.plist)
+dress() {
+  ICONSET=$(find "$APPLE_DIR" -type d -name 'AppIcon.appiconset' | head -1)
+  if [ -n "$ICONSET" ]; then cp src-tauri/icons/ios/*.png "$ICONSET/"; fi
+  PLIST=$(find "$APPLE_DIR" -name Info.plist -path '*_iOS*' | head -1)
+  [ -n "$PLIST" ] || return 0
   pb() { /usr/libexec/PlistBuddy -c "Delete :$1" "$PLIST" >/dev/null 2>&1 || true; /usr/libexec/PlistBuddy -c "Add :$1 $2 $3" "$PLIST"; }
   pb ITSAppUsesNonExemptEncryption bool false
   pb NSMicrophoneUsageDescription string "CENTRA bruger mikrofonen, når du taler til Assist."
@@ -74,24 +85,25 @@ if [ -n "$PLIST" ]; then
   pb NSPhotoLibraryUsageDescription string "CENTRA henter billeder, du vælger, så Assist kan se dem, eller du kan gemme dem under Billeder."
   pb NSFaceIDUsageDescription string "CENTRA bruger Face ID til at låse dine data op."
   pb NSUserNotificationsUsageDescription string "CENTRA giver dig besked, når det er tid til noget på din huskeliste."
+  pb NSAlarmKitUsageDescription string "CENTRA bruger alarmer til dit vækkeur."
   # Danish is the app's own language: Siri understands "Husk i CENTRA" in Danish
   pb CFBundleDevelopmentRegion string da
   echo "Info.plist: $PLIST"
-fi
+}
+build() { npx tauri ios build --ci --export-method app-store-connect; }
 
-if ! npx tauri ios build --ci --export-method app-store-connect; then
-  # If the Siri part is what failed, the app still ships: built again without it.
-  if [ -n "$SIRI_FILE" ]; then
-    echo "::warning::iPhone-bygget med Siri fejlede; bygger igen uden Siri."
-    rm -f "$SIRI_FILE"; SIRI_FILE=""
-    (cd "$APPLE_DIR" && xcodegen generate --spec project.yml)
-    [ -n "$PLIST" ] && { pb ITSAppUsesNonExemptEncryption bool false; pb NSMicrophoneUsageDescription string "CENTRA bruger mikrofonen, når du taler til Assist."; pb NSSpeechRecognitionUsageDescription string "CENTRA laver din tale om til tekst, så Assist kan forstå den."; pb NSCameraUsageDescription string "CENTRA bruger kameraet, når du tager et billede af en kvittering eller noget, du vil gemme."; pb NSPhotoLibraryUsageDescription string "CENTRA henter billeder, du vælger, så Assist kan se dem, eller du kan gemme dem under Billeder."; pb NSFaceIDUsageDescription string "CENTRA bruger Face ID til at låse dine data op."; pb CFBundleDevelopmentRegion string da; }
-    if [ -n "$ICONSET" ]; then cp src-tauri/icons/ios/*.png "$ICONSET/"; fi
-    npx tauri ios build --ci --export-method app-store-connect
-  else
-    exit 1
-  fi
-fi
+built=""; ok=""
+for set in "CentraIntents.swift CentraPush.swift CentraAlarms.swift" "CentraIntents.swift CentraPush.swift" ""; do
+  # shellcheck disable=SC2086
+  if gen $set; then :; else echo "::warning::Kunne ikke sætte $set op."; continue; fi
+  dress
+  echo "Bygger med: ${set:-kun Tauri}"
+  if build; then built="$set"; ok=1; break; fi
+  echo "::warning::iPhone-bygget med ${set:-kun Tauri} fejlede${set:+; prøver med mindre}."
+done
+[ -n "$ok" ] || exit 1
+case "$built" in *CentraAlarms*) ;; *) echo "::warning::Vækkeuret (AlarmKit) kom ikke med i denne build." ;; esac
+case "$built" in *CentraPush*) ;; *) echo "::warning::Push kom ikke med i denne build." ;; esac
 
 IPA=$(find "$APPLE_DIR/build" -name '*.ipa' | head -1)
 if [ -z "$IPA" ]; then echo "Fandt ingen .ipa efter bygget." >&2; exit 1; fi

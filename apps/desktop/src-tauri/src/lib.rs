@@ -7,8 +7,19 @@ mod browser;
 mod contacts;
 mod lunchhub;
 mod mail;
+mod native;
 mod siri;
 mod webupdate;
+
+/// Whether closing the Mac window keeps CENTRA running (Indstillinger → Notifikationer).
+#[cfg(desktop)]
+static BACKGROUND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+#[cfg(desktop)]
+#[tauri::command]
+fn set_background(on: bool) {
+    BACKGROUND.store(on, std::sync::atomic::Ordering::Relaxed);
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -30,6 +41,19 @@ pub fn run() {
         // Auto-update from GitHub Releases (latest.json, minisign-verified) and relaunch after install.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // Started at login (the window opens on the lock screen: one Touch ID and it runs, also with
+        // the window closed; the keys are never stored unprotected for this).
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
+        // On the Mac, closing the window keeps CENTRA running (reminders, mail, push to the iPhone);
+        // ⌘Q quits. Clicking the Dock icon brings the window back.
+        .on_window_event(|w, ev| {
+            if cfg!(target_os = "macos") && w.label() == "main" && BACKGROUND.load(std::sync::atomic::Ordering::Relaxed) {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = ev {
+                    api.prevent_close();
+                    let _ = w.hide();
+                }
+            }
+        })
         .manage(browser::Browser::default())
         .invoke_handler(tauri::generate_handler![
             mail::mail_test, mail::mail_fetch, mail::mail_update, mail::mail_send, mail::fetch_calendar, mail::mail_body, mail::mail_part, mail::mail_save_part,
@@ -37,6 +61,7 @@ pub fn run() {
             biometry::bio_kind, biometry::bio_enable, biometry::bio_unlock, biometry::bio_disable,
             contacts::contacts_fetch, contacts::contacts_status,
             lunchhub::lunchhub_request, siri::siri_inbox,
+            native::push_register, native::push_token, native::alarms_sync, native::alarms_status, set_background,
             browser::browser_open, browser::browser_state, browser::browser_go, browser::browser_nav, browser::browser_toggle,
             browser::browser_clear, browser::browser_external, browser::browser_reveal, browser::browser_vpn_test
         ]);
@@ -48,7 +73,8 @@ pub fn run() {
         webupdate::web_ready, webupdate::web_info, webupdate::web_update_check, webupdate::session_stash, webupdate::session_take,
         biometry::bio_kind, biometry::bio_enable, biometry::bio_unlock, biometry::bio_disable,
         contacts::contacts_fetch, contacts::contacts_status,
-        lunchhub::lunchhub_request, siri::siri_inbox
+        lunchhub::lunchhub_request, siri::siri_inbox,
+        native::push_register, native::push_token, native::alarms_sync, native::alarms_status
     ]);
 
     builder
@@ -68,6 +94,17 @@ pub fn run() {
             }
             Ok(())
         })
-        .run(context)
-        .expect("error while running CENTRA");
+        .build(context)
+        .expect("error while running CENTRA")
+        .run(|app, ev| {
+            // The Dock icon clicked while the window is hidden (closed, or started at login).
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = ev {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            }
+            let _ = (app, ev);
+        });
 }

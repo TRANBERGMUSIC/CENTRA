@@ -3,13 +3,25 @@
  * every decrypted note in memory and the relay session. Data at rest stays encrypted.
  *   - 15 minutes without interaction
  *   - 5 minutes in the background (app switched away, laptop lid closed)
+ *
+ * The Mac in the background (the window closed, CENTRA still running for reminders, mail and push):
+ * locking covers CENTRA instead (the veil) and Touch ID or the password opens it again. The keys stay
+ * in memory for that, as they do while it's open; a forced lock (password changed elsewhere, this
+ * device logged out) still reloads.
  */
 import { useEffect } from 'react';
+import { desktop } from './platform.ts';
+
+const BG = 'centra.background';
+/** The Mac keeps running with its window closed (on unless turned off under Indstillinger). */
+export const backgroundOn = () => { try { return desktop && localStorage.getItem(BG) !== 'off'; } catch { return desktop; } };
+export const setBackground = (on: boolean) => { try { localStorage.setItem(BG, on ? 'on' : 'off'); } catch { /* fine */ } };
 
 const IDLE_MS = 15 * 60_000;
 const HIDDEN_MS = 5 * 60_000;
 
-export function lock(reason?: string) {
+export function lock(reason?: string, hard = false) {
+  if (!hard && backgroundOn()) { window.dispatchEvent(new CustomEvent('centra-veil', { detail: reason ?? '' })); return; }
   if (reason) sessionStorage.setItem('centra.lockReason', reason);
   location.reload();
 }

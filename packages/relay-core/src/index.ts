@@ -12,6 +12,12 @@
  *  - Only allow-listed usernames can be registered, and only once.
  *  - Every frame and field is size- and shape-checked; each connection is rate-limited.
  *  - A password change or a revoked device disconnects the other sessions.
+ *
+ * Push (see apps/app/src/push.ts): a logged-in iPhone registers its push token; any device sends the
+ * account's plan of what is due when (reminders, event alerts, alarms) and the relay sends each one
+ * through Apple at its time, also when every app is closed. That text is the one exception to
+ * "ciphertext only": it is kept until it has been sent, then deleted. A device can also hand over
+ * something to show on the others now (a new mail found by the Mac).
  */
 
 export type KdfParams = { salt: string; ops: number; mem: number };
@@ -19,7 +25,10 @@ export type WrappedKey = { keyId: string; sealed: string };
 export type AccountPublic = { v: 2; kdf: KdfParams; wrappedAK: string; recovery: { kdf: KdfParams; wrappedAK: string }; keys: WrappedKey[] };
 export type StoredAccount = { pub: AccountPublic; verifier: string; recoveryVerifier: string; created: number };
 export type Envelope = { id: string; seq?: number; device: string; keyId: string; body: string };
-export type Device = { id: string; name: string; platform: string; lastSeen: number; revoked?: boolean; online?: boolean };
+export type PushTarget = { token: string; env: 'production' | 'development' };
+export type Device = { id: string; name: string; platform: string; lastSeen: number; revoked?: boolean; online?: boolean; push?: PushTarget };
+/** Something to show on the phone at a time: a reminder, an event alert, an alarm. */
+export type PushItem = { id: string; at: number; title: string; body: string };
 export type Guard = { failures: number; lockedUntil: number };
 
 export interface UserStore {
@@ -32,7 +41,18 @@ export interface UserStore {
   /** Assigns seq to new envelopes (ignoring ids already stored) and returns the accepted ones. */
   append(envs: Envelope[]): Promise<Envelope[]>;
   list(after: number, limit: number): Promise<Envelope[]>;
+  /** The plan of pushes still to send (optional: a relay without push leaves these out). */
+  getSchedule?(): Promise<PushItem[]>;
+  putSchedule?(items: PushItem[]): Promise<void>;
 }
+
+/** How a host sends pushes (Cloudflare: Apple's push service) and wakes itself at the next one. */
+export type PushHost = {
+  /** Sends one item to these devices; returns the tokens Apple says are no longer valid. */
+  send(targets: PushTarget[], item: PushItem): Promise<{ bad: string[]; errors?: string[] }>;
+  /** Be called (fireDue) at this time, or never (null). */
+  wake(user: string, at: number | null): void;
+};
 
 export interface Conn {
   send(msg: unknown): void;
@@ -45,6 +65,8 @@ export interface Conn {
   bucket?: { tokens: number; at: number };
   /** Messages sent before logging in (a few are enough; more is someone probing). */
   pre?: number;
+  /** When this connection last asked for an immediate push (a few an hour). */
+  pushes?: number[];
 }
 
 export type RelayOptions = {
@@ -53,8 +75,12 @@ export type RelayOptions = {
   allowedUsers?: string[];
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+  /** Push to phones; without it the relay simply says it can't (pushReady: false). */
+  push?: PushHost;
 };
 
+const PUSH = { items: 300, title: 120, body: 400, horizon: 62 * 86_400_000, nowPerHour: 60 };
+const isPushItem = (x: any): x is PushItem => x && isStr(x.id, 64, /^[A-Za-z0-9:._-]+$/) && Number.isSafeInteger(x.at) && isStr(x.title, PUSH.title) && typeof x.body === 'string' && x.body.length <= PUSH.body;
 const LIMITS = { frame: 4_000_000, body: 1_500_000, envsPerPush: 500, pull: 2000, pullBytes: 3_000_000, msgsPerSecond: 40, burst: 120 };
 const FREE_TRIES = 5;
 /** Messages a connection may send before it has logged in (prelogin, login, a retry or two). */
@@ -182,6 +208,43 @@ export class RelayCore {
           for (const c of this.peers(conn.user!)) c.send({ type: 'account', account: acc.pub });
           return;
         }
+        case 'push-register': {
+          if (!isStr(m.token, 200, /^[0-9a-f]{32,200}$/) || (m.env !== 'production' && m.env !== 'development')) return err('bad-request');
+          const devices = await store.getDevices();
+          const d = devices.find((x) => x.id === conn.device);
+          if (d) { d.push = { token: m.token, env: m.env }; await store.putDevices(devices); }
+          return conn.send({ type: 'ack', rid, pushReady: !!this.o.push });
+        }
+        case 'push-schedule': {
+          if (!Array.isArray(m.items) || m.items.length > PUSH.items || !m.items.every(isPushItem)) return err('bad-request');
+          if (!this.o.push || !store.putSchedule) return conn.send({ type: 'ack', rid, pushReady: false });
+          const t = this.now();
+          const seen = new Set<string>();
+          const items = (m.items as PushItem[]).filter((x) => x.at > t - 60_000 && x.at < t + PUSH.horizon && !seen.has(x.id) && seen.add(x.id))
+            .map((x) => ({ id: x.id, at: x.at, title: x.title, body: x.body })).sort((a, b) => a.at - b.at);
+          await store.putSchedule(items);
+          this.o.push.wake(conn.user!, items[0]?.at ?? null);
+          return conn.send({ type: 'ack', rid, pushReady: true, count: items.length });
+        }
+        case 'push-test': {
+          // A push to this very device, now: shows that the whole way (relay → Apple → phone) works.
+          if (!this.o.push) return conn.send({ type: 'ack', rid, pushReady: false });
+          const me = (await store.getDevices()).find((d) => d.id === conn.device)?.push;
+          if (!me) return err('no-token');
+          const r = await this.o.push.send([me], { id: 'test', at: this.now(), title: 'CENTRA', body: 'Push virker.' }).catch((x) => ({ bad: [], errors: [String(x)] }));
+          return conn.send({ type: 'ack', rid, pushReady: true, ok: !r.bad.length && !r.errors?.length, errors: r.errors ?? [], bad: r.bad.length > 0 });
+        }
+        case 'push-now': {
+          if (!isStr(m.title, PUSH.title) || typeof m.body !== 'string' || m.body.length > PUSH.body) return err('bad-request');
+          if (!this.o.push) return conn.send({ type: 'ack', rid, pushReady: false });
+          const t = this.now(), b = (conn.pushes ??= []);
+          while (b.length && b[0] < t - 3_600_000) b.shift();
+          if (b.length >= PUSH.nowPerHour) return err('rate-limited');
+          b.push(t);
+          const targets = (await store.getDevices()).filter((d) => d.push && !d.revoked && d.id !== conn.device).map((d) => d.push!);
+          if (targets.length) await this.deliver(store, targets, { id: 'now-' + t, at: t, title: m.title, body: m.body });
+          return conn.send({ type: 'ack', rid, pushReady: true, sent: targets.length });
+        }
         case 'revoke': {
           if (!isStr(m.device, 40)) return err('bad-request');
           const devices = await store.getDevices();
@@ -214,6 +277,36 @@ export class RelayCore {
     if (!conn.user) return;
     this.conns.get(conn.user)?.delete(conn);
     void this.broadcastDevices(conn.user).catch(() => {});
+  }
+
+  /* -------------------------------------------------- push */
+
+  /** Sends what is due (the host calls this when it wakes), keeps the rest, and sets the next wake. */
+  async fireDue(user: string): Promise<number> {
+    if (!this.o.push) return 0;
+    const store = this.o.store(user);
+    if (!store.getSchedule || !store.putSchedule) return 0;
+    const t = this.now();
+    const items = await store.getSchedule();
+    const due = items.filter((x) => x.at <= t + 2_000);
+    const rest = items.filter((x) => x.at > t + 2_000);
+    const targets = (await store.getDevices()).filter((d) => d.push && !d.revoked).map((d) => d.push!);
+    // Long overdue (the relay was asleep for hours): not worth a buzz any more.
+    for (const it of due) if (targets.length && t - it.at < 6 * 3_600_000) await this.deliver(store, targets, it);
+    await store.putSchedule(rest);
+    this.o.push.wake(user, rest[0]?.at ?? null);
+    return due.length;
+  }
+
+  private async deliver(store: UserStore, targets: PushTarget[], item: PushItem) {
+    try {
+      const { bad } = await this.o.push!.send(targets, item);
+      if (bad.length) {
+        const devices = await store.getDevices();
+        for (const d of devices) if (d.push && bad.includes(d.push.token)) delete d.push;
+        await store.putDevices(devices);
+      }
+    } catch { /* Apple unreachable: this one is lost, the next ones still go */ }
   }
 
   /* -------------------------------------------------- auth */
@@ -303,7 +396,7 @@ export class RelayCore {
     conn.saved?.();
     this.restore(conn);
     const acc = (await store.getAccount())!;
-    conn.send({ type: 'welcome', rid: typeof m.rid === 'string' ? m.rid.slice(0, 20) : undefined, account: acc.pub, devices: this.withOnline(user, next) });
+    conn.send({ type: 'welcome', rid: typeof m.rid === 'string' ? m.rid.slice(0, 20) : undefined, account: acc.pub, devices: this.withOnline(user, next), pushReady: !!this.o.push });
     await this.broadcastDevices(user);
   }
 
@@ -314,7 +407,8 @@ export class RelayCore {
   }
   private withOnline(user: string, devices: Device[]): Device[] {
     const online = new Set(this.peers(user).map((c) => c.device));
-    return devices.map((d) => ({ ...d, online: online.has(d.id) }));
+    // (push tokens stay on the relay)
+    return devices.map(({ push, ...d }) => ({ ...d, online: online.has(d.id), canPush: !!push }));
   }
   private async broadcastDevices(user: string) {
     const devices = this.withOnline(user, await this.o.store(user).getDevices());
@@ -360,4 +454,7 @@ export class MemoryUserStore implements UserStore {
     return out;
   }
   async list(after: number, limit: number) { return this.log.filter((e) => (e.seq ?? 0) > after).slice(0, limit); }
+  schedule: PushItem[] = [];
+  async getSchedule() { return structuredClone(this.schedule); }
+  async putSchedule(items: PushItem[]) { this.schedule = structuredClone(items); }
 }

@@ -7,6 +7,7 @@ import { useScreenEnter } from '../motion.ts';
 import { addReminder, setDone, sorted, whenLabel, overdue, type Reminder } from '../reminders.ts';
 import { askToNotify } from '../reminderAlerts.ts';
 import { ios } from '../platform.ts';
+import { addAlarm, alarms, daysLabel, type Alarm } from '../alarms.ts';
 
 /** "2026-11-01T12:00" for <input type="datetime-local">, in local time. */
 const local = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -71,6 +72,8 @@ export function Reminders() {
         <Btn type="submit" variant="primary" disabled={!text.trim()}>Tilføj</Btn>
       </form>
 
+      <Alarms />
+
       <ul className="hl" data-enter aria-label="Huskelisten">
         {open.map((r) => <Row key={r.id} r={r} now={now} editing={edit === r.id} onEdit={() => setEdit(edit === r.id ? null : r.id)} onTick={() => tick(r)} />)}
         {!open.length && <li className="hl__empty"><Icon name="check" /><span>{done.length ? 'Alt er klaret.' : 'Intet at huske endnu.'}</span></li>}
@@ -119,5 +122,53 @@ function Row({ r, now, editing, onEdit, onTick }: { r: Reminder; now: Date; edit
         </form>
       )}
     </li>
+  );
+}
+
+/* ---------------------------------------------------------------- vækkeure */
+const WEEK: [number, string][] = [[1, 'M'], [2, 'T'], [3, 'O'], [4, 'T'], [5, 'F'], [6, 'L'], [0, 'S']];
+
+function Alarms() {
+  const e = useEngine();
+  const toast = useToast();
+  useList('alarm');
+  useList('setting');
+  const list = alarms(e) as Alarm[];
+  const [adding, setAdding] = useState(false);
+  const [time, setTime] = useState('07:00');
+  const [days, setDays] = useState<number[]>([1, 2, 3, 4, 5]);
+  const [label, setLabel] = useState('');
+  const status = (e.get('setting-alarms') as { native?: boolean; status?: string } | null);
+  const save = (ev: React.FormEvent) => {
+    ev.preventDefault();
+    try { addAlarm(e, time, days, label); setAdding(false); setLabel(''); } catch (x) { toast({ text: (x as Error).message }); }
+  };
+  return (
+    <section className="al" data-enter aria-label="Vækkeur">
+      <div className="al__head"><h2>Vækkeur</h2>
+        {!adding && <Btn size="sm" icon="plus" onClick={() => setAdding(true)}>Nyt</Btn>}
+      </div>
+      {ios && status?.status === 'denied' && <p className="meta errtext">Ikke tilladt: Indstillinger › CENTRA › Alarmer</p>}
+      {list.length > 0 && <ul className="al__list">
+        {list.map((a) => (
+          <li key={a.id} className={`al__row ${a.on ? '' : 'is-off'}`}>
+            <span className="al__time num">{a.time.replace(':', '.')}</span>
+            <span className="al__meta"><b>{a.label || 'Vækkeur'}</b><span>{daysLabel(a.days ?? [])}</span></span>
+            <button className="al__del" aria-label={`Slet ${a.label || 'vækkeur'} ${a.time}`} onClick={() => { const { id, type: _t, ...f } = a as any; e.remove('alarm', id); toast({ text: 'Vækkeur slettet', action: { label: 'Fortryd', run: () => e.set('alarm', id, { ...f, _deleted: false }) } }); }}><Icon name="x" size="sm" /></button>
+            <label className="checkrow al__sw"><input type="checkbox" checked={!!a.on} onChange={(x) => e.set('alarm', a.id, { on: x.target.checked })} aria-label={`${a.label || 'Vækkeur'} ${a.time}`} /></label>
+          </li>
+        ))}
+      </ul>}
+      {adding && (
+        <form className="al__new" onSubmit={save}>
+          <input type="time" className="al__pick num" value={time} onChange={(x) => setTime(x.target.value)} aria-label="Tidspunkt" required />
+          <div className="al__days" role="group" aria-label="Gentag">
+            {WEEK.map(([d, l]) => <button key={d} type="button" aria-pressed={days.includes(d)} className={days.includes(d) ? 'is-on' : ''} onClick={() => setDays((x) => x.includes(d) ? x.filter((y) => y !== d) : [...x, d])}>{l}</button>)}
+          </div>
+          <input className="al__label" value={label} onChange={(x) => setLabel(x.target.value)} placeholder="Navn" aria-label="Navn" />
+          <div className="al__foot"><span className="meta">{daysLabel(days)}</span><span className="push-right" /><Btn type="button" variant="text" onClick={() => setAdding(false)}>Annullér</Btn><Btn type="submit" variant="primary">Gem</Btn></div>
+        </form>
+      )}
+    </section>
   );
 }

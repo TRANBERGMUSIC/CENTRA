@@ -29,3 +29,17 @@ jobs:
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then echo "Ingen CLOUDFLARE_API_TOKEN: springer over."; exit 0; fi
           cd services/relay-cf && npx --yes wrangler@4 deploy
+      # Push to the iPhone through Apple (docs/IPHONE.md, "Push"): the APNs key goes to the relay as
+      # secrets on every deploy (Cloudflare keeps them encrypted; nothing is printed).
+      - name: Push key
+        env:
+          APNS_KEY_P8: ${{ secrets.APNS_KEY_P8 }}
+          APNS_KEY_ID: ${{ secrets.APNS_KEY_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$APNS_KEY_P8" ] || [ -z "$APNS_KEY_ID" ] || [ -z "$APPLE_TEAM_ID" ]; then echo "Ingen APNs-nøgle endnu: push er slået fra."; exit 0; fi
+          cd services/relay-cf
+          printf '%s' "$APNS_KEY_P8" | npx --yes wrangler@4 secret put APNS_KEY >/dev/null
+          printf '%s' "$APNS_KEY_ID" | npx --yes wrangler@4 secret put APNS_KEY_ID >/dev/null
+          printf '%s' "$APPLE_TEAM_ID" | npx --yes wrangler@4 secret put APNS_TEAM_ID >/dev/null
+          echo "Push er slået til."

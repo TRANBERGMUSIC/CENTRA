@@ -62,3 +62,25 @@ Mail, kalender-feeds, LunchHub, Assist, noter, mål, udlæg og billeder virker b
 - Mac'en viser notifikationen, når CENTRA kører.
 - Laves et punkt på Mac'en, kommer det på iPhonens plan, næste gang CENTRA har været åben på iPhonen.
 - **Siri:** sig "Hey Siri, husk i CENTRA". Siri spørger "Hvad skal jeg huske?", og du siger fx "levere udstyr tilbage til Sigge kl. 12". CENTRA åbner, og Assist sætter det på listen med tidspunktet. Virker Siri-sætningen ikke, så find "Husk i CENTRA" i Genveje-appen; der kan du også give den dit eget navn.
+
+## Push (beskeder med CENTRA lukket)
+
+Sync-serveren sender påmindelser, varsler før aftaler og nye mails til iPhonen gennem Apple, også når CENTRA er lukket. Er telefonen slukket, får den beskeden, når den tændes (op til et døgn efter). Teksten i beskeden ligger på serveren, indtil den er sendt, og slettes så.
+
+Én gang hos Apple og GitHub:
+
+1. developer.apple.com → Certificates, IDs & Profiles → **Keys** → **+**. Navn: CENTRA Push. Sæt flueben i **Apple Push Notifications service (APNs)** → Configure → Sandbox & Production → Save → Continue → Register. Hent **.p8-filen** (det kan kun gøres én gang) og skriv **Key ID** ned.
+2. Samme sted → **Identifiers** → dk.tranberg.centra → sæt flueben i **Push Notifications** → Save.
+3. GitHub → CENTRA → Settings → Secrets and variables → Actions → New repository secret:
+   - `APNS_KEY_P8`: hele indholdet af .p8-filen (åbn den i TextEdit og kopiér alt)
+   - `APNS_KEY_ID`: Key ID fra trin 1
+4. GitHub → Actions → **Sync server** → Run workflow. Så har serveren nøglen.
+5. Når den nye iPhone-version er i TestFlight: CENTRA → Indstillinger → Notifikationer → **Send en test**.
+
+## Vækkeur
+
+Vækkeure (Huskeliste → Vækkeur, eller "væk mig kl. 6.30 hverdage" til Assist) bliver rigtige alarmer på iPhonen (iOS 26), som ringer på lydløs og med CENTRA lukket. Første gang spørger iPhonen, om CENTRA må sætte alarmer.
+
+## Mac'en i baggrunden
+
+Lukker du vinduet, kører CENTRA videre (⌘Q lukker helt), og den starter selv ved login. Så kommer påmindelser og nye mails også på Mac'en, og nye mails sendes videre som push til iPhonen. Efter en genstart skal du låse op én gang med Touch ID.

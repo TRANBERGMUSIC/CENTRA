@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { RouteProvider, SessionProvider, useEngine, type Route } from './state.tsx';
+import { RouteProvider, SessionProvider, useEngine, useSession, type Route } from './state.tsx';
 import { Sidebar, TabBar, CommandPalette, ToastHost, useToast } from './ui/Shell.tsx';
 import { ConfirmHost } from './ui/Confirm.tsx';
 import { openLink, bindLinks, saveBrowserSettings } from './open.ts';
@@ -12,7 +12,7 @@ import { Assist } from './screens/Assist.tsx';
 import { Settings, applyTheme, type Theme } from './screens/Settings.tsx';
 import { Unlock, RecoveryCode } from './screens/Unlock.tsx';
 import type { Session } from './session.ts';
-import { useAutoLock, lock } from './lock.ts';
+import { useAutoLock, lock, backgroundOn } from './lock.ts';
 import { watchForUpdates } from './updater.ts';
 import { Connections } from './screens/Connections.tsx';
 import { Contacts } from './screens/Contacts.tsx';
@@ -29,7 +29,10 @@ import { resumeAfterUpdate } from './session.ts';
 import { Photos } from './screens/Photos.tsx';
 import { Reminders } from './screens/Reminders.tsx';
 import { startReminders } from './reminderAlerts.ts';
-import { native } from './platform.ts';
+import { startPush, pushNow } from './push.ts';
+import { Veil } from './ui/Veil.tsx';
+import { startAlarms } from './alarms.ts';
+import { native, desktop, invoke } from './platform.ts';
 
 const readRoute = (): Route => {
   const [screen, id] = location.hash.replace(/^#\/?/, '').split('/');
@@ -59,7 +62,7 @@ export function App() {
   }, []);
   const open = (s: Session) => {
     if (import.meta.env.VITE_E2E === '1') (window as any).__session = s; // test builds only: lets e2e seed data
-    s.relay.onClosedByServer = (code) => lock(code === 4001 ? 'Denne enhed er logget ud fra en anden enhed.' : 'Dit password er skiftet på en anden enhed. Log ind med det nye.');
+    s.relay.onClosedByServer = (code) => lock(code === 4001 ? 'Denne enhed er logget ud fra en anden enhed.' : 'Dit password er skiftet på en anden enhed. Log ind med det nye.', true);
     if (s.recoveryCode) setShowCode(s.recoveryCode);
     setSession(s);
   };
@@ -149,10 +152,18 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
   // Mail every 2 minutes, LunchHub every minute, calendars every 15 — and all of it when the window comes back.
   useEffect(() => {
     let last = 0, lastFeeds = 0, lastLh = 0, alive = true;
+    // News from the Mac (it's the one fetching mail, also with the window closed): to the iPhone as push,
+    // and as a Mac notification when the window isn't in front.
+    const tell = (title: string, body: string) => {
+      if (!desktop) return;
+      void pushNow(title, body);
+      if (document.hidden) void invoke('plugin:notification|notify', { options: { id: Math.floor(Math.random() * 2 ** 30), title, body } }).catch(() => {});
+    };
     const announce = (ids: string[]) => {
       for (const id of ids.slice(0, 3)) {
         const m = e.get(id) as any;
         if (!m || m.source !== 'lunchhub' || m.lhStatus !== 'ny') continue;
+        tell(`Ny henvendelse · ${m.acctName.replace(/^LunchHub · /, '')}`, `${m.fromName} · ${m.subject}`);
         toast({ person: { name: m.fromName }, title: `Ny henvendelse · ${m.acctName.replace(/^LunchHub · /, '')}`, text: `${m.fromName} · ${m.subject}`, action: { label: 'Åbn', run: () => go({ screen: 'inbox', id }) } });
       }
       if (ids.length > 3) toast({ text: `${ids.length - 3} henvendelser mere fra LunchHub`, action: { label: 'Se dem', run: () => go({ screen: 'inbox' }) } });
@@ -165,6 +176,14 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
       const lh = r.added.filter((id) => id.startsWith('lh-'));
       if (r.added.length > lh.length) void triageMails(e, r.added.filter((id) => !id.startsWith('lh-')));
       if (lh.length && r.firstLh === false) announce(lh);
+      // New mail from people (not newsletters or notifications), a few at a time.
+      const watched = new Set(r.hits.map((h) => h.mail.id));
+      const people = r.added.filter((id) => !id.startsWith('lh-') && !watched.has(id)).map((id) => e.get(id) as any).filter((m) => m && m.unread && !m.sent && (m.cat === 'Personer' || m.needsReply));
+      if (!r.firstRun) {
+        for (const m of people.slice(0, 4)) tell(m.fromName || m.fromEmail, m.subject);
+        if (people.length > 4) tell('Mail', `${people.length - 4} nye mails mere`);
+      }
+      for (const h of r.hits) tell(`Mail fra ${h.mail.fromName || h.mail.fromEmail}`, h.mail.subject);
       for (const h of r.hits) toast({ person: { name: h.mail.fromName || h.mail.fromEmail }, title: `Mail fra ${h.mail.fromName || h.mail.fromEmail}`, text: `${h.mail.subject} · du bad Assist holde øje med "${h.watch.description}"`, sticky: true, action: { label: 'Åbn', run: () => go({ screen: 'inbox', id: h.mail.id }) } });
       if (Date.now() - lastFeeds > 14 * 60_000) { lastFeeds = Date.now(); await syncFeeds(e); }
     };
@@ -185,6 +204,18 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
   }, [e, toast, go]);
   // Huskelisten: notifications when it's time, and what Siri was told
   useEffect(() => startReminders(e, toast, go), [e, toast, go]);
+  // Push through the sync server: the iPhone's token, and the plan of what's due (push.ts)
+  const { relay } = useSession();
+  useEffect(() => startPush(e, relay), [e, relay]);
+  useEffect(() => startAlarms(e), [e]);
+  // The Mac: keep running with the window closed, and start at login (once; then as set in Indstillinger).
+  useEffect(() => {
+    if (!desktop) return;
+    void invoke('set_background', { on: backgroundOn() }).catch(() => {});
+    try {
+      if (backgroundOn() && !localStorage.getItem('centra.autostart')) { void invoke('plugin:autostart|enable').catch(() => {}); localStorage.setItem('centra.autostart', '1'); }
+    } catch { /* fine */ }
+  }, []);
   useEffect(() => watchForUpdates((u) => toast({ text: `CENTRA ${u.version} er hentet og klar`, sticky: true, action: { label: 'Genstart nu', run: () => void u.install() } })), [toast]);
 
   const screen = {
@@ -202,6 +233,7 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
         <TabBar onSearch={() => setPalette(true)} />
       </div>
       <CommandPalette open={palette} onClose={() => setPalette(false)} />
+      <Veil />
     </RouteProvider>
   );
 }

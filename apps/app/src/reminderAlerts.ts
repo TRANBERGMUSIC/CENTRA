@@ -1,18 +1,18 @@
 /**
- * Notifications for the huskeliste, and what Siri was told.
+ * Notifications for what is due (due.ts: reminders, event alerts, alarms), and what Siri was told.
  *
- *  iPhone  every open reminder with a time is planned with the system (local notifications), so it
- *          comes on time even when CENTRA is closed. Kept in step with the list: a new time, a new
- *          text, ticked off or deleted (here or on the Mac) moves or removes the planned one.
- *  Mac     the system can't plan ahead for the app there, so the app looks every 15 seconds while
- *          it runs and shows the notification when one is due.
+ *  iPhone  the sync server pushes them (push.ts). What it hasn't confirmed (made offline, or no push
+ *          key yet) is planned with the phone itself (local notifications), so it still comes on time
+ *          with CENTRA closed, and nothing comes twice.
+ *  Mac     CENTRA keeps running with its window closed; it looks every 15 seconds and shows the
+ *          notification when something is due.
  *  Both    a due reminder also shows in the app, with "Klaret".
- *
- * What the notification says stays on the device; it's the reminder's own text.
  */
 import type { SyncEngine } from '@centra/sync';
 import { ios, mobileApp, native, invoke } from './platform.ts';
-import { reminders, toPlan, setDone, addReminder, type Reminder } from './reminders.ts';
+import { setDone, addReminder, notifyId } from './reminders.ts';
+import { dueItems, type DueItem } from './due.ts';
+import { pushAcked, alarmsNative } from './push.ts';
 import { aiReady, aiSettings } from './ai/agent.ts';
 import { queueAssist } from './screens/Assist.tsx';
 
@@ -39,9 +39,16 @@ export async function askToNotify(): Promise<boolean> {
   } catch { return false; }
 }
 
-/** iPhone: plans exactly the reminders that should be planned, and takes back the rest. */
+/** What the iPhone plans itself: the next 60 (iOS keeps 64) that the relay won't push. */
+function localPlan(e: SyncEngine) {
+  const acked = pushAcked();
+  return dueItems(e, { days: 14, alarms: !alarmsNative(e) }).filter((x) => x.at > Date.now() && !acked.has(`${x.id}@${x.at}`)).slice(0, 60)
+    .map((x) => ({ id: notifyId(`${x.id}@${x.at}`), key: `${x.at}|${x.title}|${x.body}`, at: new Date(x.at).toISOString(), title: x.title, text: x.body }));
+}
+
+/** iPhone: plans exactly what should be planned, and takes back the rest. */
 async function plan(e: SyncEngine) {
-  const want = toPlan(reminders(e));
+  const want = localPlan(e);
   const had = read<Record<string, string>>(PLANNED, {});
   const keep: Record<string, string> = {};
   const gone = Object.keys(had).filter((id) => !want.some((w) => String(w.id) === id && w.key === had[id])).map(Number);
@@ -52,7 +59,7 @@ async function plan(e: SyncEngine) {
   for (const w of want) if (had[String(w.id)] === w.key) keep[String(w.id)] = w.key;
   for (const w of add) {
     try {
-      await invoke('plugin:notification|notify', { options: { id: w.id, title: 'Husk', body: w.text, schedule: { at: { date: new Date(w.at).toISOString(), repeating: false, allowWhileIdle: true } } } });
+      await invoke('plugin:notification|notify', { options: { id: w.id, title: w.title, body: w.text, schedule: { at: { date: new Date(w.at).toISOString(), repeating: false, allowWhileIdle: true } } } });
       keep[String(w.id)] = w.key;
     } catch { /* try again next round */ }
   }
@@ -66,27 +73,27 @@ export function startReminders(e: SyncEngine, toast: Toast, go: Go): () => void 
 
   const due = () => {
     const now = Date.now();
-    for (const r of reminders(e) as Reminder[]) {
-      if (r.done || !r.at || shown.has(r.id + r.at)) continue;
-      const t = new Date(r.at).getTime();
-      if (t > now) continue;
-      shown.add(r.id + r.at);
-      if (now - t > 6 * 3600_000) continue; // long past (the app was closed): the list shows it as overdue
-      toast({ icon: 'bell', title: 'Husk', text: r.text, sticky: true, action: { label: 'Klaret', run: () => setDone(e, r.id, true) } });
-      // The iPhone already showed it (planned); on the Mac and in a browser it's shown now.
+    // (from a minute back: dueItems starts there, so nothing that just came due is missed)
+    for (const x of dueItems(e, { days: 1, alarms: mobileApp && !alarmsNative(e), now: new Date(now - 6 * 3600_000) }) as DueItem[]) {
+      const k = `${x.id}@${x.at}`;
+      if (shown.has(k) || x.at > now) continue;
+      shown.add(k);
+      if (now - x.at > 6 * 3600_000) continue; // long past (the app was closed): the list shows it as overdue
+      toast({ icon: 'bell', title: x.title, text: x.body, sticky: x.kind !== 'event', action: x.kind === 'reminder' ? { label: 'Klaret', run: () => setDone(e, x.ref, true) } : undefined });
+      // The iPhone already showed it (pushed or planned); on the Mac and in a browser it's shown now.
       if (!mobileApp) {
-        if (native) void invoke('plugin:notification|notify', { options: { id: 1, title: 'Husk', body: r.text } }).catch(() => {});
-        else if (typeof Notification !== 'undefined' && Notification.permission === 'granted') try { new Notification('Husk', { body: r.text, tag: r.id }); } catch { /* fine */ }
+        if (native) void invoke('plugin:notification|notify', { options: { id: notifyId(k), title: x.title, body: x.body } }).catch(() => {});
+        else if (typeof Notification !== 'undefined' && Notification.permission === 'granted') try { new Notification(x.title, { body: x.body, tag: k }); } catch { /* fine */ }
       }
     }
-    write(SHOWN, [...shown].slice(-300));
+    write(SHOWN, [...shown].slice(-500));
   };
 
   const tick = () => {
     if (!alive) return;
     due();
     if (ios) {
-      const s = toPlan(reminders(e)).map((w) => w.id + w.key).join(';');
+      const s = localPlan(e).map((w) => w.id + w.key).join(';');
       if (s !== sig) { sig = s; void plan(e).catch(() => { sig = ''; }); }
     }
   };
@@ -113,6 +120,6 @@ export function startReminders(e: SyncEngine, toast: Toast, go: Go): () => void 
   window.addEventListener('focus', vis);
   // A reminder added, moved or ticked off (here, or on another device): planned again shortly after.
   let soon: ReturnType<typeof setTimeout> | undefined;
-  const off = e.on((ids) => { if ([...ids].some((id) => (e.get(id) as any)?.type === 'reminder' || !e.get(id))) { clearTimeout(soon); soon = setTimeout(tick, 400); } });
+  const off = e.on((ids) => { if ([...ids].some((id) => { const t = (e.get(id) as any)?.type; return !t || t === 'reminder' || t === 'event' || t === 'alarm'; })) { clearTimeout(soon); soon = setTimeout(tick, 400); } });
   return () => { alive = false; clearInterval(t); clearTimeout(soon); document.removeEventListener('visibilitychange', vis); window.removeEventListener('focus', vis); off(); };
 }

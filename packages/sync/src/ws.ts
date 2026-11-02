@@ -125,6 +125,7 @@ export class WsRelay implements Relay {
     }
     switch (m.type) {
       case 'welcome':
+        this.pushReady = !!m.pushReady;
         this.account = m.account;
         this.devices = m.devices;
         this.connected = true;
@@ -183,6 +184,14 @@ export class WsRelay implements Relay {
   async pull(after: number) { return ((await this.call<{ envs: Envelope[] }>({ type: 'pull', after })).envs) ?? []; }
   subscribe(cb: (e: Envelope) => void) { this.subs.add(cb); return () => this.subs.delete(cb); }
   onOpen(cb: () => void) { this.opens.add(cb); return () => this.opens.delete(cb); }
+
+  /* ---------------------------------------------------- push (see the relay's PushHost) */
+  /** Whether the relay can send pushes (it has an Apple push key). Known after logging in. */
+  pushReady = false;
+  async pushRegister(token: string, env: 'production' | 'development' = 'production') { const r = await this.call<{ pushReady: boolean }>({ type: 'push-register', token, env }); this.pushReady = !!r.pushReady; return this.pushReady; }
+  async pushSchedule(items: { id: string; at: number; title: string; body: string }[]) { const r = await this.call<{ pushReady: boolean }>({ type: 'push-schedule', items }); this.pushReady = !!r.pushReady; return this.pushReady; }
+  pushTest() { return this.call<{ pushReady: boolean; ok?: boolean; errors?: string[]; bad?: boolean }>({ type: 'push-test' }); }
+  async pushNow(title: string, body: string) { return this.call<{ sent?: number }>({ type: 'push-now', title, body }); }
 
   close() { this.closed = true; this.relogin = null; this.stopBeat(); this.ws?.close(); }
 }

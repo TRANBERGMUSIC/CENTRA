@@ -44,6 +44,8 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"
+# Start at login (in the background), so reminders and new mail come with the window closed
+tauri-plugin-autostart = "2"
 
 # Touch ID (Mac) and Face ID (iPhone) unlock (see src/biometry): LocalAuthentication for the
 # finger or face, the keychain for the key

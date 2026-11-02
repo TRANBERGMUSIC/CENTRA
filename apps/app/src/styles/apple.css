@@ -1134,3 +1134,37 @@ h1, h2, .panel__title, .chat__lead { text-wrap: balance; }
 .ev__notes .ic { width: 12px; height: 12px; flex: none; margin-top: 2px; }
 .ev__notes span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 640px) { .evnotes .cmhost .cm-editor { font-size: 17px; } }
+
+/* ---------------------------------------------------------------- vækkeure (on the huskeliste) */
+.al { margin: 0 0 18px; }
+.al__head { display: flex; align-items: center; justify-content: space-between; margin: 0 2px 8px; }
+.al__head h2 { font-size: 15px; font-weight: 600; color: var(--c-faint); margin: 0; }
+.al__list { list-style: none; margin: 0; padding: 0; border-radius: 16px; background: var(--c-surface); overflow: hidden; }
+.al__row { display: flex; align-items: center; gap: 14px; padding: 10px 14px; position: relative; }
+.al__row + .al__row::before { content: ''; position: absolute; top: 0; left: 14px; right: 0; height: 0.5px; background: var(--sep); }
+.al__time { font-size: 34px; line-height: 40px; font-weight: 300; letter-spacing: -0.02em; min-width: 92px; }
+.al__meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.al__meta b { font-size: 15px; font-weight: 600; }
+.al__meta span { font-size: 13px; color: var(--c-faint); }
+.al__row.is-off .al__time, .al__row.is-off .al__meta { opacity: 0.45; }
+.al__del { display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 15px; background: none; color: var(--c-faint); cursor: pointer; opacity: 0; transition: opacity 150ms var(--ease-out-quart); }
+.al__row:hover .al__del, .al__del:focus-visible { opacity: 1; }
+.al__new { display: grid; gap: 12px; padding: 14px; border-radius: 16px; background: var(--c-surface); margin-top: 8px; }
+.al__pick { font-size: 34px; font-weight: 300; border: 0; background: none; color: var(--c-text); color-scheme: dark light; padding: 0; }
+.al__days { display: flex; gap: 6px; }
+.al__days button { width: 36px; height: 36px; border-radius: 18px; border: 0; background: var(--fill); color: var(--c-text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; transition: background-color 150ms var(--ease-out-quart), scale 150ms var(--ease-out-quart); }
+.al__days button:active { scale: 0.92; }
+.al__days button.is-on { background: var(--brand-flare); color: #1a1a1a; }
+.al__label { height: 40px; border: 0; border-radius: 10px; padding: 0 12px; background: var(--fill); color: var(--c-text); font: inherit; font-size: 16px; }
+.al__foot { display: flex; align-items: center; gap: 6px; }
+@media (max-width: 640px) { .al__del { opacity: 1; } .al__label { font-size: 17px; } }
+
+/* ---------------------------------------------------------------- the Mac's lock while running in the background */
+.veil { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: color-mix(in oklab, var(--c-ground) 72%, transparent); -webkit-backdrop-filter: blur(28px) saturate(1.4); backdrop-filter: blur(28px) saturate(1.4); animation: veilin 220ms var(--ease-out-quart); }
+.veil__card { display: grid; justify-items: center; gap: 12px; width: min(340px, calc(100vw - 48px)); text-align: center; }
+.veil__card h1 { font-size: 22px; font-weight: 600; margin: 6px 0 0; }
+.veil__card input { width: 100%; height: 44px; border: 0; border-radius: 12px; padding: 0 14px; background: var(--fill); color: var(--c-text); font: inherit; font-size: 16px; }
+.veil__acts { display: flex; gap: 8px; }
+.veil__out { border: 0; background: none; color: var(--c-faint); font: inherit; font-size: 13px; cursor: pointer; margin-top: 6px; }
+@keyframes veilin { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .veil { animation: none; } }

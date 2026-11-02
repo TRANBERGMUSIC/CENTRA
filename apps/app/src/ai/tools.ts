@@ -2,6 +2,7 @@
  * What Assist can do in CENTRA. Every tool works on the encrypted local engine and returns an undo
  * step, so anything Assist did can be taken back with one click ("Fortryd").
  */
+import { addAlarm, daysLabel } from '../alarms.ts';
 import { NOTES, eventNotes, setEventNotes, appendEventNotes } from '../eventNotes.ts';
 import { addReminder, setDone, whenLabel, sorted as sortedReminders, type Reminder } from '../reminders.ts';
 import { calTypes, typeForName } from '../calTypes.ts';
@@ -40,7 +41,7 @@ const obj = (properties: Record<string, unknown>, required: string[] = []) => ({
 const KINDS: Record<string, string> = {
   note: 'note', event: 'aftale', goal: 'mål', goalUpdate: 'målopdatering', person: 'kontakt', outlay: 'udlæg', tally: 'regnestykke',
   payment: 'betaling', expense: 'fast udgift', memory: 'hukommelse', photo: 'billede', mail: 'mail', mailfolder: 'mailmappe',
-  notefolder: 'notemappe', calcat: 'kalendertype', suggestion: 'forslag', reminder: 'huskeliste-punkt', mailacct: 'mailkonto', lhconn: 'LunchHub-forbindelse', feed: 'kalenderabonnement',
+  notefolder: 'notemappe', calcat: 'kalendertype', suggestion: 'forslag', reminder: 'huskeliste-punkt', alarm: 'vækkeur', mailacct: 'mailkonto', lhconn: 'LunchHub-forbindelse', feed: 'kalenderabonnement',
 };
 const KIND_KEYS = Object.keys(KINDS);
 /** One line about a record, for find_items. */
@@ -106,7 +107,13 @@ export const TOOLS: ToolDef[] = [
       calendar: str('optional calendar name: "Arbejde", "Privat", "Træning", "Påmindelser"'),
       kind: str('the event\'s type, which sets its colour: one of Kalendertyper in the context when it fits (e.g. "Arbejde" for shifts, "Personlig"); a new name makes a new type'),
       notes: str('optional notes kept with the event, Markdown (flight/booking numbers, times, addresses, the plan, a packing list as "- [ ] …")'),
+      alert_minutes: num('optional: a push notification this many minutes before it starts (0 = when it starts, 1440 = a day before). Use when the user asks to be reminded of the event.'),
     }, ['title', 'date', 'start_time', 'end_time']),
+  },
+  {
+    name: 'set_alarm',
+    description: 'Set an alarm clock (vækkeur) on the iPhone: it rings at the time, also on silent and with CENTRA closed. Weekdays to repeat (man…søn), none = once (the next time it comes). For "væk mig kl 6.30 i morgen", "vækkeur hverdage kl 7". To change or delete one, use update_item / delete_items with its id (find_items kinds ["alarm"]).',
+    input_schema: obj({ time: str('HH:MM'), days: { type: 'array', items: { type: 'string', enum: ['man', 'tir', 'ons', 'tor', 'fre', 'lør', 'søn'] } }, label: str('optional name, e.g. "Arbejde"') }, ['time']),
   },
   {
     name: 'event_notes',
@@ -382,8 +389,15 @@ export function runTool(e: SyncEngine, name: string, input: any): ToolResult {
       const cat = input.kind ? typeForName(e, String(input.kind)) : /arbejd|vagt|netto/i.test(`${input.title} ${input.calendar ?? ''}`) ? typeForName(e, 'Arbejde') : 'calcat-personal';
       const id = e.create('event', { title: String(input.title), start: s.toISOString(), end: en.toISOString(), place: input.place, cal: input.calendar ?? (repeat ? 'Faste' : 'Privat'), cat, ...(repeat ? { repeat } : {}), by: 'Assist' });
       if (typeof input.notes === 'string' && input.notes.trim()) setEventNotes(e, id, input.notes.trim());
+      if (Number.isFinite(Number(input.alert_minutes)) && input.alert_minutes !== null && input.alert_minutes !== undefined) e.set('event', id, { alert: Math.max(0, Math.round(Number(input.alert_minutes))) });
       const when = repeat ? `${repeatLabel(repeat)} ${input.start_time}–${input.end_time}` : `${new Date(date + 'T12:00').toLocaleDateString('da-DK', { weekday: 'short', day: 'numeric', month: 'short' })} ${input.start_time}–${input.end_time}`;
       return { result: { ok: true, id }, action: { label: `I kalenderen: ${input.title}, ${when}`, undo: { kind: 'remove', type: 'event', id }, open: { screen: 'calendar' } } };
+    }
+    case 'set_alarm': {
+      const days = (input.days ?? []).map((d: string) => DAYS[String(d).slice(0, 3).toLowerCase()]).filter((d: number | undefined) => d !== undefined);
+      const id = addAlarm(e, String(input.time ?? '').replace('.', ':'), days, String(input.label ?? ''));
+      const t = String((e.get(id) as any).time);
+      return { result: { ok: true, id, when: `${t} · ${daysLabel(days)}` }, action: { label: `Vækkeur ${t.replace(':', '.')} · ${daysLabel(days)}`, undo: { kind: 'remove', type: 'alarm', id }, open: { screen: 'reminders' } } };
     }
     case 'event_notes': {
       const ev = e.get(String(input.event_id)) as any;

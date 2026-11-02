@@ -3,9 +3,14 @@
  * Everything security-relevant happens in @centra/relay-core, shared with the Node relay.
  */
 import { DurableObject } from 'cloudflare:workers';
-import { RelayCore, normalizeUser, type Conn, type Device, type Envelope, type Guard, type StoredAccount, type UserStore } from '@centra/relay-core';
+import { RelayCore, normalizeUser, type Conn, type Device, type Envelope, type Guard, type PushHost, type PushItem, type PushTarget, type StoredAccount, type UserStore } from '@centra/relay-core';
+import { apnsSender } from './apns.ts';
 
-type Env = { ACCOUNTS: DurableObjectNamespace<Account>; ALLOWED_USERS?: string };
+type Env = {
+  ACCOUNTS: DurableObjectNamespace<Account>; ALLOWED_USERS?: string;
+  /** Apple push (secrets, set by .github/workflows/relay.yml): the .p8 key's text, its Key ID, the Team ID, the app's bundle id. */
+  APNS_KEY?: string; APNS_KEY_ID?: string; APNS_TEAM_ID?: string; APNS_TOPIC?: string;
+};
 
 const SECURITY_HEADERS = {
   'content-type': 'text/plain; charset=utf-8',
@@ -81,10 +86,18 @@ export class Account extends DurableObject<Env> {
         const map = await kv.list<Envelope>({ prefix: 'e:', start: `e:${String(after + 1).padStart(12, '0')}`, limit });
         return [...map.values()];
       },
+      getSchedule: async () => (await kv.get<PushItem[]>('push')) ?? [],
+      putSchedule: (items) => kv.put('push', items),
     };
+    // Push through Apple when the key is set; the object wakes itself (an alarm) at the next item.
+    const send = apnsSender(env);
+    const push: PushHost | undefined = send ? {
+      send: (targets: PushTarget[], item: PushItem) => send(targets, item),
+      wake: (_u, at) => { void (at == null ? ctx.storage.deleteAlarm() : ctx.storage.setAlarm(Math.max(Date.now() + 1000, at))); },
+    } : undefined;
     const allowed = allowedUsers(env);
     // This object only ever serves the account it is named after.
-    this.core = new RelayCore({ allowedUsers: allowed, store: (u) => { if (!this.user || u !== this.user) throw new Error('wrong account'); return store; } });
+    this.core = new RelayCore({ allowedUsers: allowed, push, store: (u) => { if (!this.user || u !== this.user) throw new Error('wrong account'); return store; } });
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('{"type":"ping"}', '{"type":"pong"}'));
     // Woken from hibernation: the sockets are still there; the logged-in ones get their place back.
     for (const ws of ctx.getWebSockets()) {
@@ -112,6 +125,8 @@ export class Account extends DurableObject<Env> {
     const waiting = this.ctx.getWebSockets().filter((ws) => !((ws.deserializeAttachment() ?? {}) as Attachment).authed);
     for (const ws of waiting.slice(0, Math.max(0, waiting.length - MAX_WAITING + 1))) { this.gone(ws); try { ws.close(1013, 'busy'); } catch {} }
     this.user = req.headers.get('x-centra-user');
+    // Remembered for the alarm, which wakes the object without a request (and so without the header).
+    if (this.user && (await this.ctx.storage.get<string>('user')) !== this.user) await this.ctx.storage.put('user', this.user);
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ u: this.user! } satisfies Attachment);
@@ -125,6 +140,12 @@ export class Account extends DurableObject<Env> {
     const next = (this.queues.get(ws) ?? Promise.resolve()).then(() => this.core.handle(conn, text)).catch(() => {});
     this.queues.set(ws, next);
     await next;
+  }
+
+  /** The next push is due. */
+  async alarm() {
+    this.user ??= (await this.ctx.storage.get<string>('user')) ?? null;
+    if (this.user) await this.core.fireDue(this.user);
   }
 
   async webSocketClose(ws: WebSocket, code: number) {

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { explain } from '../session.ts';
-import { lock } from '../lock.ts';
+import { lock, backgroundOn, setBackground } from '../lock.ts';
+import { WsRelay } from '@centra/sync';
+import { SYNC } from '../session.ts';
+import { invoke as call } from '../platform.ts';
 import { useEngine, useList, useRoute, useSession, useSyncStatus, fmt } from '../state.tsx';
 import { Btn, Panel, vars } from '../ui/primitives.tsx';
 import { ask } from '../ui/Confirm.tsx';
@@ -54,6 +57,7 @@ export function Settings({ theme, setTheme }: { theme: Theme; setTheme: (t: Them
       <div className="grid12">
         <SecurityPanel />
         <AiPanel />
+        {(native || SYNC) && <NotifyPanel />}
         <Panel title="Tema" className="span-5">
           <div className="segmented" role="radiogroup" aria-label="Tema">
             {([['dark', 'Mørk'], ['oled', 'OLED sort'], ['light', 'Lys']] as const).map(([k, l]) => (
@@ -318,6 +322,36 @@ function AiPanel() {
         <input type="checkbox" checked={s.triage} onChange={(ev) => save({ triage: ev.target.checked })} aria-label="Sortér mails med AI" /></div>
       <div className="kv"><span>Forbrug og budget</span><Btn size="sm" onClick={() => go({ screen: 'usage' })}>Se forbrug</Btn></div>
       <div className="kv"><span>Test forbindelsen</span><Btn size="sm" onClick={test} disabled={busy}>{busy ? 'Tester …' : 'Test'}</Btn></div>
+    </Panel>
+  );
+}
+
+/* ---------------------------------------------------------------- notifications: push to the iPhone, the Mac in the background */
+function NotifyPanel() {
+  const { relay } = useSession();
+  const toast = useToast();
+  const [bg, setBg] = useState(backgroundOn());
+  const [token, setToken] = useState<{ token: string; problem: string; available: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const ws = relay instanceof WsRelay ? relay : null;
+  useEffect(() => { if (ios) void call<{ token: string; problem: string; available: boolean }>('push_token').then(setToken).catch(() => {}); }, []);
+  const serverReady = !!ws?.pushReady;
+  const phone = !ios ? null : !token?.available ? 'Ikke i denne version' : token.problem ? token.problem : !token.token ? 'Venter på iPhonen' : serverReady ? 'Slået til' : 'Sync-serveren mangler push-nøglen';
+  async function test() {
+    if (!ws) return;
+    setBusy(true);
+    try {
+      const r = await ws.pushTest();
+      toast({ text: !r.pushReady ? 'Sync-serveren mangler push-nøglen.' : r.ok ? 'Sendt. Den kommer om et øjeblik.' : r.bad ? 'Apple kender ikke denne iPhone endnu. Åbn CENTRA igen om lidt.' : `Apple svarede: ${(r.errors ?? []).join(', ')}` });
+    } catch (x) { toast({ text: (x as Error).message === 'no-token' ? 'iPhonen har ikke sendt sin push-adresse endnu.' : 'Ingen forbindelse til sync-serveren.' }); }
+    setBusy(false);
+  }
+  return (
+    <Panel title="Notifikationer" className="span-12">
+      {ios && <div className="kv"><span>Push<span className="meta block">{phone}</span></span><Btn size="sm" disabled={busy || !serverReady || !token?.token} onClick={() => void test()}>{busy ? 'Sender …' : 'Send en test'}</Btn></div>}
+      {!ios && ws && <div className="kv"><span>Push til iPhonen<span className="meta block">{serverReady ? 'Slået til' : 'Sync-serveren mangler push-nøglen'}</span></span></div>}
+      {desktop && <div className="kv"><span>Kør i baggrunden og start ved login<span className="meta block">{bg ? 'Lukker du vinduet, kører CENTRA videre' : 'Fra'}</span></span>
+        <input type="checkbox" checked={bg} aria-label="Kør i baggrunden og start ved login" onChange={(x) => { const on = x.target.checked; setBg(on); setBackground(on); void call(on ? 'plugin:autostart|enable' : 'plugin:autostart|disable').catch(() => {}); void call('set_background', { on }).catch(() => {}); }} /></div>}
     </Panel>
   );
 }

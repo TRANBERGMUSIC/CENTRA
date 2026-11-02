@@ -51,3 +51,10 @@ password ─Argon2id─▶ enc  ─┐                     recovery code ─Argo
 ## Test
 
 `npx vitest run` kører 12 sikkerhedstests mod relæ-kernen, blandt andet: ingen adgang før login, kun tilladt bruger, kun hash gemt, lockout med stigende ventetid, passwordskift logger andre ud, gendannelse, udlogget enhed afvist, nøgler kan ikke erstattes, flood og forkert input afvises, egne enheder kommer ind under en spærring (og fremmede ikke), og forbindelser der ikke logger ind lukkes. `npm run e2e` kører hele forløbet i en browser med CSP slået til.
+
+## Push
+
+Påmindelser, varsler før aftaler og nye mails sendes til iPhonen gennem sync-serveren og Apple. Det er den ene undtagelse fra "kun krypterede data": beskedens tekst (fx "Husk: Levere udstyr tilbage til Sigge") og tidspunkt ligger på serveren, indtil beskeden er sendt, og slettes så. Push-adressen (token) vises aldrig for andre enheder. Apple-nøglen ligger kun som hemmelighed i GitHub og Cloudflare.
+
+På Mac'en, når CENTRA kører i baggrunden, låser appen sig ved at dække sig til (Touch ID eller password for at se den igen) i stedet for at genstarte, så påmindelser og mail kan køre videre. Nøglerne er i hukommelsen imens, som når appen er åben. Et tvunget log ud (password skiftet, enheden logget ud) genstarter stadig.
+

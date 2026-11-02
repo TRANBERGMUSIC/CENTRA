@@ -242,7 +242,7 @@ export function matchWatches(e: SyncEngine, ids: string[]): { watch: any; mail: 
 let running = false;
 /** Fetches all enabled accounts; returns new mail ids and watch hits. */
 export async function syncAll(e: SyncEngine) {
-  if (running || !mailAvailable()) return { added: [] as string[], hits: [] as ReturnType<typeof matchWatches>, errors: [] as string[], firstLh: true };
+  if (running || !mailAvailable()) return { added: [] as string[], hits: [] as ReturnType<typeof matchWatches>, errors: [] as string[], firstLh: true, firstRun: true };
   running = true;
   try {
     const accts = e.list('mailacct').filter((a: any) => a.enabled !== false) as unknown as MailAccount[];
@@ -253,6 +253,6 @@ export async function syncAll(e: SyncEngine) {
     const lh = await syncAllLunchHub(e);
     errors.push(...lh.errors);
     sortByRules(e, [...added, ...lh.added]); // your folders' rules, the moment the mail arrives
-    return { added: [...added, ...lh.added], hits: firstRun ? [] : matchWatches(e, added), errors, firstLh };
+    return { added: [...added, ...lh.added], hits: firstRun ? [] : matchWatches(e, added), errors, firstLh, firstRun };
   } finally { running = false; }
 }
