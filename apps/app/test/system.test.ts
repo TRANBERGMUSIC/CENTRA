@@ -195,3 +195,24 @@ describe('Assist kan alt', () => {
     expect(() => runTool(e, 'delete_items', { ids: ['findes-ikke'] })).toThrow();
   });
 });
+
+describe('noter på en aftale', () => {
+  it('flybilletter står i aftalens noter, ikke som en ny note, og kan fortrydes', async () => {
+    const e = await engine();
+    const r = runTool(e, 'create_event', { title: 'Fly til Barcelona', date: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10), start_time: '07:15', end_time: '10:05', notes: '**Booking** ABC123\nTerminal 3' }) as any;
+    const id = r.result.id;
+    expect(e.list('note')).toHaveLength(0);
+    expect(e.doc(id).getText('notes').toString()).toContain('ABC123');
+    expect((e.get(id) as any).notesPreview).toBe('Booking ABC123 Terminal 3');
+    const add = runTool(e, 'event_notes', { event_id: id, text: '- [ ] pas\n- [ ] oplader' }) as any;
+    expect(e.doc(id).getText('notes').toString()).toBe('**Booking** ABC123\nTerminal 3\n\n- [ ] pas\n- [ ] oplader');
+    expect(contextFor(e)).toContain('noter: Booking ABC123');
+    expect((runTool(e, 'find_items', { query: 'oplader' }).result as any).items[0].id).toBe(id);
+    expect((runTool(e, 'get_item', { id }).result as any).notes).toContain('oplader');
+    applyUndo(e, add.action.undo);
+    expect(e.doc(id).getText('notes').toString()).toBe('**Booking** ABC123\nTerminal 3');
+    expect((e.get(id) as any).notesPreview).toBe('Booking ABC123 Terminal 3');
+    runTool(e, 'update_item', { id, fields: { notes: 'Gate B22' } });
+    expect((e.get(id) as any).notesPreview).toBe('Gate B22');
+  });
+});

@@ -223,6 +223,7 @@ function NextModule() {
           <div className="nextname">{next.title}</div>
           <div className="muted num">{fmt.hm(next.start)}–{fmt.hm(next.end)}{next.place ? ' · ' + next.place : ''}{next.with ? ' · ' + next.with : ''}</div>
           <ul className="rows linked">
+            {next.notesPreview && <li><button className="row" onClick={() => go({ screen: 'calendar' })}><Icon name="notes" /><span className="row__body ellipsis">{next.notesPreview}</span></button></li>}
             {next.note && <li><button className="row" onClick={() => go({ screen: 'notes', id: next.note })}><Icon name="notes" /><span className="row__body ellipsis">{e.get(next.note)?.title as string}</span></button></li>}
             {next.mail && <li><button className="row" onClick={() => go({ screen: 'inbox', id: next.mail })}><Icon name="inbox" /><span className="row__body ellipsis">{(e.get(next.mail) as any)?.subject}</span></button></li>}
           </ul>

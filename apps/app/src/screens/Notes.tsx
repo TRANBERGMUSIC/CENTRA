@@ -243,7 +243,7 @@ function Editor({ id }: { id: string }) {
               <datalist id="note-tags">{allTags.map((t) => <option key={t} value={t} />)}</datalist>
             </form>
           </div>
-          <Suspense fallback={<div className="doc__body cmhost" />}><NoteEditor text={e.doc(id).getText('body')} placeholderText="Skriv løs. - giver punkter, [] en tjekliste, [[Notens titel]] et link." onLocalEdit={touch} /></Suspense>
+          <Suspense fallback={<div className="doc__body cmhost" />}><NoteEditor text={e.doc(id).getText('body')} placeholderText="Skriv …" onLocalEdit={touch} /></Suspense>
           {(links.length > 0 || back.length > 0) && (
             <div className="nlinks">
               {links.length > 0 && <div><span className="meta">Links i noten</span>{links.map((l) => { const t = notes.find((n) => (n.title || '').trim().toLowerCase() === l.toLowerCase()); return <button key={l} className="linkchip" onClick={() => { if (t) go({ screen: 'notes', id: t.id }); else { const nid = e.create('note', { title: l, folder: note.folder || INBOX, tags: [], editedAt: new Date().toISOString(), createdAt: new Date().toISOString() }); go({ screen: 'notes', id: nid }); } }}><Icon name="notes" />{l}{!t && <span className="meta"> · lav den</span>}</button>; })}</div>}

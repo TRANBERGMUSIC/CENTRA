@@ -151,6 +151,7 @@ function WeekView({ all, types, onEdit, onNew }: ViewProps) {
                       style={vars({ '--start': s, '--len': Math.max(0.02, f(new Date(x.end), d) - s), '--lane': l.lane, '--of': l.of, '--ev': eventColor(types, x as any) })}
                       onClick={() => onEdit(x)} aria-label={`${x.title} ${fmt.hm(x.start)}–${fmt.hm(x.end)}. Redigér`}>
                       <b>{x.title}</b><span className="num">{fmt.hm(x.start)}–{fmt.hm(x.end)}</span>
+                      {(x as any).notesPreview && <span className="ev__notes" title={(x as any).notesPreview}><Icon name="notes" size="sm" /><span>{(x as any).notesPreview}</span></span>}
                     </button>
                   );
                 })}
@@ -305,7 +306,8 @@ function DayView({ all, types, onEdit, onNew }: ViewProps) {
           return (
             <button key={x.id} className={`calm__ev ${e < now ? 'is-past' : ''} ${(x as any).feed ? 'is-feed' : ''} ${h < 40 ? 'is-short' : ''}`} style={vars({ '--top': y(s) + 'px', '--h': h + 'px', '--lane': l.lane, '--of': l.of, '--ev': eventColor(types, x as any) })}
               onClick={() => onEdit(x)} aria-label={`${x.title} ${fmt.hm(x.start)}–${fmt.hm(x.end)}. Redigér`}>
-              <b style={vars({ '--lines': Math.max(1, Math.floor((h - 26) / 18)) })}>{x.title}</b><span className="num">{fmt.hm(x.start)}–{fmt.hm(x.end)}{x.place ? ' · ' + x.place : ''}</span>
+              <b style={vars({ '--lines': Math.max(1, Math.floor((h - ((x as any).notesPreview && h >= 64 ? 44 : 26)) / 18)) })}>{x.title}</b><span className="num">{fmt.hm(x.start)}–{fmt.hm(x.end)}{x.place ? ' · ' + x.place : ''}</span>
+              {(x as any).notesPreview && h >= 64 && <span className="ev__notes"><Icon name="notes" size="sm" /><span>{(x as any).notesPreview}</span></span>}
             </button>
           );
         })}

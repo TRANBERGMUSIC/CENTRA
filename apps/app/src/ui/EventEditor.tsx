@@ -1,9 +1,25 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import * as Y from 'yjs';
 import { useEngine, useList } from '../state.tsx';
 import { Btn, vars } from './primitives.tsx';
 import { calTypes, createType, typeOf, SWATCHES, type CalType } from '../calTypes.ts';
 import { useToast } from './Shell.tsx';
 import { dayKey, type CalEvent } from '../calendar.ts';
+import { NOTES, setEventNotes, stampNotes } from '../eventNotes.ts';
+
+const NoteEditor = lazy(() => import('./NoteEditor.tsx').then((m) => ({ default: m.NoteEditor })));
+
+/**
+ * The event's notes (flight tickets, the plan, a packing list): formatted like a note, kept with the
+ * event. An existing event's notes are saved as you type, like a note; a new event's go with it on Gem.
+ */
+function EventNotes({ text, onEdit }: { text: Y.Text; onEdit?: () => void }) {
+  return (
+    <div className="ufield evnotes"><span>Noter</span>
+      <Suspense fallback={<div className="evnotes__wait" />}><NoteEditor text={text} placeholderText="Noter" onLocalEdit={onEdit} /></Suspense>
+    </div>
+  );
+}
 
 const DAYS: [number, string][] = [[1, 'Man'], [2, 'Tir'], [3, 'Ons'], [4, 'Tor'], [5, 'Fre'], [6, 'Lør'], [0, 'Søn']];
 const hm = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -30,6 +46,12 @@ export function EventEditor({ event, occurrence, defaultStart, onClose }: { even
   const [err, setErr] = useState<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const readOnly = !!(base as any)?.feed;
+  // A new event writes its notes into a scratch text first; they move to the event when it's saved.
+  const draft = useMemo(() => new Y.Doc().getText(NOTES), []);
+  const notes = base ? e.doc(base.id).getText(NOTES) : draft;
+  const stampSoon = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const onNotesEdit = base ? () => { clearTimeout(stampSoon.current); stampSoon.current = setTimeout(() => stampNotes(e, base.id), 400); } : undefined;
+  useEffect(() => () => { clearTimeout(stampSoon.current); if (base) stampNotes(e, base.id); }, [e, base]);
 
   useEffect(() => {
     const k = (ev: KeyboardEvent) => ev.key === 'Escape' && onClose();
@@ -52,6 +74,7 @@ export function EventEditor({ event, occurrence, defaultStart, onClose }: { even
       toast({ text: 'Aftalen er gemt', action: { label: 'Fortryd', run: () => e.set('event', base.id, prev) } });
     } else {
       const id = e.create('event', { ...fields, cal: days.length ? 'Faste' : 'Privat' });
+      if (draft.toString().trim()) setEventNotes(e, id, draft.toString());
       toast({ text: 'Aftalen er oprettet', action: { label: 'Fortryd', run: () => e.remove('event', id) } });
     }
     onClose();
@@ -75,7 +98,8 @@ export function EventEditor({ event, occurrence, defaultStart, onClose }: { even
           <div className="sheet__body">
             <h2>{base!.title}</h2>
             <p className="muted">{new Date(occurrence?.start ?? base!.start).toLocaleString('da-DK', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}{base!.place ? ' · ' + base!.place : ''}</p>
-            <p className="meta">Fra {(base as any).cal ?? 'en tilknyttet kalender'}. Ret den i den kalender, den kommer fra; ændringen dukker op her ved næste opdatering.</p>
+            <p className="meta">{(base as any).cal ?? 'Tilknyttet kalender'}</p>
+            <EventNotes text={notes} onEdit={onNotesEdit} />
             <div className="unlock__row"><Btn variant="primary" onClick={onClose}>Luk</Btn></div>
           </div>
         ) : (
@@ -93,6 +117,7 @@ export function EventEditor({ event, occurrence, defaultStart, onClose }: { even
                 {DAYS.map(([d, l]) => <button key={d} type="button" aria-pressed={days.includes(d)} className={days.includes(d) ? 'is-active' : ''} onClick={() => setDays((x) => x.includes(d) ? x.filter((y) => y !== d) : [...x, d])}>{l}</button>)}
               </div>
             </div>
+            <EventNotes text={notes} onEdit={onNotesEdit} />
             {err && <p className="unlock__error" role="alert">{err}</p>}
             <div className="sheet__foot">
               {base && (base.repeat && occurrence

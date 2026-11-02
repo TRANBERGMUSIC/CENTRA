@@ -2,6 +2,7 @@
  * What Assist can do in CENTRA. Every tool works on the encrypted local engine and returns an undo
  * step, so anything Assist did can be taken back with one click ("Fortryd").
  */
+import { NOTES, eventNotes, setEventNotes, appendEventNotes } from '../eventNotes.ts';
 import { addReminder, setDone, whenLabel, sorted as sortedReminders, type Reminder } from '../reminders.ts';
 import { calTypes, typeForName } from '../calTypes.ts';
 import type { SyncEngine } from '@centra/sync';
@@ -18,7 +19,7 @@ import { ME, findPerson, findOrCreatePerson, balances, debts, payDebt, iOwe, owe
 export type Undo =
   | { kind: 'remove'; type: string; id: string }
   | { kind: 'restore'; type: string; id: string; fields: Record<string, unknown> }
-  | { kind: 'noteText'; id: string; text: string }
+  | { kind: 'noteText'; id: string; text: string; field?: string }
   | { kind: 'removeMany'; type: string; ids: string[] }
   | { kind: 'many'; steps: Undo[] };
 
@@ -104,7 +105,13 @@ export const TOOLS: ToolDef[] = [
       place: str('optional place'),
       calendar: str('optional calendar name: "Arbejde", "Privat", "Træning", "Påmindelser"'),
       kind: str('the event\'s type, which sets its colour: one of Kalendertyper in the context when it fits (e.g. "Arbejde" for shifts, "Personlig"); a new name makes a new type'),
+      notes: str('optional notes kept with the event, Markdown (flight/booking numbers, times, addresses, the plan, a packing list as "- [ ] …")'),
     }, ['title', 'date', 'start_time', 'end_time']),
+  },
+  {
+    name: 'event_notes',
+    description: 'Write in a calendar event\'s own notes (Markdown, shown with the event). Use it for everything that belongs to that event: flight tickets and booking numbers, check-in and gate times, addresses, the plan for the day, a packing list ("- [ ] …"), links. Never make a separate note in Noter for this. mode "append" (default) adds at the end; "replace" rewrites them all. The id is in the context, or from list_events / find_items.',
+    input_schema: obj({ event_id: str('the event id'), text: str('the notes (Markdown)'), mode: { type: 'string', enum: ['append', 'replace'] } }, ['event_id', 'text']),
   },
   {
     name: 'delete_event',
@@ -374,8 +381,16 @@ export function runTool(e: SyncEngine, name: string, input: any): ToolResult {
       const repeat = days.length ? { days, ...(input.repeat_until ? { until: ymd(input.repeat_until) } : {}) } : undefined;
       const cat = input.kind ? typeForName(e, String(input.kind)) : /arbejd|vagt|netto/i.test(`${input.title} ${input.calendar ?? ''}`) ? typeForName(e, 'Arbejde') : 'calcat-personal';
       const id = e.create('event', { title: String(input.title), start: s.toISOString(), end: en.toISOString(), place: input.place, cal: input.calendar ?? (repeat ? 'Faste' : 'Privat'), cat, ...(repeat ? { repeat } : {}), by: 'Assist' });
+      if (typeof input.notes === 'string' && input.notes.trim()) setEventNotes(e, id, input.notes.trim());
       const when = repeat ? `${repeatLabel(repeat)} ${input.start_time}–${input.end_time}` : `${new Date(date + 'T12:00').toLocaleDateString('da-DK', { weekday: 'short', day: 'numeric', month: 'short' })} ${input.start_time}–${input.end_time}`;
       return { result: { ok: true, id }, action: { label: `I kalenderen: ${input.title}, ${when}`, undo: { kind: 'remove', type: 'event', id }, open: { screen: 'calendar' } } };
+    }
+    case 'event_notes': {
+      const ev = e.get(String(input.event_id)) as any;
+      if (!ev || ev.type !== 'event') throw new Error('Fandt ikke aftalen');
+      const before = eventNotes(e, ev.id);
+      if (input.mode === 'replace') setEventNotes(e, ev.id, String(input.text ?? '')); else appendEventNotes(e, ev.id, String(input.text ?? ''));
+      return { result: { ok: true, notes: eventNotes(e, ev.id).slice(0, 1500) }, action: { label: `Noter på ${ev.title}`, undo: { kind: 'noteText', id: ev.id, text: before, field: NOTES }, open: { screen: 'calendar' } } };
     }
     case 'delete_event': {
       const ev = e.get(String(input.event_id).split('@')[0]) as any;
@@ -703,7 +718,7 @@ export function runTool(e: SyncEngine, name: string, input: any): ToolResult {
       const limit = Math.min(100, Math.max(1, Number(input.limit) || 20));
       const found: { id: string; kind: string; summary: string; when: string }[] = [];
       for (const k of kinds) for (const r of e.list(k) as any[]) {
-        const hay = (JSON.stringify(r) + (k === 'note' ? ' ' + e.doc(r.id).getText('body').toString() : '') + (r.person ? ' ' + personName(e, r.person) : '')).toLowerCase();
+        const hay = (JSON.stringify(r) + (k === 'note' ? ' ' + e.doc(r.id).getText('body').toString() : k === 'event' && r.notesPreview ? ' ' + eventNotes(e, r.id) : '') + (r.person ? ' ' + personName(e, r.person) : '')).toLowerCase();
         if (words.every((w) => hay.includes(w))) found.push({ id: r.id, kind: KINDS[k], summary: summary(e, r), when: String(r.editedAt ?? r.createdAt ?? r.at ?? r.date ?? r.start ?? '') });
       }
       found.sort((a, b) => b.when.localeCompare(a.when));
@@ -714,6 +729,7 @@ export function runTool(e: SyncEngine, name: string, input: any): ToolResult {
       if (!r) throw new Error('Findes ikke (måske allerede slettet)');
       const out: Record<string, unknown> = { ...r, kind: KINDS[r.type] ?? r.type };
       if (r.type === 'note') out.body = e.doc(r.id).getText('body').toString();
+      if (r.type === 'event') { out.notes = eventNotes(e, r.id); delete out.notesPreview; }
       if (r.type === 'tally') { out.person_name = personName(e, r.person); out.net = tallyNet(r as Tally); out.lines_explained = (r.lines ?? []).map((l: any) => lineExplain(l, personName(e, r.person))); }
       if (r.person && r.type !== 'tally') out.person_name = personName(e, r.person);
       for (const k of ['image', 'thumb', 'html']) if (typeof out[k] === 'string' && (out[k] as string).length > 400) out[k] = `(${Math.round((out[k] as string).length / 1000)} kB, ikke vist)`;
@@ -731,6 +747,11 @@ export function runTool(e: SyncEngine, name: string, input: any): ToolResult {
         e.doc(r.id).transact(() => { t.delete(0, t.length); t.insert(0, fields.body as string); });
         delete fields.body;
         fields.editedAt = nowIso();
+      }
+      if (r.type === 'event' && typeof fields.notes === 'string') {
+        steps.push({ kind: 'noteText', id: r.id, text: eventNotes(e, r.id), field: NOTES });
+        setEventNotes(e, r.id, fields.notes as string);
+        delete fields.notes;
       }
       if (r.type === 'tally' && Array.isArray(fields.lines)) fields.lines = toLines((fields.lines as any[]).map((l) => ({ ...l, by: l.by === 'mig' ? 'me' : l.by, whose: l.whose === 'begge' ? 'both' : l.whose === 'mig' ? 'me' : l.whose })), () => Math.random().toString(36).slice(2, 10), r.lines ?? []);
       const prev = Object.fromEntries(Object.keys(fields).map((k) => [k, r[k] ?? null]));
@@ -777,6 +798,7 @@ export function applyUndo(e: SyncEngine, u: Undo) {
   else if (u.kind === 'restore') e.set(u.type, u.id, u.fields);
   else if (u.kind === 'removeMany') for (const id of u.ids) e.remove(u.type, id);
   else if (u.kind === 'many') for (const st of [...u.steps].reverse()) applyUndo(e, st);
+  else if (u.field === NOTES) setEventNotes(e, u.id, u.text);
   else { const t = e.doc(u.id).getText('body'); t.delete(0, t.length); t.insert(0, u.text); }
 }
 
@@ -798,7 +820,7 @@ export function contextFor(e: SyncEngine): string {
   const all = e.list('event') as unknown as CalEvent[];
   const fixed = all.filter((x) => x.repeat).map((x) => { const d = evDef(x); return `- [${d.id}] ${d.title}: ${d.when}${x.repeat?.skip?.length ? ' (aflyst: ' + x.repeat.skip.join(', ') + ')' : ''}`; });
   const end = new Date(now); end.setDate(end.getDate() + 8);
-  const soon = occurrences(all.filter((x) => !x.repeat), now, end).map((x) => { const l = evLine(x); return `- [${l.id}] ${l.day} ${l.time} ${l.title}${l.place ? ' · ' + l.place : ''}`; });
+  const soon = occurrences(all.filter((x) => !x.repeat), now, end).map((x) => { const l = evLine(x); const np = (x as any).notesPreview as string | undefined; return `- [${l.id}] ${l.day} ${l.time} ${l.title}${l.place ? ' · ' + l.place : ''}${np ? ` · noter: ${np.slice(0, 80)}${np.length > 80 ? '…' : ''}` : ''}`; });
   const remind = sortedReminders(e.list('reminder') as unknown as Reminder[]).filter((r) => !r.done).slice(0, 40).map((r) => `- [${r.id}] ${r.text}${r.at ? ' · ' + whenLabel(r.at, now) : ''}`);
   const watches = e.list('watch').filter((w: any) => w.active).map((w: any) => `- [${w.id}] ${w.description}`);
   const accts = e.list('mailacct').map((a: any) => `${a.name} (${a.email})`);

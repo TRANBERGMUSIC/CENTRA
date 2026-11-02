@@ -1123,3 +1123,14 @@ html.is-app .sidebar, html.is-app .tabbar, html.is-app .btn, html.is-app .tag { 
 :root[data-theme="light"] { color-scheme: light; }
 h1, h2, .panel__title, .chat__lead { text-wrap: balance; }
 @media (min-width: 641px) { .goals.no-rail { grid-template-columns: var(--l-list-column) minmax(0, 1fr); } }
+
+/* ---------------------------------------------------------------- notes on an event */
+.evnotes .noteeditor { margin-top: 2px; border-radius: 12px; background: var(--fill); padding: 4px 12px 10px; }
+.evnotes .ntoolbar { position: static; margin: 0 -6px; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.evnotes .cmhost { min-height: 96px; max-height: 42vh; overflow: auto; margin-top: 4px; }
+.evnotes .cmhost .cm-editor { font-size: 15px; }
+.evnotes__wait { height: 140px; border-radius: 12px; background: var(--fill); }
+.ev__notes { display: flex; align-items: flex-start; gap: 4px; min-width: 0; opacity: 0.85; }
+.ev__notes .ic { width: 12px; height: 12px; flex: none; margin-top: 2px; }
+.ev__notes span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 640px) { .evnotes .cmhost .cm-editor { font-size: 17px; } }
