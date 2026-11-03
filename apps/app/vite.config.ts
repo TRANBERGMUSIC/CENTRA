@@ -33,7 +33,7 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
     __WEB_VERSION__: JSON.stringify(WEB_VERSION),
-    __GITHUB_REPOSITORY__: JSON.stringify(process.env.GITHUB_REPOSITORY ?? 'TRANBERGMUSIC/CENTRA'),
+    __GITHUB_REPOSITORY__: JSON.stringify(process.env.GITHUB_REPOSITORY ?? 'TRANBERGGROUP/CENTRA'),
   },
   server: { port: 5173, strictPort: true, fs: { allow: ['../..'] } },
   // Two pages: CENTRA itself, and the browser window's toolbar.

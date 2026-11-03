@@ -1,10 +1,10 @@
 #!/bin/bash
 # CENTRA – installer til Mac. Installér eller opdatér til nyeste version med én linje i Terminal:
-#   curl -fsSL https://raw.githubusercontent.com/TRANBERGMUSIC/CENTRA/main/installer/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/TRANBERGGROUP/CENTRA/main/installer/install.sh | bash
 # Henter seneste release fra GitHub, lægger CENTRA i Programmer og åbner den.
 # Derefter opdaterer CENTRA sig selv, mens den kører.
 set -euo pipefail
-REPO="TRANBERGMUSIC/CENTRA"
+REPO="TRANBERGGROUP/CENTRA"
 APP="/Applications/CENTRA.app"
 TMP="$(mktemp -d)"; trap 'hdiutil detach -quiet "$TMP/mnt" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 

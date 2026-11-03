@@ -52,7 +52,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/TRANBERGMUSIC/CENTRA/releases/latest/download/latest.json"
+        "https://github.com/TRANBERGGROUP/CENTRA/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFFNUQ4OTA3MDhFNUEyMjYKUldRbW91VUlCNGxkcnJHRHhxMitIYXBRR0xFVndsVWZ0MDRnVURla05NZ0ZtMm9SMmI1UFJNMzcK",
       "windows": {

@@ -7,7 +7,7 @@
 Åbn **Terminal**, indsæt denne linje, og tryk Enter:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/TRANBERGMUSIC/CENTRA/main/installer/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/TRANBERGGROUP/CENTRA/main/installer/install.sh | bash
 ```
 
 Den henter nyeste version, lægger CENTRA i Programmer og åbner den. Du skal ikke højreklikke eller godkende noget. Kør den igen når som helst for at geninstallere.
