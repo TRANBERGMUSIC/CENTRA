@@ -1,4 +1,4 @@
-//! The iPhone app's own Swift (scripts/ios/CentraPush.swift, CentraAlarms.swift), called by name
+//! The iPhone app's own Swift (scripts/ios/CentraPush.swift, CentraAlarms.swift, CentraFiles.swift), called by name
 //! through the Objective-C runtime. When a build went out without them (see ios-testflight.sh), the
 //! class isn't there and the command says "unavailable". On the Mac these are no-ops.
 
@@ -28,6 +28,16 @@ mod ios {
         match class(c"CentraPush") {
             Some(cls) => {
                 let _: () = unsafe { msg_send![cls, register] };
+                true
+            }
+            None => false,
+        }
+    }
+    pub fn file(path: &str, share: bool) -> bool {
+        match class(c"CentraFiles") {
+            Some(cls) => {
+                let arg = NSString::from_str(path);
+                let _: () = unsafe { if share { msg_send![cls, share: &*arg] } else { msg_send![cls, preview: &*arg] } };
                 true
             }
             None => false,
@@ -107,4 +117,11 @@ pub fn alarms_status() -> String {
     {
         "unavailable".into()
     }
+}
+
+/// iPhone: shows a file in Quick Look (PowerPoint, Word, Excel, PDF, Pages …) or, with share, in the
+/// share sheet (Gem i Filer, Åbn i …, AirDrop). False when this build has no CentraFiles.
+#[cfg(target_os = "ios")]
+pub fn show_file(path: &str, share: bool) -> bool {
+    ios::file(path, share)
 }

@@ -361,19 +361,21 @@ pub async fn mail_part(account: Account, uid: u32, index: u32, folder: Option<St
     .map_err(friendly)
 }
 
-/// Saves an attachment to Overførsler (save = true) or opens it in its own app (Preview, Pages …).
+/// Mac: shows an attachment in Quick Look (preview), saves it to Overførsler (save) or opens it in
+/// its own app (Preview, Keynote, PowerPoint …). iPhone: Quick Look (open/preview) or the share
+/// sheet (save: Gem i Filer, Åbn i PowerPoint, AirDrop …). Shown copies go to a temporary folder
+/// that is tidied up.
 #[tauri::command]
-pub async fn mail_save_part<R: tauri::Runtime>(app: tauri::AppHandle<R>, account: Account, uid: u32, index: u32, save: bool, folder: Option<String>) -> Result<String, String> {
+pub async fn mail_save_part<R: tauri::Runtime>(app: tauri::AppHandle<R>, account: Account, uid: u32, index: u32, save: bool, preview: Option<bool>, folder: Option<String>) -> Result<String, String> {
+    let preview = preview.unwrap_or(false) && !save;
     use tauri::Manager;
-    use tauri_plugin_opener::OpenerExt;
     let folder = folder.unwrap_or_else(|| "INBOX".into());
-    let dir = if save {
-        app.path().download_dir().map_err(|e| e.to_string())?
-    } else {
-        std::env::temp_dir().join("CENTRA vedhæftninger")
-    };
+    let temp = std::env::temp_dir().join("CENTRA vedhæftninger");
+    let to_downloads = save && !cfg!(target_os = "ios");
+    let dir = if to_downloads { app.path().download_dir().map_err(|e| e.to_string())? } else { temp.clone() };
     let path = tauri::async_runtime::spawn_blocking(move || -> Result<std::path::PathBuf, String> {
         let (name, _, data) = part_blocking(&account, &folder, uid, index)?;
+        tidy(&temp);
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let path = free_path(&dir, &safe_name(&name));
         std::fs::write(&path, data).map_err(|e| e.to_string())?;
@@ -382,12 +384,52 @@ pub async fn mail_save_part<R: tauri::Runtime>(app: tauri::AppHandle<R>, account
     .await
     .map_err(|e| e.to_string())?
     .map_err(friendly)?;
-    if save {
-        let _ = app.opener().reveal_item_in_dir(&path);
-    } else {
-        app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(|e| e.to_string())?;
+    #[cfg(target_os = "ios")]
+    {
+        let _ = (&app, preview);
+        if !crate::native::show_file(&path.to_string_lossy(), save) {
+            let _ = std::fs::remove_file(&path);
+            return Err("Opdatér CENTRA for at åbne filer på iPhone.".into());
+        }
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        use tauri_plugin_opener::OpenerExt;
+        if save {
+            let _ = app.opener().reveal_item_in_dir(&path);
+        } else if preview && quick_look(&path) {
+        } else {
+            app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(|e| e.to_string())?;
+        }
     }
     Ok(path.to_string_lossy().to_string())
+}
+
+/// The Mac's own Quick Look (as with the space bar in Finder): PowerPoint, Keynote, Word, Pages,
+/// Excel, Numbers, PDF, video … The previous preview closes when a new one opens.
+#[cfg(target_os = "macos")]
+fn quick_look(path: &std::path::Path) -> bool {
+    use std::process::{Command, Stdio};
+    use std::sync::Mutex;
+    static LAST: Mutex<Option<std::process::Child>> = Mutex::new(None);
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(mut c) = last.take() { let _ = c.kill(); let _ = c.wait(); }
+    match Command::new("/usr/bin/qlmanage").arg("-p").arg(path).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
+        Ok(c) => { *last = Some(c); true }
+        Err(_) => false,
+    }
+}
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+fn quick_look(_: &std::path::Path) -> bool { false }
+
+/// Opened attachments don't lie around: copies older than a day are removed.
+fn tidy(dir: &std::path::Path) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let day = Duration::from_secs(86_400);
+    for f in rd.flatten() {
+        let old = f.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age > day);
+        if old { let _ = std::fs::remove_file(f.path()); }
+    }
 }
 
 fn imap_date(days_back: u32) -> String {
@@ -527,8 +569,53 @@ pub struct Outgoing {
     pub cc: Option<Vec<String>>,
     pub subject: String,
     pub body: String,
+    pub bcc: Option<Vec<String>>,
     pub in_reply_to: Option<String>,
     pub references: Option<String>,
+    /// Files added here (base64).
+    pub files: Option<Vec<OutFile>>,
+    /// Attachments taken along from the mail being forwarded (read from its server here).
+    pub forward: Option<Forward>,
+}
+
+#[derive(Deserialize)]
+pub struct OutFile {
+    pub name: String,
+    pub mime: String,
+    pub data: String,
+}
+
+#[derive(Deserialize)]
+pub struct Forward {
+    pub account: Account,
+    pub folder: Option<String>,
+    pub uid: u32,
+    pub parts: Vec<u32>,
+}
+
+/// What one mail may carry along (most servers stop at about 25 MB, base64 included).
+const MAX_ATTACH: usize = 25 * 1024 * 1024;
+
+/// The attachments of an outgoing mail: the added files and the forwarded ones.
+fn attachments(mail: &Outgoing) -> Result<Vec<(String, String, Vec<u8>)>, String> {
+    use base64::Engine;
+    let mut out = Vec::new();
+    for f in mail.files.iter().flatten() {
+        let data = base64::engine::general_purpose::STANDARD.decode(f.data.trim()).map_err(|_| format!("{} kunne ikke læses", f.name))?;
+        out.push((safe_name(&f.name), f.mime.clone(), data));
+    }
+    if let Some(fw) = mail.forward.as_ref().filter(|f| !f.parts.is_empty()) {
+        let raw = raw_blocking(&fw.account, fw.folder.as_deref().unwrap_or("INBOX"), fw.uid)?;
+        let m = MessageParser::default().parse(&raw).ok_or("Mailen, der videresendes, kunne ikke læses")?;
+        let metas = parts_of(&m);
+        for &i in &fw.parts {
+            let (Some(meta), Some(part)) = (metas.get(i as usize), m.attachment(i)) else { continue };
+            out.push((safe_name(&meta.name), meta.mime.clone(), part.contents().to_vec()));
+        }
+    }
+    let total: usize = out.iter().map(|x| x.2.len()).sum();
+    if total * 4 / 3 > MAX_ATTACH { return Err(format!("Vedhæftningerne fylder {} MB. En mail kan højst have cirka 18 MB med.", total / 1_000_000)); }
+    Ok(out)
 }
 
 #[derive(Serialize, Debug)]
@@ -547,19 +634,30 @@ fn saves_sent_itself(a: &Account) -> bool {
 
 #[tauri::command]
 pub async fn mail_send(account: Account, mail: Outgoing) -> Result<Sent, String> {
-    use lettre::message::{header::ContentType, Mailbox};
+    use lettre::message::{header::ContentType, Attachment, Mailbox, MultiPart, SinglePart};
     use lettre::transport::smtp::authentication::Credentials;
     use lettre::transport::smtp::client::{Tls, TlsParameters};
     use lettre::{Message, SmtpTransport, Transport};
     tauri::async_runtime::spawn_blocking(move || {
         let from_email = account.from_email.clone().unwrap_or_else(|| account.user.clone());
         let from: Mailbox = format!("{} <{}>", account.from_name.clone().unwrap_or_default(), from_email).trim().parse().or_else(|_| from_email.parse()).map_err(err("Afsender"))?;
-        let mut b = Message::builder().from(from).subject(mail.subject.clone()).header(ContentType::TEXT_PLAIN).message_id(None);
+        let mut b = Message::builder().from(from).subject(mail.subject.clone()).message_id(None);
         for t in &mail.to { b = b.to(t.parse().map_err(err("Modtager"))?); }
         for t in mail.cc.iter().flatten() { b = b.cc(t.parse().map_err(err("Cc"))?); }
+        for t in mail.bcc.iter().flatten() { b = b.bcc(t.parse().map_err(err("Bcc"))?); }
         if let Some(r) = mail.in_reply_to.as_ref().filter(|x| !x.is_empty()) { b = b.in_reply_to(format!("<{}>", r.trim_matches(|c| c == '<' || c == '>'))); }
         if let Some(r) = mail.references.as_ref().filter(|x| !x.is_empty()) { b = b.references(r.split_whitespace().map(|x| format!("<{}>", x.trim_matches(|c| c == '<' || c == '>'))).collect::<Vec<_>>().join(" ")); }
-        let msg = b.body(mail.body.clone()).map_err(err("Besked"))?;
+        let files = attachments(&mail)?;
+        let msg = if files.is_empty() {
+            b.header(ContentType::TEXT_PLAIN).body(mail.body.clone()).map_err(err("Besked"))?
+        } else {
+            let mut mp = MultiPart::mixed().singlepart(SinglePart::plain(mail.body.clone()));
+            for (name, mime, data) in files {
+                let ct = ContentType::parse(&mime).unwrap_or(ContentType::parse("application/octet-stream").expect("valid"));
+                mp = mp.singlepart(Attachment::new(name).body(data, ct));
+            }
+            b.multipart(mp).map_err(err("Besked"))?
+        };
         let creds = Credentials::new(account.user.clone(), account.pass.clone());
         let params = TlsParameters::new(account.smtp_host.clone()).map_err(err("TLS"))?;
         let tls = match account.smtp_security.as_str() {

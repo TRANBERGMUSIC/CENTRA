@@ -4,8 +4,13 @@ import type { SyncEngine } from '@centra/sync';
 import { Btn } from './primitives.tsx';
 import { Icon } from './Icon.tsx';
 import { useToast } from './Shell.tsx';
-import { mailBody, mailPart, openMailPart, mailAvailable, type Body, type Part } from '../mail.ts';
+import { mailBody, mailPart, mailBytes, openMailPart, mailAvailable, type Body, type Part } from '../mail.ts';
 import { openLink } from '../open.ts';
+import { ios } from '../platform.ts';
+import { FileView, type ViewFile } from './FileView.tsx';
+
+/** A click shows the file in Quick Look (Mac and iPhone); Del on the iPhone opens the share sheet (Gem i Filer, PowerPoint …). */
+const SAVE = ios ? 'Del' : 'Gem';
 
 /**
  * A mail shown the way it was sent: its own HTML (layout, colours, pictures) in a sandboxed frame
@@ -64,6 +69,8 @@ function bodyAttrs(b: HTMLElement | null) {
 
 const fmtSize = (n: number) => (n >= 1e6 ? `${(n / 1e6).toLocaleString('da-DK', { maximumFractionDigits: 1 })} MB` : `${Math.max(1, Math.round(n / 1000))} kB`);
 const kindOf = (p: Part) => (p.mime.startsWith('image/') ? 'image' : p.mime === 'application/pdf' || /\.pdf$/i.test(p.name) ? 'pdf' : /calendar|\.ics$/i.test(p.mime + p.name) ? 'cal' : 'file');
+/** Slides, documents and spreadsheets get their own colour. */
+const family = (p: Part) => { const x = (p.name.match(/\.([a-z0-9]{1,7})$/i)?.[1] ?? '').toLowerCase(); return /^(ppt|pptx|pps|ppsx|key|odp)$/.test(x) ? 'slides' : /^(doc|docx|pages|rtf|odt|txt)$/.test(x) ? 'doc' : /^(xls|xlsx|numbers|csv|ods)$/.test(x) ? 'sheet' : ''; };
 const EXT = (p: Part) => (p.name.match(/\.([a-z0-9]{1,5})$/i)?.[1] ?? p.mime.split('/')[1] ?? '').toUpperCase().slice(0, 4);
 
 export function MailView({ e, m }: { e: SyncEngine; m: any }) {
@@ -72,6 +79,7 @@ export function MailView({ e, m }: { e: SyncEngine; m: any }) {
   const [err, setErr] = useState<string | null>(null);
   const [remote, setRemote] = useState(() => remoteImagesOn(e));
   const [view, setView] = useState<number | null>(null);
+  const [busy, setBusy] = useState<number | null>(null);
   const frame = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
@@ -109,14 +117,23 @@ export function MailView({ e, m }: { e: SyncEngine; m: any }) {
     }
   }
 
-  async function act(p: Part, save: boolean) {
+  async function act(p: Part, how: 'preview' | 'open' | 'save') {
+    if (busy !== null) return;
+    setBusy(p.index);
     try {
-      const path = await openMailPart(e, m, p.index, save);
-      if (save) toast({ icon: 'paperclip', title: 'Gemt i Overførsler', text: path.split('/').pop() ?? p.name });
-    } catch (x) { toast({ text: (x as Error).message }); }
+      const path = await openMailPart(e, m, p.index, how);
+      if (how === 'save' && !ios) toast({ icon: 'paperclip', title: 'Gemt i Overførsler', text: path.split('/').pop() ?? p.name });
+    } catch (x) {
+      // An iPhone build without Quick Look shows it here instead.
+      if (ios && how !== 'save' && view === null && shown.includes(p)) setView(shown.indexOf(p));
+      else toast({ text: (x as Error).message });
+    } finally { setBusy(null); }
   }
 
-  const images = shown.filter((p: Part) => kindOf(p) === 'image');
+  const files: ViewFile[] = shown.map((p: Part) => ({ key: `${m.id}:${p.index}`, name: p.name, mime: p.mime, size: p.size, load: () => mailBytes(e, m, p.index) }));
+  const byKey = (f: ViewFile) => shown.find((p: Part) => `${m.id}:${p.index}` === f.key)!;
+  // Click a file: on the Mac it opens here in CENTRA; on the iPhone in Quick Look.
+  const show = (p: Part) => (ios ? void act(p, 'preview') : setView(shown.indexOf(p)));
   return (
     <>
       {prepared && prepared.blocked > 0 && !remote && (
@@ -132,16 +149,17 @@ export function MailView({ e, m }: { e: SyncEngine; m: any }) {
         <div className="atts">
           <div className="atts__head meta">{shown.length} {shown.length === 1 ? 'vedhæftning' : 'vedhæftninger'}</div>
           <div className="atts__grid">
-            {shown.map((p: Part) => <Tile key={p.index} e={e} m={m} p={p} onView={() => setView(images.indexOf(p))} onOpen={() => void act(p, false)} onSave={() => void act(p, true)} />)}
+            {shown.map((p: Part) => <Tile key={p.index} e={e} m={m} p={p} busy={busy === p.index} onView={() => show(p)} onPreview={() => show(p)} onOpen={() => void act(p, 'open')} onSave={() => void act(p, 'save')} />)}
           </div>
         </div>
       )}
-      {view !== null && images[view] && <Lightbox e={e} m={m} parts={images} at={view} onAt={setView} onClose={() => setView(null)} onSave={(p) => void act(p, true)} onOpen={(p) => void act(p, false)} />}
+      {view !== null && files[view] && <FileView files={files} at={view} onAt={setView} onClose={() => setView(null)} saveLabel={SAVE}
+        onOpen={(f) => void act(byKey(f), 'open')} onSave={(f) => void act(byKey(f), 'save')} onQuickLook={ios ? undefined : (f) => void act(byKey(f), 'preview')} />}
     </>
   );
 }
 
-function Tile({ e, m, p, onView, onOpen, onSave }: { e: SyncEngine; m: any; p: Part; onView: () => void; onOpen: () => void; onSave: () => void }) {
+function Tile({ e, m, p, busy, onView, onPreview, onOpen, onSave }: { e: SyncEngine; m: any; p: Part; busy: boolean; onView: () => void; onPreview: () => void; onOpen: () => void; onSave: () => void }) {
   const kind = kindOf(p);
   const [thumb, setThumb] = useState<string | null>(null);
   useEffect(() => {
@@ -151,34 +169,12 @@ function Tile({ e, m, p, onView, onOpen, onSave }: { e: SyncEngine; m: any; p: P
     return () => { live = false; };
   }, [e, m, p.index, p.size, kind]);
   return (
-    <div className={`att att--${kind}`}>
-      <button className="att__face" onClick={kind === 'image' ? onView : onOpen} title={kind === 'image' ? 'Vis' : 'Åbn'} disabled={!mailAvailable()}>
+    <div className={`att att--${kind} ${family(p) ? `att--${family(p)}` : ''} ${busy ? 'is-busy' : ''}`} aria-busy={busy}>
+      <button className="att__face" onClick={kind === 'image' ? onView : onPreview} title={`Vis ${p.name}`} aria-label={`Vis ${p.name}`} disabled={!mailAvailable()}>
         {kind === 'image' ? (thumb ? <img src={thumb} alt="" /> : <span className="att__ph" />) : <span className="att__icon"><span>{EXT(p) || 'FIL'}</span></span>}
       </button>
       <div className="att__meta"><span className="ellipsis" title={p.name}>{p.name}</span><span className="meta">{fmtSize(p.size)}</span></div>
-      {mailAvailable() && <div className="att__acts"><Btn size="sm" variant="text" onClick={onOpen}>Åbn</Btn><Btn size="sm" variant="text" onClick={onSave}>Gem</Btn></div>}
-    </div>
-  );
-}
-
-function Lightbox({ e, m, parts, at, onAt, onClose, onSave, onOpen }: { e: SyncEngine; m: any; parts: Part[]; at: number; onAt: (n: number) => void; onClose: () => void; onSave: (p: Part) => void; onOpen: (p: Part) => void }) {
-  const p = parts[at];
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => { setUrl(null); void mailPart(e, m, p.index).then(setUrl).catch(() => {}); }, [e, m, p.index]);
-  useEffect(() => {
-    const k = (ev: KeyboardEvent) => { if (ev.key === 'Escape') onClose(); if (ev.key === 'ArrowRight' && at < parts.length - 1) onAt(at + 1); if (ev.key === 'ArrowLeft' && at > 0) onAt(at - 1); };
-    addEventListener('keydown', k); return () => removeEventListener('keydown', k);
-  }, [at, parts.length, onAt, onClose]);
-  return (
-    <div className="lightbox" role="dialog" aria-label={p.name} onClick={onClose}>
-      <div className="lightbox__bar" onClick={(x) => x.stopPropagation()}>
-        <span className="ellipsis">{p.name}</span><span className="meta num">{at + 1} af {parts.length}</span>
-        <span className="push-right" /><Btn size="sm" variant="text" onClick={() => onOpen(p)}>Åbn i Eksempel</Btn><Btn size="sm" variant="text" onClick={() => onSave(p)}>Gem</Btn>
-        <Btn size="sm" variant="text" icon="x" aria-label="Luk" onClick={onClose} />
-      </div>
-      {url ? <img className="lightbox__img" src={url} alt={p.name} onClick={(x) => x.stopPropagation()} /> : <span className="meta">Henter …</span>}
-      {at > 0 && <button className="lightbox__nav lightbox__nav--prev" aria-label="Forrige" onClick={(x) => { x.stopPropagation(); onAt(at - 1); }}><Icon name="chevron-left" /></button>}
-      {at < parts.length - 1 && <button className="lightbox__nav lightbox__nav--next" aria-label="Næste" onClick={(x) => { x.stopPropagation(); onAt(at + 1); }}><Icon name="chevron-right" /></button>}
+      {mailAvailable() && <div className="att__acts">{ios ? <Btn size="sm" variant="text" onClick={kind === 'image' ? onView : onPreview}>Vis</Btn> : <Btn size="sm" variant="text" onClick={onOpen}>Åbn</Btn>}<Btn size="sm" variant="text" onClick={onSave}>{SAVE}</Btn></div>}
     </div>
   );
 }

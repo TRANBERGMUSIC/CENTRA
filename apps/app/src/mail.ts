@@ -169,11 +169,23 @@ export function mailPart(e: SyncEngine, m: any, index: number): Promise<string> 
   return p;
 }
 
-/** Saves an attachment to Overførsler (and shows it in Finder), or opens it in its own app. */
-export async function openMailPart(e: SyncEngine, m: any, index: number, save: boolean): Promise<string> {
+/** An attachment's bytes (for showing it inside CENTRA). */
+export async function mailBytes(e: SyncEngine, m: any, index: number): Promise<Uint8Array> {
+  const url = await mailPart(e, m, index);
+  const bin = atob(url.slice(url.indexOf(',') + 1));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/**
+ * An attachment: 'preview' shows it in Quick Look (Mac and iPhone), 'open' opens it in its own app
+ * (iPhone: Quick Look too), 'save' puts it in Overførsler (iPhone: the share sheet).
+ */
+export async function openMailPart(e: SyncEngine, m: any, index: number, how: 'preview' | 'open' | 'save'): Promise<string> {
   const a = acctOf(e, m);
   if (!a) throw new Error('Kontoen findes ikke længere');
-  return invoke<string>('mail_save_part', { account: wire(a), uid: m.uid, index, save, folder: m.folder ?? null });
+  return invoke<string>('mail_save_part', { account: wire(a), uid: m.uid, index, save: how === 'save', preview: how === 'preview', folder: m.folder ?? null });
 }
 
 /** Read / unread, star: changed here at once, then on the server in the background. */
@@ -198,19 +210,30 @@ export async function moveMail(e: SyncEngine, m: any, action: 'archive' | 'trash
 /** The mail accounts you can send from (a LunchHub enquiry is answered from one of these). */
 export const sendAccounts = (e: SyncEngine) => (e.list('mailacct') as unknown as MailAccount[]).filter((a) => a.enabled !== false);
 
-export async function sendMail(e: SyncEngine, acctId: string, out: { to: string[]; cc?: string[]; subject: string; body: string; replyTo?: any; via?: string }) {
+/** A file added to a mail you write (from the file picker, as base64). */
+export type OutFile = { name: string; mime: string; size: number; data: string };
+/** Attachments taken along from the mail you forward (they're read from its server when sending). */
+export type Forwarded = { mail: any; parts: Part[] };
+
+export async function sendMail(e: SyncEngine, acctId: string, out: { to: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string; replyTo?: any; via?: string; files?: OutFile[]; forward?: Forwarded }) {
   const lh = out.replyTo?.source === 'lunchhub';
   const a = (lh ? e.get(out.via ?? '') ?? sendAccounts(e)[0] : e.get(acctId)) as unknown as MailAccount;
   if (!a) throw new Error(lh ? 'Tilføj en mailkonto under Forbindelser for at kunne svare.' : 'Kontoen findes ikke længere');
   const r = out.replyTo;
   const references = r ? [r.references, r.messageId].filter(Boolean).join(' ') : null;
-  const sent = await invoke<{ from: string; message_id: string; saved_in: string }>('mail_send', { account: wire(a), mail: { to: out.to, cc: out.cc ?? [], subject: out.subject, body: out.body,
-    in_reply_to: r?.messageId || null, references } });
+  const fw = out.forward?.parts.length ? out.forward : null;
+  const fwAcct = fw ? acctOf(e, fw.mail) : null;
+  if (fw && !fwAcct) throw new Error('Kontoen for mailen, der videresendes, findes ikke længere');
+  const sent = await invoke<{ from: string; message_id: string; saved_in: string }>('mail_send', { account: wire(a), mail: { to: out.to, cc: out.cc ?? [], bcc: out.bcc ?? [], subject: out.subject, body: out.body,
+    in_reply_to: r?.messageId || null, references,
+    files: (out.files ?? []).map(({ name, mime, data }) => ({ name, mime, data })),
+    forward: fw && fwAcct ? { account: wire(fwAcct), folder: fw.mail.folder ?? null, uid: fw.mail.uid, parts: fw.parts.map((p) => p.index) } : null } });
+  const names = [...(out.files ?? []).map((f) => f.name), ...(fw?.parts ?? []).map((p) => p.name)];
   // In Sendt at once; the server's copy replaces it at the next fetch.
   e.set('mail', `m-${a.id}-out-${norm(sent?.message_id) || Date.now()}`, {
     acct: a.id, acctName: a.name, sent: true, fromName: toLine(e, out.to), fromEmail: out.to[0] ?? '', to: out.to, cc: out.cc ?? [],
     subject: out.subject, at: new Date().toISOString(), preview: preview(out.body), body: out.body, unread: false, flagged: false,
-    answered: false, attachments: [], attachment: '', list: false, messageId: sent?.message_id ?? '', inReplyTo: r?.messageId ?? '', references: references ?? '',
+    answered: false, attachments: names, attachment: names[0] ?? '', list: false, messageId: sent?.message_id ?? '', inReplyTo: r?.messageId ?? '', references: references ?? '',
     cat: 'Sendt', needsReply: false, archived: false, html: '', parts: [], full: true,
   });
   if (r) e.set('mail', r.id, { answered: true, needsReply: false, draft: '' });

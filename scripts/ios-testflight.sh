@@ -39,7 +39,7 @@ npx tauri ios init --ci
 
 APPLE_DIR=src-tauri/gen/apple
 # The app's own Swift (scripts/ios/*.swift): Siri ("husk i CENTRA"), push from the sync server and
-# the alarm clock (AlarmKit). They go into the app's sources, the app target gets a Swift version
+# the alarm clock (AlarmKit) and files from mail (Quick Look, share sheet). They go into the app's sources, the app target gets a Swift version
 # (it's Objective-C otherwise) and push its entitlement, through a small extra spec that includes
 # Tauri's project.yml; then the project is generated again. Never stops the build: if a build with
 # all of it fails, the alarm goes first, then all of it, so the app always ships.
@@ -93,7 +93,7 @@ dress() {
 build() { npx tauri ios build --ci --export-method app-store-connect; }
 
 built=""; ok=""
-for set in "CentraIntents.swift CentraPush.swift CentraAlarms.swift" "CentraIntents.swift CentraPush.swift" ""; do
+for set in "CentraIntents.swift CentraPush.swift CentraAlarms.swift CentraFiles.swift" "CentraIntents.swift CentraPush.swift CentraFiles.swift" "CentraFiles.swift" ""; do
   # shellcheck disable=SC2086
   if gen $set; then :; else echo "::warning::Kunne ikke sætte $set op."; continue; fi
   dress
@@ -104,6 +104,7 @@ done
 [ -n "$ok" ] || exit 1
 case "$built" in *CentraAlarms*) ;; *) echo "::warning::Vækkeuret (AlarmKit) kom ikke med i denne build." ;; esac
 case "$built" in *CentraPush*) ;; *) echo "::warning::Push kom ikke med i denne build." ;; esac
+case "$built" in *CentraFiles*) ;; *) echo "::warning::Vedhæftninger (Quick Look) kom ikke med i denne build." ;; esac
 
 IPA=$(find "$APPLE_DIR/build" -name '*.ipa' | head -1)
 if [ -z "$IPA" ]; then echo "Fandt ingen .ipa efter bygget." >&2; exit 1; fi

@@ -5,11 +5,12 @@ import { Icon } from '../ui/Icon.tsx';
 import { MailView } from '../ui/MailView.tsx';
 import { useToast } from '../ui/Shell.tsx';
 import { useScreenEnter, collapseOut } from '../motion.ts';
-import { moveMail, sendMail, setMailFlag, syncAll, mailAvailable, sendAccounts, type MailAccount } from '../mail.ts';
+import { moveMail, setMailFlag, syncAll, mailAvailable, sendAccounts, type MailAccount } from '../mail.ts';
 import { setLunchHubStatus, type LhConn } from '../lunchhub.ts';
 import { queueAssist } from './Assist.tsx';
 import { folders as listFolders, moveToFolder, removeFolder, sortByRules, type MailFolder, type FolderRule } from '../mailFolders.ts';
 import { ask } from '../ui/Confirm.tsx';
+import { Composer, type ComposeMode } from '../ui/Composer.tsx';
 
 /** 'inbox', 'sent', 'archive', or a folder's id. */
 type Box = string;
@@ -56,6 +57,7 @@ export function Inbox() {
   const [acct, setAcct] = useState<string>('all');
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
+  const [writing, setWriting] = useState(false);
   const mailAccts = useList('mailacct') as unknown as MailAccount[];
   const lhConns = useList('lhconn') as unknown as LhConn[];
   // LunchHub shows up as one more "account" in the picker.
@@ -126,6 +128,7 @@ export function Inbox() {
           <div className="mlist__title"><h1>Mail</h1>
             {accts.length > 0 && mailAvailable() && <span className="meta mlist__sync" title={syncErr || undefined}>{busy ? 'Henter …' : syncErr ? 'Kunne ikke hente alt' : synced ? `Hentet ${ago(synced, now)}` : ''}</span>}
             {accts.length > 0 && mailAvailable() && <Btn size="sm" variant="text" icon="refresh" disabled={busy} onClick={refresh} aria-label="Hent nu" title="Hent nu" />}
+            {sendAccounts(e).length > 0 && mailAvailable() && <Btn size="sm" variant="text" icon="compose" className="mlist__new" onClick={() => setWriting(true)} aria-label="Ny mail" title="Ny mail" />}
             {accts.length > 1 && (
               <select className="mselect" value={acct} onChange={(x) => setAcct(x.target.value)} aria-label="Konto">
                 <option value="all">Alle konti</option>
@@ -184,11 +187,12 @@ export function Inbox() {
             );
           })}
           <More at={moreAt} left={rows.length - shown} />
-          {!rows.length && <p className="meta pad">{!accts.length ? <>Ingen mailkonti endnu. <button className="tag" onClick={() => go({ screen: 'connections' })}>Tilføj Gmail, iCloud, one.com eller Simply</button></> : words.length ? 'Intet fundet. Prøv andre ord, eller spørg Assist.' : box === 'sent' ? 'Ingen sendte mails endnu. De hentes fra Sendt-mappen på din mailserver.' : box === 'archive' ? 'Intet i arkivet.' : box !== 'inbox' ? 'Ingen mails i mappen endnu. Træk en mail herover, giv mappen regler, eller bed Assist om at sortere.' : filter === 'other' ? 'Ingen reklamer eller notifikationer. Dejligt.' : all.length ? 'Intet her.' : 'Henter dine mails …'}</p>}
+          {!rows.length && <p className="meta pad">{!accts.length ? <>Ingen mailkonti. <button className="tag" onClick={() => go({ screen: 'connections' })}>Tilføj mailkonto</button></> : words.length ? 'Intet fundet.' : box === 'sent' ? 'Ingen sendte mails.' : box === 'archive' ? 'Intet i arkivet.' : box !== 'inbox' ? 'Ingen mails i mappen.' : filter === 'other' ? 'Ingen reklamer eller notifikationer.' : all.length ? 'Intet her.' : 'Henter dine mails …'}</p>}
         </div>
       </div>
       {id ? <Reader key={id} id={id} onMove={(m, a) => move(m, a, document.getElementById(`mrow-${m.id}`))} onBack={() => go({ screen: 'inbox', id: box !== 'inbox' && box !== 'sent' && box !== 'archive' ? `folder:${box}` : undefined })} /> : <div className="reader" />}
       {editFolder && <FolderSheet f={editFolder === 'new' ? null : editFolder} onClose={() => setEditFolder(null)} onSaved={(fid) => { setBox(fid); setEditFolder(null); }} onDeleted={() => { setBox('inbox'); setEditFolder(null); }} />}
+      {writing && <Composer mode="new" onClose={() => setWriting(false)} />}
       <ContactRail id={id} />
     </main>
   );
@@ -201,34 +205,24 @@ function Reader({ id, onMove, onBack }: { id: string; onMove: (m: any, a: 'archi
   const { go } = useRoute();
   const wrap = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
-  const [reply, setReply] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
   const senders = sendAccounts(e);
-  const [via, setVia] = useState<string>(() => senders[0]?.id ?? '');
+  const [compose, setCompose] = useState<ComposeMode | null>(null);
+  useEffect(() => { setCompose(null); }, [id]);
   // Native scrolling here: the mail itself is a frame, and wheel events from it must reach this pane.
   if (!m) return <div className="reader" />;
   const p = who(m);
-  const text = reply ?? m.draft ?? '';
-  const open = reply !== null || !!m.draft;
-
-  async function send(archive: boolean) {
-    if (!text.trim()) return;
-    setSending(true);
-    try {
-      const subject = m.source === 'lunchhub' ? `Sv: ${m.subject.replace(/^(Kontakt|Smagning): /, '')}` : /^(re|sv):/i.test(m.subject) ? m.subject : `Re: ${m.subject}`;
-      await sendMail(e, m.acct, { to: [m.fromEmail], subject, body: `${text.trim()}\n\n${quote(m)}`, replyTo: m, via });
-      setReply(null);
-      toast({ person: { name: p.name }, text: `Sendt til ${p.name}` });
-      if (archive) onMove(m, 'archive');
-    } catch (x) { toast({ text: (x as Error).message }); } finally { setSending(false); }
-  }
+  const mode: ComposeMode | null = compose ?? (m.draft ? 'reply' : null);
+  const others = [...(m.to ?? []), ...(m.cc ?? [])].length > 1;
+  const canWrite = mailAvailable() && (senders.length > 0 || m.source === 'lunchhub');
 
   return (
     <div className="reader" ref={wrap}>
       <div ref={content}>
         <button className="phone-back" onClick={onBack}><Icon name="chevron-left" />Mail</button>
         <div className="reader__bar">
-          <Btn size="sm" variant="text" icon="reply" onClick={() => setReply(text || '')}>{m.sent ? 'Skriv igen' : 'Svar'}</Btn>
+          <Btn size="sm" variant="text" icon="reply" disabled={!canWrite} onClick={() => setCompose('reply')}>{m.sent ? 'Skriv igen' : 'Svar'}</Btn>
+          {others && !m.sent && m.source !== 'lunchhub' && <Btn size="sm" variant="text" icon="reply-all" disabled={!canWrite} onClick={() => setCompose('all')}>Svar alle</Btn>}
+          {m.source !== 'lunchhub' && <Btn size="sm" variant="text" icon="forward" disabled={!canWrite} onClick={() => setCompose('forward')}>Videresend</Btn>}
           <Btn size="sm" variant="text" icon="archive" onClick={() => onMove(m, 'archive')}>Arkivér</Btn>
           {!m.sent && <MoveTo m={m} />}
           <Btn size="sm" variant="text" icon="x" onClick={() => void askDelete(m).then((yes) => { if (yes) onMove(m, 'trash'); })}>{m.sent ? 'Fjern' : 'Slet'}</Btn>
@@ -252,23 +246,7 @@ function Reader({ id, onMove, onBack }: { id: string; onMove: (m: any, a: 'archi
           <div className="meta mailacct">{m.acctName}{m.source === 'lunchhub' && <span className={`lhstatus lhstatus--${m.lhStatus}`}>{m.lhStatus === 'besvaret' ? 'Besvaret' : m.lhStatus === 'arkiv' ? 'Arkiveret' : 'Ikke besvaret'}</span>}</div>
           <MailView e={e} m={m} />
         </article>
-        {open && (
-          <div className="replybox">
-            {m.draft && reply === null && <div className="composer__ai"><Icon name="assist" size="sm" />Udkast fra Assist · ret frit, intet sendes uden dig</div>}
-            <textarea className="composer__body" autoFocus value={text} placeholder={`Svar til ${p.name}`} onChange={(x) => setReply(x.target.value)} aria-label="Svar" />
-            {m.source === 'lunchhub' && (
-              <label className="sendvia"><span className="meta">Send fra</span>
-                {senders.length ? <select className="kvinput" value={via} onChange={(x) => setVia(x.target.value)}>{senders.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.email}</option>)}</select>
-                  : <span className="meta">Tilføj en mailkonto under Forbindelser for at kunne svare herfra.</span>}
-              </label>
-            )}
-            <div className="composer__bar">
-              <Btn variant="primary" icon="send" disabled={sending || !text.trim() || !mailAvailable()} onClick={() => send(false)}>{sending ? 'Sender …' : 'Send'}</Btn>
-              <Btn disabled={sending || !text.trim() || !mailAvailable()} onClick={() => send(true)}>Send og arkivér</Btn>
-              <Btn variant="text" className="push-right" onClick={() => { setReply(null); e.set('mail', id, { draft: '' }); }}>Kassér</Btn>
-            </div>
-          </div>
-        )}
+        {mode && <Composer key={`${m.id}-${mode}`} inline mode={mode} m={m} onClose={() => setCompose(null)} onSent={(archive) => { if (archive) onMove(m, 'archive'); }} />}
       </div>
     </div>
   );
@@ -371,7 +349,6 @@ function SaveSender({ m }: { m: any }) {
   return <Btn size="sm" variant="text" icon="contacts" onClick={() => { const cid = e.create('person', { name: m.fromName || p.email, email: p.email, createdAt: new Date().toISOString() }); toast({ person: { name: m.fromName || p.email }, text: `${m.fromName || p.email} er gemt som kontakt`, action: { label: 'Åbn', run: () => go({ screen: 'contacts', id: cid }) } }); }}>Gem kontakt</Btn>;
 }
 
-const quote = (m: any) => `${new Date(m.at).toLocaleString('da-DK', { dateStyle: 'long', timeStyle: 'short' })} skrev ${m.fromName || m.fromEmail}:\n${String(m.body ?? '').split('\n').slice(0, 40).map((l: string) => '> ' + l).join('\n')}`;
 
 function ContactRail({ id }: { id?: string }) {
   const { go } = useRoute();

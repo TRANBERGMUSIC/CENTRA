@@ -144,12 +144,12 @@ describe('mål', () => {
 describe('billeder', () => {
   it('finder trøjen fra i forgårs, og Assist kan gemme et vedhæftet billede', async () => {
     const e = await engine();
-    const day = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString(); };
+    const day = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); d.setHours(12, 0, 0, 0); return d.toISOString(); };
     storePhoto(e, { image: 'data:image/png;base64,AAAA', thumb: 'data:image/png;base64,AA', takenAt: day(2), analysis: { title: 'Grøn strikket trøje', description: 'Grøn strik fra Arket, 600 kr', tags: ['trøje', 'grøn', 'tøj'], kind: 'tøj' } });
     storePhoto(e, { image: 'data:image/png;base64,BBBB', thumb: 'data:image/png;base64,BB', takenAt: day(1), analysis: { title: 'Bookingbekræftelse', description: 'DJ-lektion', tags: ['booking'], text: 'Reservation 4802892 · 19. nov kl. 10', kind: 'skærmbillede' } });
     expect(searchPhotos(e, 'trøjen').map((p) => p.title)).toEqual(['Grøn strikket trøje']);
     expect(searchPhotos(e, '4802892').map((p) => p.title)).toEqual(['Bookingbekræftelse']);
-    const twoDaysAgo = day(2).slice(0, 10);
+    const twoDaysAgo = (() => { const d = new Date(); d.setDate(d.getDate() - 2); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
     expect(searchPhotos(e, '', { from: twoDaysAgo, to: twoDaysAgo }).map((p) => p.title)).toEqual(['Grøn strikket trøje']);
     const r = runTool(e, 'search_photos', { query: 'grøn trøje' }) as any;
     expect(r.images).toHaveLength(1);
