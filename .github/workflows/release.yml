@@ -3,6 +3,7 @@
 #   interface (apps/app, packages)  web.yml    ~25 s, installed apps switch within a minute
 #   sync server (relay)             relay.yml  ~30 s
 # Run this one by hand to force a full build (tick "windows" for a Windows installer too).
+# When GitHub has no free Mac and the Mac/iPhone jobs never start, retry.yml starts them again.
 #
 #   relay    Cloudflare Worker = the sync server (only when the CLOUDFLARE_API_TOKEN secret exists);
 #            when it exists every app below is built with sync switched on

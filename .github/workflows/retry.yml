@@ -1,0 +1,38 @@
+# GitHub sometimes has no free Mac ("The job was not acquired by Runner of type hosted even after
+# multiple attempts"). The Mac and iPhone jobs of Release are then cancelled before they start, and
+# nothing is built. This starts them again after a pause (up to four times), but only for the newest
+# commit, so it never replaces a newer build.
+name: Retry release
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  retry:
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt < 5
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Start the Mac jobs again if they never got a machine
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.event.workflow_run.id }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          # A job that never got a machine ends with no steps run at all.
+          stuck=$(gh api "repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs" --jq '[.jobs[] | select((.conclusion == "cancelled" or .conclusion == "failure") and ((.steps | length) == 0))] | length')
+          echo "Jobs that got no machine: $stuck"
+          [ "$stuck" -gt 0 ] || { echo "A real build error, not a missing machine: nothing to retry."; exit 0; }
+          sleep $((ATTEMPT * 180))
+          latest=$(gh api "repos/$REPO/commits/$BRANCH" --jq .sha)
+          [ "$latest" = "$SHA" ] || { echo "A newer commit is being built: no retry."; exit 0; }
+          echo "Retrying the Mac and iPhone build (attempt $((ATTEMPT + 1)))"
+          gh run rerun "$RUN" --failed -R "$REPO"
