@@ -9,7 +9,7 @@ import { openLink } from '../open.ts';
 import { ios } from '../platform.ts';
 import { FileView, type ViewFile } from './FileView.tsx';
 
-/** A click shows the file in Quick Look (Mac and iPhone); Del on the iPhone opens the share sheet (Gem i Filer, PowerPoint …). */
+/** A click shows the file inside CENTRA; Del on the iPhone opens the share sheet (Gem i Filer, PowerPoint …). */
 const SAVE = ios ? 'Del' : 'Gem';
 
 /**
@@ -124,16 +124,14 @@ export function MailView({ e, m }: { e: SyncEngine; m: any }) {
       const path = await openMailPart(e, m, p.index, how);
       if (how === 'save' && !ios) toast({ icon: 'paperclip', title: 'Gemt i Overførsler', text: path.split('/').pop() ?? p.name });
     } catch (x) {
-      // An iPhone build without Quick Look shows it here instead.
-      if (ios && how !== 'save' && view === null && shown.includes(p)) setView(shown.indexOf(p));
-      else toast({ text: (x as Error).message });
+      toast({ text: (x as Error).message });
     } finally { setBusy(null); }
   }
 
   const files: ViewFile[] = shown.map((p: Part) => ({ key: `${m.id}:${p.index}`, name: p.name, mime: p.mime, size: p.size, load: () => mailBytes(e, m, p.index) }));
   const byKey = (f: ViewFile) => shown.find((p: Part) => `${m.id}:${p.index}` === f.key)!;
-  // Click a file: on the Mac it opens here in CENTRA; on the iPhone in Quick Look.
-  const show = (p: Part) => (ios ? void act(p, 'preview') : setView(shown.indexOf(p)));
+  // Click a file and it opens here in CENTRA (Mac and iPhone); Åbn takes it to its own app or Quick Look.
+  const show = (p: Part) => setView(shown.indexOf(p));
   return (
     <>
       {prepared && prepared.blocked > 0 && !remote && (

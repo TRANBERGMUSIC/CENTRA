@@ -3,8 +3,8 @@
  *
  * A push that only changes the interface is built and signed in about a minute and published as
  * `web.tar.gz`. The app looks for it every 30 seconds (and when the window comes back), installs it in
- * the background, and switches to it with a reload: straight away on the lock screen, and while
- * you are logged in as soon as you have paused for a moment, keeping you logged in.
+ * the background, and switches to it with a reload once you have paused for a moment (on the lock
+ * screen only while nothing has been typed), keeping you logged in.
  */
 import type { Session } from './session.ts';
 
@@ -44,7 +44,15 @@ export function watchWebUpdates(getSession: () => Session | null, onWaiting: (ap
     if (!installed) return;
     const idle = Date.now() - lastInput > 8_000;
     const typing = document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement || (document.activeElement as HTMLElement | null)?.isContentEditable;
-    if (!getSession() || document.hidden || (idle && !typing)) return void apply();
+    if (document.hidden) return void apply();
+    // The lock screen switches only while it is left alone: never while you type, have typed
+    // something, or are being let in.
+    if (!getSession()) {
+      const started = !!document.querySelector('.unlock__stage') || Array.from(document.querySelectorAll<HTMLInputElement>('.unlock input[type=password], .unlock input[name=recovery]')).some((i) => i.value);
+      if (idle && !typing && !started) apply();
+      return;
+    }
+    if (idle && !typing) return void apply();
     if (!told) { told = true; onWaiting(() => void apply()); }
   };
   const check = async () => {

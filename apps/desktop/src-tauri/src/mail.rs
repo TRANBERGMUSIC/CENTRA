@@ -374,7 +374,8 @@ pub async fn mail_save_part<R: tauri::Runtime>(app: tauri::AppHandle<R>, account
     let to_downloads = save && !cfg!(target_os = "ios");
     let dir = if to_downloads { app.path().download_dir().map_err(|e| e.to_string())? } else { temp.clone() };
     let path = tauri::async_runtime::spawn_blocking(move || -> Result<std::path::PathBuf, String> {
-        let (name, _, data) = part_blocking(&account, &folder, uid, index)?;
+        let (name, mime, data) = part_blocking(&account, &folder, uid, index)?;
+        let name = with_ext(&name, &mime, &data);
         tidy(&temp);
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let path = free_path(&dir, &safe_name(&name));
@@ -421,6 +422,32 @@ fn quick_look(path: &std::path::Path) -> bool {
 }
 #[cfg(not(any(target_os = "macos", target_os = "ios")))]
 fn quick_look(_: &std::path::Path) -> bool { false }
+
+/// Quick Look and the Mac go by the file's extension: one is added when the sender left it out.
+fn with_ext(name: &str, mime: &str, data: &[u8]) -> String {
+    if std::path::Path::new(name).extension().is_some_and(|e| e.len() <= 5) { return name.to_string(); }
+    let zip = data.starts_with(b"PK\x03\x04");
+    let has = |needle: &[u8]| data.windows(needle.len()).take(4_000_000).any(|w| w == needle);
+    let ext = match mime {
+        "application/pdf" => "pdf",
+        "image/jpeg" => "jpg", "image/png" => "png", "image/gif" => "gif", "image/heic" => "heic", "image/webp" => "webp",
+        "video/mp4" => "mp4", "video/quicktime" => "mov", "audio/mpeg" => "mp3", "audio/mp4" | "audio/x-m4a" => "m4a",
+        "text/plain" => "txt", "text/csv" => "csv", "text/html" => "html", "text/calendar" => "ics", "message/rfc822" => "eml",
+        m if m.contains("wordprocessingml") => "docx",
+        m if m.contains("presentationml") => "pptx",
+        m if m.contains("spreadsheetml") => "xlsx",
+        "application/msword" => "doc", "application/vnd.ms-powerpoint" => "ppt", "application/vnd.ms-excel" => "xls",
+        _ if data.starts_with(b"%PDF") => "pdf",
+        _ if data.starts_with(&[0xff, 0xd8, 0xff]) => "jpg",
+        _ if data.starts_with(&[0x89, b'P', b'N', b'G']) => "png",
+        _ if zip && has(b"word/document.xml") => "docx",
+        _ if zip && has(b"ppt/presentation.xml") => "pptx",
+        _ if zip && has(b"xl/workbook.xml") => "xlsx",
+        _ if zip => "zip",
+        _ => return name.to_string(),
+    };
+    format!("{name}.{ext}")
+}
 
 /// Opened attachments don't lie around: copies older than a day are removed.
 fn tidy(dir: &std::path::Path) {
@@ -700,6 +727,26 @@ pub async fn fetch_calendar(url: String) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn attachments_to_send() {
+        let out = |files: Vec<OutFile>| Outgoing { to: vec![], cc: None, bcc: None, subject: String::new(), body: String::new(), in_reply_to: None, references: None, files: Some(files), forward: None };
+        let a = attachments(&out(vec![OutFile { name: "../Noter.docx".into(), mime: "application/x".into(), data: "aGVsbG8=".into() }])).unwrap();
+        assert_eq!(a, vec![("_Noter.docx".to_string(), "application/x".to_string(), b"hello".to_vec())]);
+        let big = base64::engine::general_purpose::STANDARD.encode(vec![0u8; 20_000_000]);
+        use base64::Engine;
+        assert!(attachments(&out(vec![OutFile { name: "x".into(), mime: "a/b".into(), data: big }])).is_err());
+        assert!(attachments(&out(vec![OutFile { name: "x".into(), mime: "a/b".into(), data: "!!!".into() }])).is_err());
+    }
+
+    #[test]
+    fn adds_a_missing_extension() {
+        assert_eq!(super::with_ext("Plan.pptx", "application/octet-stream", b""), "Plan.pptx");
+        assert_eq!(super::with_ext("vedhæftning", "application/pdf", b""), "vedhæftning.pdf");
+        assert_eq!(super::with_ext("faktura", "application/octet-stream", b"%PDF-1.7"), "faktura.pdf");
+        assert_eq!(super::with_ext("slides", "application/octet-stream", b"PK\x03\x04....ppt/presentation.xml"), "slides.pptx");
+        assert_eq!(super::with_ext("ukendt", "application/octet-stream", b"\x00\x01"), "ukendt");
+    }
+
     use super::*;
     #[test]
     fn dates() {
@@ -748,7 +795,7 @@ mod tests {
             let first = f.messages.iter().map(|m| m.uid).min().unwrap();
             mail_update(a.clone(), vec![first], Some(true), None, Some("archive".into())).await.unwrap();
             let after = mail_fetch(a.clone(), None, 0, 0, Some(30), Some(100)).await.unwrap();
-            let sent = mail_send(a.clone(), Outgoing { to: vec!["sofie@example.dk".into()], cc: None, subject: "Re: Frokost på lørdag?".into(), body: "Ja, gerne! Ses kl. 12.".into(), in_reply_to: Some("s1@example.dk".into()), references: Some("<s1@example.dk>".into()) }).await;
+            let sent = mail_send(a.clone(), Outgoing { to: vec!["sofie@example.dk".into()], cc: None, subject: "Re: Frokost på lørdag?".into(), body: "Ja, gerne! Ses kl. 12.".into(), in_reply_to: Some("s1@example.dk".into()), references: Some("<s1@example.dk>".into()), bcc: None, files: None, forward: None }).await;
             let box_ = mail_fetch(a.clone(), Some("SENT".into()), 0, 0, Some(30), Some(100)).await.unwrap();
             // Delete, also on a server that has no Trash folder yet (it gets made).
             let last = after.messages.iter().map(|m| m.uid).max().unwrap();

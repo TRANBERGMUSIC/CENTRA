@@ -33,6 +33,30 @@ export function kindOf(name: string, mime: string): Kind {
   if (x === 'zip' || m === 'application/zip' || m === 'application/x-zip-compressed') return 'zip';
   return 'none';
 }
+/** What a file is from its first bytes (for attachments named "vedhæftning" or sent as octet-stream). */
+export function sniff(d: Uint8Array): Kind {
+  const at = (sig: number[], off = 0) => sig.every((b, i) => d[off + i] === b);
+  const head = new TextDecoder('latin1').decode(d.subarray(0, 64));
+  if (head.startsWith('%PDF')) return 'pdf';
+  if (at([0x89, 0x50, 0x4e, 0x47]) || at([0xff, 0xd8, 0xff]) || head.startsWith('GIF8') || (head.startsWith('RIFF') && head.slice(8, 12) === 'WEBP')) return 'image';
+  if (head.slice(4, 8) === 'ftyp') return /heic|heix|mif1|avif/.test(head.slice(8, 12)) ? 'image' : /M4A /.test(head.slice(8, 12)) ? 'audio' : 'video';
+  if (head.startsWith('ID3') || at([0xff, 0xfb]) || (head.startsWith('RIFF') && head.slice(8, 12) === 'WAVE') || head.startsWith('fLaC') || head.startsWith('OggS')) return 'audio';
+  if (at([0x50, 0x4b, 0x03, 0x04])) {
+    const names = new TextDecoder('latin1').decode(d.subarray(0, Math.min(d.length, 4_000_000)));
+    if (names.includes('word/document.xml')) return 'docx';
+    if (names.includes('ppt/presentation.xml')) return 'pptx';
+    if (names.includes('xl/workbook.xml')) return 'xlsx';
+    if (names.includes('Index/Document.iwa') || names.includes('preview.jpg')) return 'iwork';
+    return 'zip';
+  }
+  if (/^\s*<(!doctype html|html)/i.test(head)) return 'html';
+  // Mostly printable: text.
+  const sample = d.subarray(0, 4096);
+  let bin = 0;
+  for (const b of sample) if (b === 0 || (b < 9) || (b > 13 && b < 32)) bin++;
+  return sample.length && bin / sample.length < 0.01 ? 'text' : 'none';
+}
+
 /** Can CENTRA show it itself? */
 export const canView = (name: string, mime: string) => kindOf(name, mime) !== 'none';
 
@@ -62,16 +86,18 @@ export function FileView({ files, at, onAt, onClose, onOpen, onSave, saveLabel =
   onOpen?: (f: ViewFile) => void; onSave?: (f: ViewFile) => void; saveLabel?: string; onQuickLook?: (f: ViewFile) => void;
 }) {
   const f = files[at];
-  const kind = kindOf(f.name, f.mime);
+  const named = kindOf(f.name, f.mime);
+  const [sniffed, setSniffed] = useState<Kind | null>(null);
+  const kind = named !== 'none' ? named : sniffed ?? 'none';
   const [data, setData] = useState<Uint8Array | null>(null);
   const [err, setErr] = useState('');
   const shell = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let live = true;
-    setData(null); setErr('');
-    if (kind === 'none') return;
-    f.load().then((d) => live && setData(d)).catch((x) => live && setErr((x as Error).message || 'Filen kunne ikke hentes'));
+    setData(null); setErr(''); setSniffed(null);
+    // A file without a telling name or type is recognised by its first bytes.
+    f.load().then((d) => { if (!live) return; if (named === 'none') setSniffed(sniff(d)); setData(d); }).catch((x) => live && setErr((x as Error).message || 'Filen kunne ikke hentes'));
     return () => { live = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.key]);
@@ -107,8 +133,8 @@ export function FileView({ files, at, onAt, onClose, onOpen, onSave, saveLabel =
       </div>
       <div className={`fv__body fv__body--${kind}`} data-lenis-prevent onClick={catchLinks}>
         {err ? <Unshown f={f} text={err} onOpen={onOpen} onQuickLook={onQuickLook} />
-          : kind === 'none' ? <Unshown f={f} onOpen={onOpen} onQuickLook={onQuickLook} />
           : !data ? <div className="fv__wait" aria-busy="true"><span className="fv__spin" /></div>
+          : kind === 'none' ? <Unshown f={f} onOpen={onOpen} onQuickLook={onQuickLook} />
           : <Viewer key={f.key} kind={kind} f={f} data={data} onFail={(t) => setErr(t)} />}
       </div>
     </div>,

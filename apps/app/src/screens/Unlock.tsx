@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Wordmark } from '../ui/primitives.tsx';
+import { Btn } from '../ui/primitives.tsx';
 import { reduced, gsap, useGSAP } from '../motion.ts';
-import { Aura } from '../ui/Logo.tsx';
-import { Icon } from '../ui/Icon.tsx';
+import { Logo } from '../ui/Logo.tsx';
 import { bioKind, bioIsOn, bioUnlock, bioProblem, BIO_NAME, type BioKind } from '../biometrics.ts';
 import { DEFAULT_USER, canCreateHere, explain, lookUp, recover, signIn, type Lookup, type Session, type Step } from '../session.ts';
 import DecryptedText from '../bits/DecryptedText.jsx';
@@ -11,11 +10,12 @@ type Mode = 'login' | 'create' | 'recover';
 const MIN = 12;
 
 /**
- * The one brand moment: the brand's light drifting behind the logo while the vault opens.
- * Login, first-time setup (choose the password) and recovery (forgot the password) live here.
+ * The lock screen: the same quiet card as the Mac's background lock (Veil.tsx), so locking always
+ * looks the same. Login, first-time setup (choose the password) and recovery live here.
  */
 export function Unlock({ onReady, notice }: { onReady: (s: Session) => void; notice?: string }) {
-  const [mode, setMode] = useState<Mode>('login');
+  // "Glemt password?" on the background lock comes straight here.
+  const [mode, setMode] = useState<Mode>(() => { try { const m = sessionStorage.getItem('centra.unlockMode'); sessionStorage.removeItem('centra.unlockMode'); return m === 'recover' ? 'recover' : 'login'; } catch { return 'login'; } });
   const [user, setUser] = useState(DEFAULT_USER);
   const [pw, setPw] = useState('');
   const [pw2, setPw2] = useState('');
@@ -64,8 +64,8 @@ export function Unlock({ onReady, notice }: { onReady: (s: Session) => void; not
   // Fields that appear later (second password, recovery key, a message) slide open instead of popping.
   useGSAP(() => {
     if (reduced()) return;
-    gsap.from(card.current!.querySelectorAll('.ufield:not([data-seen]), .unlock__info, .unlock__error'), { height: 0, opacity: 0, y: -6, duration: 0.35, ease: 'power3.out', clearProps: 'all' });
-    card.current!.querySelectorAll('.ufield').forEach((f) => f.setAttribute('data-seen', ''));
+    gsap.from(card.current!.querySelectorAll('input:not([data-seen]), .veil__note, .unlock__error'), { opacity: 0, y: -6, duration: 0.3, ease: 'power3.out', clearProps: 'all' });
+    card.current!.querySelectorAll('input').forEach((f) => f.setAttribute('data-seen', ''));
   }, { scope: card, dependencies: [mode, error, info] });
 
   useEffect(() => {
@@ -120,38 +120,35 @@ export function Unlock({ onReady, notice }: { onReady: (s: Session) => void; not
     }
   }
 
+  const label = wait > 0 ? `Vent ${wait} s` : mode === 'login' ? 'Lås op' : mode === 'create' ? 'Opret og lås op' : 'Skift password';
+  const quiet = !!notice && error === notice; // why it locked: said calmly, not as an error
   return (
-    <main className="unlock">
-      <div className="unlock__light" aria-hidden="true">
-        <Aura />
-      </div>
-      <form ref={card} className="unlock__card" onSubmit={submit} autoComplete="on">
-        <img className="unlock__symbol" src="./app-icon-dark.png" alt="" />
-        <Wordmark className="unlock__word" />
-        <p className="unlock__tag">Your life. In focus.</p>
+    <main className="unlock unlock--plain">
+      <form ref={card} className="veil__card" onSubmit={submit} autoComplete="on">
+        <Logo size={54} />
+        <h1>{mode === 'recover' ? 'Nyt password' : mode === 'create' ? 'Velkommen til CENTRA' : 'CENTRA er låst'}</h1>
         {step ? (
           <p className="unlock__stage" role="status"><DecryptedText key={step} text={step + ' …'} animateOn="view" sequential speed={30} maxIterations={6} characters="0123456789ABCDEF" encryptedClassName="encrypted" /></p>
         ) : (
           <>
-            {info && <p className="unlock__info" role="status">{info}</p>}
-            <label className="ufield"><span>Brugernavn</span><input name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} value={user} onChange={(e) => { setUser(e.target.value); setPending(null); }} required /></label>
+            <input className="veil__user" name="username" aria-label="Brugernavn" autoComplete="username" autoCapitalize="none" spellCheck={false} value={user} onChange={(e) => { setUser(e.target.value); setPending(null); }} required />
+            {info && <p className="meta veil__note" role="status">{info}</p>}
+            {quiet && <p className="meta veil__note">{error}</p>}
             {mode === 'recover' && (
-              <label className="ufield"><span>Gendannelsesnøgle</span><input name="recovery" autoComplete="off" autoCapitalize="characters" spellCheck={false} placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX" value={code} onChange={(e) => setCode(e.target.value)} required /></label>
+              <input name="recovery" aria-label="Gendannelsesnøgle" autoComplete="off" autoCapitalize="characters" spellCheck={false} placeholder="Gendannelsesnøgle" value={code} onChange={(e) => setCode(e.target.value)} required />
             )}
-            <label className="ufield"><span>{mode === 'login' ? 'Password' : 'Nyt password'}</span>
-              <input type="password" name="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} value={pw} onChange={(e) => setPw(e.target.value)} required minLength={mode === 'login' ? 1 : MIN} /></label>
+            <input type="password" name="password" aria-label={mode === 'login' ? 'Password' : 'Nyt password'} placeholder={mode === 'login' ? 'Password' : 'Nyt password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} value={pw} onChange={(e) => setPw(e.target.value)} required minLength={mode === 'login' ? 1 : MIN} autoFocus />
             {mode !== 'login' && (
-              <label className="ufield"><span>Gentag password</span><input type="password" name="password2" autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} required minLength={MIN} /></label>
+              <input type="password" name="password2" aria-label="Gentag password" placeholder="Gentag password" autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} required minLength={MIN} />
             )}
-            {error && <p className="unlock__error" role="alert">{error}</p>}
-            <button className="btn btn--primary unlock__go" type="submit" disabled={wait > 0}>
-              {wait > 0 ? `Vent ${wait} s` : mode === 'login' ? 'Lås op' : mode === 'create' ? 'Opret og lås op' : 'Skift password'}
-            </button>
-            {bioOn && <button type="button" className="btn btn--secondary unlock__bio" onClick={() => void tryBio()}><Icon name="fingerprint" />Lås op med {BIO_NAME[bio]}</button>}
-            <div className="unlock__links">
-              {mode === 'login' ? <button type="button" className="tag" onClick={() => { setMode('recover'); setError(null); setInfo(null); }}>Glemt password?</button>
-                : <button type="button" className="tag" onClick={() => { setMode('login'); setPending(null); setError(null); setInfo(null); }}>Tilbage til login</button>}
+            {error && !quiet && <p className="unlock__error" role="alert">{error}</p>}
+            <div className="veil__acts">
+              {bioOn && <Btn type="button" onClick={() => void tryBio()}>{BIO_NAME[bio]}</Btn>}
+              <Btn type="submit" variant="primary" disabled={wait > 0 || !pw}>{label}</Btn>
             </div>
+            {mode === 'login'
+              ? <button type="button" className="veil__out" onClick={() => { setMode('recover'); setError(null); setInfo(null); }}>Glemt password?</button>
+              : <button type="button" className="veil__out" onClick={() => { setMode('login'); setPending(null); setError(null); setInfo(null); }}>Tilbage til login</button>}
           </>
         )}
       </form>

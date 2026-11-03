@@ -8,7 +8,8 @@ import { lock } from '../lock.ts';
 
 /**
  * The Mac's lock while CENTRA runs in the background (lock.ts): it covers everything and takes
- * Touch ID or the password; behind it reminders, mail and push carry on.
+ * Touch ID or the password; behind it reminders, mail and push carry on. The login screen
+ * (Unlock.tsx) is the same card, so locking always looks the same.
  */
 export function Veil() {
   const session = useSession();
