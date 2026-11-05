@@ -8,6 +8,7 @@ import { mailBody, mailPart, mailBytes, openMailPart, mailAvailable, type Body, 
 import { openLink } from '../open.ts';
 import { ios } from '../platform.ts';
 import { FileView, type ViewFile } from './FileView.tsx';
+import { ask } from './Confirm.tsx';
 
 /** A click shows the file inside CENTRA; Del on the iPhone opens the share sheet (Gem i Filer, PowerPoint …). */
 const SAVE = ios ? 'Del' : 'Gem';
@@ -77,7 +78,17 @@ export function MailView({ e, m }: { e: SyncEngine; m: any }) {
   const toast = useToast();
   const [body, setBody] = useState<Body | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [remote, setRemote] = useState(() => remoteImagesOn(e));
+  // A mail flagged as scam or phishing: no pictures from the sender's servers (they tell it you looked),
+  // and a link asks first, showing where it really goes.
+  const risky = !!m.danger && !m.dangerOk;
+  const [remote, setRemote] = useState(() => !risky && remoteImagesOn(e));
+  const follow = async (href: string) => {
+    if (risky && /^https?:/i.test(href)) {
+      let host = href; try { host = new URL(href).hostname; } catch { /* keep it */ }
+      if (!(await ask({ title: 'Åbn linket?', text: `Mailen er mistænkt for ${m.danger === 'phishing' ? 'phishing' : 'svindel'}. Linket fører til ${host}.`, ok: 'Åbn alligevel', danger: true }))) return;
+    }
+    void openLink(href);
+  };
   const [view, setView] = useState<number | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
   const frame = useRef<HTMLIFrameElement>(null);
@@ -107,7 +118,7 @@ export function MailView({ e, m }: { e: SyncEngine; m: any }) {
       if (!a) return;
       ev.preventDefault();
       const href = a.getAttribute('href') ?? '';
-      if (/^(https?|mailto|tel|sms):/i.test(href)) void openLink(href);
+      if (/^(https?|mailto|tel|sms):/i.test(href)) void follow(href);
     });
     if (mailAvailable()) {
       d.querySelectorAll<HTMLImageElement>('img[data-cid]').forEach((img) => {
@@ -141,7 +152,7 @@ export function MailView({ e, m }: { e: SyncEngine; m: any }) {
       )}
       {!body ? <div className="mailpaper mailpaper--loading" aria-busy="true"><span className="meta">Henter mailen …</span></div>
         : prepared ? <iframe ref={frame} className="mailframe" title={m.subject} sandbox="allow-same-origin" srcDoc={prepared.page} onLoad={onLoad} />
-          : <div className="mailtext mailtext--plain">{linkify(body.text || m.body || m.preview || '')}</div>}
+          : <div className="mailtext mailtext--plain">{linkify(body.text || m.body || m.preview || '', (h) => void follow(h))}</div>}
       {err && !body?.html && <p className="meta small">Viser tekstudgaven: {err}</p>}
       {shown.length > 0 && (
         <div className="atts">
@@ -178,14 +189,14 @@ function Tile({ e, m, p, busy, onView, onPreview, onOpen, onSave }: { e: SyncEng
 }
 
 /** Plain-text mails: links become clickable, everything else stays text. */
-function linkify(t: string) {
+function linkify(t: string, go: (href: string) => void) {
   const out: React.ReactNode[] = [];
   const re = /\b(https?:\/\/[^\s<>"')\]]+|[\w.+-]+@[\w-]+\.[\w.-]+)/g;
   let last = 0, mm: RegExpExecArray | null, i = 0;
   while ((mm = re.exec(t))) {
     if (mm.index > last) out.push(t.slice(last, mm.index));
     const v = mm[0], href = v.includes('@') && !v.startsWith('http') ? `mailto:${v}` : v;
-    out.push(<a key={i++} href={href} onClick={(x) => { x.preventDefault(); void openLink(href); }}>{v}</a>);
+    out.push(<a key={i++} href={href} onClick={(x) => { x.preventDefault(); go(href); }}>{v}</a>);
     last = mm.index + v.length;
   }
   out.push(t.slice(last));

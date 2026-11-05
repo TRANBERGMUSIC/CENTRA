@@ -22,7 +22,11 @@ const HIDDEN_MS = 5 * 60_000;
 
 export function lock(reason?: string, hard = false) {
   if (!hard && backgroundOn()) { window.dispatchEvent(new CustomEvent('centra-veil', { detail: reason ?? '' })); return; }
-  if (reason) sessionStorage.setItem('centra.lockReason', reason);
+  try {
+    if (reason) sessionStorage.setItem('centra.lockReason', reason);
+    // Locked by hand: Face ID / Touch ID waits until you come back instead of opening it right away.
+    else sessionStorage.setItem('centra.lockManual', '1');
+  } catch { /* private mode */ }
   location.reload();
 }
 

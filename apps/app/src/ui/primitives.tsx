@@ -19,7 +19,7 @@ export function Avatar({ initials, hue, large }: { initials: string; hue: number
   return <span className={`avatar ${large ? 'avatar--lg' : ''}`} style={vars({ '--h': hue })}>{initials}</span>;
 }
 
-export function Pill({ tone = 'neutral', icon, children }: { tone?: 'focus' | 'calm' | 'neutral'; icon?: IconName; children: ReactNode }) {
+export function Pill({ tone = 'neutral', icon, children }: { tone?: 'focus' | 'calm' | 'neutral' | 'danger'; icon?: IconName; children: ReactNode }) {
   return <span className={`pill pill--${tone}`}>{icon && <Icon name={icon} size="sm" />}{children}</span>;
 }
 

@@ -66,7 +66,7 @@ async function setup(b, viewport, mobile) {
     res.replyAllChips = await m.locator('.cmp__chip').allInnerTexts();
     await m.screenshot({ path: `${out}/mac-replyall.png` });
     await m.locator('.cmp textarea').fill('Tak, ses i morgen.');
-    await m.locator('.cmp >> text=Send').first().click();
+    await m.locator('.cmp').getByRole('button', { name: 'Send', exact: true }).first().click();
     await m.waitForTimeout(400);
     res.replyAllSent = await m.evaluate(() => { const c = window.__calls.filter((x) => x.cmd === 'mail_send').pop(); return c && { to: c.args.mail.to, cc: c.args.mail.cc, subject: c.args.mail.subject, inReplyTo: c.args.mail.in_reply_to, quote: c.args.mail.body.includes('> Her er slides') }; });
     // Forward with attachments and one more file
@@ -80,7 +80,7 @@ async function setup(b, viewport, mobile) {
     await m.waitForTimeout(300);
     res.forwardFiles = await m.locator('.cmp__files li').allInnerTexts();
     await m.screenshot({ path: `${out}/mac-forward.png` });
-    await m.locator('.cmp >> text=Send').first().click();
+    await m.locator('.cmp').getByRole('button', { name: 'Send', exact: true }).first().click();
     await m.waitForTimeout(400);
     res.forwardSent = await m.evaluate(() => { const c = window.__calls.filter((x) => x.cmd === 'mail_send').pop(); return c && { to: c.args.mail.to, subject: c.args.mail.subject, files: c.args.mail.files.map((f) => [f.name, atob(f.data)]), forward: c.args.mail.forward && { uid: c.args.mail.forward.uid, parts: c.args.mail.forward.parts, acct: c.args.mail.forward.account.user }, header: c.args.mail.body.includes('Videresendt mail') }; });
     // New mail
@@ -90,7 +90,7 @@ async function setup(b, viewport, mobile) {
     await m.locator('.cmpsheet input[aria-label=Emne]').fill('Hej');
     await m.locator('.cmpsheet textarea').fill('En ny mail.');
     await m.screenshot({ path: `${out}/mac-new.png` });
-    await m.locator('.cmpsheet >> text=Send').first().click();
+    await m.locator('.cmpsheet').getByRole('button', { name: 'Send', exact: true }).first().click();
     await m.waitForTimeout(400);
     res.newSent = await m.evaluate(() => { const c = window.__calls.filter((x) => x.cmd === 'mail_send').pop(); return c && { to: c.args.mail.to, subject: c.args.mail.subject, body: c.args.mail.body, fwd: c.args.mail.forward }; });
     res.sheetClosed = !(await m.locator('.cmpsheet').count());

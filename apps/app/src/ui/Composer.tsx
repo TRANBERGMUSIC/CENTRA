@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useEngine, useList } from '../state.tsx';
 import { Btn } from './primitives.tsx';
 import { Icon } from './Icon.tsx';
@@ -91,9 +92,18 @@ export function Composer({ mode, m, inline, onClose, onSent }: { mode: ComposeMo
     if (picker.current) picker.current.value = '';
   }
 
+  // Closing a reply keeps what you wrote as a draft on the mail; Kassér throws it away.
   async function close() {
+    if ((mode === 'reply' || mode === 'all') && m) {
+      if (body.trim() !== String(m.draft ?? '').trim()) e.set('mail', m.id, { draft: body.trim() });
+      return onClose();
+    }
     if (dirty && !(await ask({ title: 'Kassér mailen?', ok: 'Kassér', danger: true }))) return;
-    if (mode === 'reply' && m?.draft) e.set('mail', m.id, { draft: '' });
+    onClose();
+  }
+  async function discard() {
+    if (body.trim() && !(await ask({ title: 'Kassér svaret?', ok: 'Kassér', danger: true }))) return;
+    if (m?.draft) e.set('mail', m.id, { draft: '' });
     onClose();
   }
 
@@ -117,7 +127,7 @@ export function Composer({ mode, m, inline, onClose, onSent }: { mode: ComposeMo
       onKeyDown={(x) => { if ((x.metaKey || x.ctrlKey) && x.key === 'Enter') { x.preventDefault(); void send(); } if (x.key === 'Escape' && !inline) { x.stopPropagation(); void close(); } }}>
       {!inline && <div className="cmp__top">
         <Btn type="button" variant="text" onClick={() => void close()}>Annullér</Btn>
-        <h2>{mode === 'forward' ? 'Videresend' : mode === 'new' ? 'Ny mail' : 'Svar'}</h2>
+        <h2>{mode === 'forward' ? 'Videresend' : mode === 'new' ? 'Ny mail' : mode === 'all' ? 'Svar alle' : 'Svar'}</h2>
         <Btn type="submit" variant="primary" icon="send" disabled={sending || !mailAvailable()}>{sending ? 'Sender …' : 'Send'}</Btn>
       </div>}
       <div className="cmp__fields">
@@ -149,15 +159,16 @@ export function Composer({ mode, m, inline, onClose, onSent }: { mode: ComposeMo
       <input ref={picker} type="file" multiple hidden onChange={(x) => void add(x.target.files)} />
       <div className="composer__bar cmp__bar">
         {inline && <Btn type="submit" variant="primary" icon="send" disabled={sending || !mailAvailable()}>{sending ? 'Sender …' : 'Send'}</Btn>}
-        {inline && (mode === 'reply' || mode === 'all') && !m?.sent && <Btn type="button" disabled={sending || !mailAvailable()} onClick={() => void send(true)}>Send og arkivér</Btn>}
+        {(mode === 'reply' || mode === 'all') && !m?.sent && <Btn type="button" disabled={sending || !mailAvailable()} onClick={() => void send(true)}>Send og arkivér</Btn>}
         <Btn type="button" variant="text" icon="paperclip" onClick={() => picker.current?.click()}>Vedhæft</Btn>
         {size > 0 && <span className="meta num">{fmtSize(size)}</span>}
-        {inline && <Btn type="button" variant="text" className="push-right" onClick={() => void close()}>Kassér</Btn>}
+        {(inline || ((mode === 'reply' || mode === 'all') && (body.trim() || m?.draft))) && <Btn type="button" variant="text" className="push-right" onClick={() => void (inline ? close() : discard())}>Kassér</Btn>}
       </div>
     </form>
   );
   if (inline) return <div className="replybox">{form}</div>;
-  return <div className="cmpwrap"><div className="scrim" onClick={() => void close()} /><div className="sheet cmpsheet" role="dialog" aria-label={mode === 'forward' ? 'Videresend' : 'Ny mail'}>{form}</div></div>;
+  // Above everything (a reply opens from inside the mail, whose pane may be moving).
+  return createPortal(<div className="cmpwrap"><div className="scrim" onClick={() => void close()} /><div className="sheet cmpsheet" role="dialog" aria-modal="true" aria-label={mode === 'forward' ? 'Videresend' : mode === 'new' ? 'Ny mail' : 'Svar'}>{form}</div></div>, document.body);
 }
 
 /** Addresses as chips: type and press Enter (or comma), or pick from contacts and earlier mail. */

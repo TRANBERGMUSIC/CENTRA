@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Btn } from '../ui/primitives.tsx';
 import { reduced, gsap, useGSAP } from '../motion.ts';
 import { Logo } from '../ui/Logo.tsx';
-import { bioKind, bioIsOn, bioUnlock, bioProblem, BIO_NAME, type BioKind } from '../biometrics.ts';
+import { bioKind, bioIsOn, bioUnlock, bioProblem, whenBack, BIO_NAME, type BioKind } from '../biometrics.ts';
 import { DEFAULT_USER, canCreateHere, explain, lookUp, recover, signIn, type Lookup, type Session, type Step } from '../session.ts';
 import DecryptedText from '../bits/DecryptedText.jsx';
 
@@ -43,16 +43,27 @@ export function Unlock({ onReady, notice }: { onReady: (s: Session) => void; not
       if (msg) setError(msg);
     }
   }
-  // Touch ID asks by itself when the lock screen appears (or when you come back to the window).
+  // Face ID / Touch ID asks by itself: when CENTRA opens, and every time you come back to it. Not
+  // the moment you lock it yourself (only once you've been away), and not when a password is needed
+  // anyway (logged out, or the password changed on another device).
+  const asking = useRef(false);
   useEffect(() => {
-    let off = () => {};
+    let alive = true, kindNow: BioKind = 'none';
+    const manual = (() => { try { const m = sessionStorage.getItem('centra.lockManual') === '1'; sessionStorage.removeItem('centra.lockManual'); return m; } catch { return false; } })();
+    const needsPassword = !!notice && /logget ud|password er skiftet/i.test(notice);
+    const ask = async () => {
+      if (!alive || asking.current || document.hidden || kindNow === 'none' || !bioIsOn(user) || needsPassword) return;
+      if (document.querySelector('.unlock input[name=password2], .unlock input[name=recovery]')) return;
+      asking.current = true;
+      try { await tryBio(kindNow); } finally { asking.current = false; tried = Date.now(); }
+    };
+    let tried = 0;
     void bioKind().then((k) => {
-      setBio(k);
-      if (k === 'none' || !bioIsOn(user) || notice) return;
-      if (document.hasFocus()) void tryBio(k);
-      else { const f = () => { off(); void tryBio(k); }; addEventListener('focus', f, { once: true }); off = () => removeEventListener('focus', f); }
+      kindNow = k; setBio(k);
+      if (!manual) void ask();
     });
-    return () => off();
+    const off = whenBack(() => void ask(), () => tried);
+    return () => { alive = false; off(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

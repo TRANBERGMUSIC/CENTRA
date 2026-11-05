@@ -66,3 +66,19 @@ export async function bioUnlock(user: string): Promise<Session> {
     throw new Error('missing');
   }
 }
+
+/**
+ * Calls fn whenever you come back to CENTRA (the app or window shown again, or focused after being
+ * away). The Face ID / Touch ID prompt itself takes the focus for a moment, so a focus right after
+ * an attempt, or after a blink of a blur, doesn't count: cancelling never loops.
+ */
+export function whenBack(fn: () => void, lastTry: () => number): () => void {
+  let blurAt = 0;
+  const vis = () => { if (!document.hidden) fn(); };
+  const blur = () => { blurAt = Date.now(); };
+  const focus = () => { const now = Date.now(); if (now - lastTry() > 2500 && now - blurAt > 2000) fn(); };
+  document.addEventListener('visibilitychange', vis);
+  addEventListener('blur', blur);
+  addEventListener('focus', focus);
+  return () => { document.removeEventListener('visibilitychange', vis); removeEventListener('blur', blur); removeEventListener('focus', focus); };
+}

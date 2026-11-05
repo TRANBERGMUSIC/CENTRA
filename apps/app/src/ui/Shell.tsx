@@ -234,7 +234,7 @@ function MenuSheet({ counts, onClose, onSearch }: { counts: Record<string, numbe
   );
 }
 
-/* ---------------------------------------------------------------- command palette (⌘K / ⌃K / pull-down) */
+/* ---------------------------------------------------------------- command palette (⌘K / ⌃K / the search button) */
 type Hit = { kind: string; icon: IconName; title: string; sub?: string; run: () => void };
 
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {

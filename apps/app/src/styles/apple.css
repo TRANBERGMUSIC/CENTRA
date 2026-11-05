@@ -1299,3 +1299,76 @@ h1, h2, .panel__title, .chat__lead { text-wrap: balance; }
 .veil__note { max-width: 32ch; margin: 0; }
 .veil__card .unlock__error { align-self: auto; justify-self: center; margin: 0; }
 .veil__card .unlock__stage { margin: 8px 0; }
+
+/* ---------------------------------------------------------------- the inbox, easier to go through */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+:root { --c-danger: #ff453a; }
+.mlist__title { gap: 2px; }
+.mlist__title h1 { margin-right: 6px; }
+.mlist__title .btn.is-on { background: var(--fill); color: var(--c-text); }
+.mlist__title .btn.is-spinning .ic { animation: spin .9s linear infinite; }
+.msearchrow { display: flex; align-items: center; gap: 6px; margin-top: 10px; animation: cmphit 160ms cubic-bezier(.25, 1, .5, 1); }
+.msearchrow .msearch { flex: 1; margin: 0; }
+.mfolder--add { padding: 0 9px; }
+.mfolder--danger .icon, .mfolder--danger .icwrap { color: var(--c-danger); }
+.mfolder--danger .num b { color: var(--c-danger); }
+.mtools { gap: 6px; }
+.msortbtn { position: relative; flex: none; display: grid; place-items: center; width: 30px; height: 28px; margin-left: auto; border-radius: 8px; color: var(--c-muted); background: var(--fill); cursor: pointer; }
+.msortbtn:hover { color: var(--c-text); }
+.msortbtn select { position: absolute; inset: 0; opacity: 0; cursor: pointer; font-size: 16px; }
+.msortbtn:focus-within { outline: 2px solid var(--c-focus); outline-offset: 1px; }
+/* Days as quiet headings, rows as three short lines: who and when, what, a glimpse of the text. */
+.mday { position: sticky; top: 0; z-index: 1; padding: 14px 12px 6px; font-size: 13px; line-height: 18px; font-weight: 600; color: var(--c-faint); background: linear-gradient(var(--c-ground) 70%, transparent); }
+.mrows > .mday:first-child { padding-top: 4px; }
+.mrow { gap: 12px; padding: 10px 12px 11px 14px; align-items: flex-start; }
+.mrow .avatar { width: 36px; height: 36px; font-size: 13px; margin-top: 1px; flex: none; }
+.mrow__who { align-items: center; gap: 6px; font-size: 15px; line-height: 20px; }
+.mrow__who b { min-width: 0; }
+.mrow__clip { color: var(--c-faint); flex: none; }
+.mrow__time { font-size: 13px; color: var(--c-faint); }
+.mrow.is-unread .mrow__time { color: var(--c-primary); font-weight: 600; }
+.mrow__subj { margin-top: 1px; font-size: 14px; line-height: 19px; color: var(--c-text); }
+.mrow.is-unread .mrow__subj { font-weight: 600; }
+.mrow__line { display: flex; align-items: center; gap: 6px; margin-top: 2px; min-width: 0; }
+.mrow__prev { flex: 1; min-width: 0; margin: 0; font-size: 13px; line-height: 18px; color: var(--c-faint); }
+.mrow__acct { color: var(--c-muted); }
+.mrow__line .pill { flex: none; height: 20px; font-size: 11.5px; padding: 0 7px; }
+.mrow .unread-dot { left: 4px; top: 25px; width: 7px; height: 7px; }
+.mrows .mrow + .mrow::after, .mrows .mrow + .mday + .mrow::after { content: none; }
+.avatar--danger { display: grid; place-items: center; background: color-mix(in oklab, var(--c-danger) 18%, transparent) !important; color: var(--c-danger); }
+.mrow.is-danger .mrow__subj { color: var(--c-muted); }
+.pill--danger { background: color-mix(in oklab, var(--c-danger) 16%, transparent); color: var(--c-danger); }
+/* The warning on a scam or phishing mail */
+.mdanger { display: flex; gap: 14px; margin: 0 0 18px; padding: 16px 18px; border-radius: 16px; background: color-mix(in oklab, var(--c-danger) 11%, var(--c-surface)); box-shadow: inset 0 0 0 0.5px color-mix(in oklab, var(--c-danger) 40%, transparent); }
+.mdanger__ic { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: var(--c-danger); color: #fff; }
+.mdanger__body { flex: 1; min-width: 0; }
+.mdanger h3 { margin: 2px 0 6px; font-size: 15px; line-height: 20px; font-weight: 600; color: var(--c-text); }
+.mdanger ul { margin: 0; padding-left: 18px; list-style: disc; color: var(--c-muted); font-size: 13.5px; line-height: 19px; }
+.mdanger li + li { margin-top: 2px; }
+.mdanger__acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+@media (max-width: 640px) {
+  .mrow { padding: 10px 10px 11px 14px; }
+  .mrow__who { font-size: 16px; line-height: 21px; }
+  .mrow__subj { font-size: 15px; line-height: 20px; }
+  .mrow__prev { font-size: 14px; line-height: 19px; }
+  .mday { padding-left: 14px; }
+  .mdanger { padding: 14px; gap: 12px; }
+}
+@media (prefers-reduced-motion: reduce) { .mlist__title .btn.is-spinning .ic { animation: none; } }
+/* An Assist draft waiting on a mail: one tap opens it in the reply window. */
+.mdraft { display: flex; align-items: center; gap: 8px; width: 100%; margin: 16px 0 0; padding: 12px 14px; border: 0; border-radius: 14px; background: color-mix(in oklab, var(--c-primary) 12%, var(--c-surface)); color: var(--c-text); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.mdraft .icwrap { color: var(--c-primary); flex: none; }
+.mdraft .ellipsis { flex: 1; min-width: 0; color: var(--c-muted); }
+.mdraft__go { flex: none; color: var(--link); font-weight: 600; }
+.mdraft:hover { background: color-mix(in oklab, var(--c-primary) 18%, var(--c-surface)); }
+/* A note on the iPhone scrolls inside the height above the keyboard (keyboard.ts), like Noter:
+   opening the keyboard leaves the top where it is, and writing follows the cursor. */
+@media (max-width: 640px) {
+  .notes2.has-open > .editor.selfscroll { height: calc(var(--vvh, 100dvh) - env(safe-area-inset-top, 0px)); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding-bottom: 120px; box-sizing: border-box; }
+  .app:has(.notes2.has-open) { padding-bottom: 0; height: var(--vvh, 100dvh); overflow: hidden; box-sizing: border-box; }
+  .app:has(.notes2.has-open) > .pull { display: none; }
+  html.kb-open .mbar, html.kb-open .tabbar { display: none; }
+  html.kb-open .notes2.has-open > .editor.selfscroll { padding-bottom: 24px; }
+  .notes2.has-open .ntoolbar { top: 0; }
+  .notes2.has-open .cmhost .cm-content { padding-bottom: 30vh; }
+}

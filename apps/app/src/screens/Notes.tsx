@@ -210,7 +210,7 @@ function Editor({ id }: { id: string }) {
   }
 
   return (
-    <div className="editor" ref={wrap}>
+    <div className="editor selfscroll" ref={wrap}>
       <div ref={content}>
         <div className="editor__bar">
           <button className="phone-back" onClick={() => go({ screen: 'notes' })}><Icon name="chevron-left" />Noter</button>

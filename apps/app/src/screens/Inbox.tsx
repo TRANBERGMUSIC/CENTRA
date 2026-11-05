@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useEngine, useList, useRecord, useRoute, useNow, fmt } from '../state.tsx';
 import { Btn, Pill, vars, useProgressive, More } from '../ui/primitives.tsx';
 import { Icon } from '../ui/Icon.tsx';
@@ -10,6 +10,7 @@ import { setLunchHubStatus, type LhConn } from '../lunchhub.ts';
 import { queueAssist } from './Assist.tsx';
 import { folders as listFolders, moveToFolder, removeFolder, sortByRules, type MailFolder, type FolderRule } from '../mailFolders.ts';
 import { ask } from '../ui/Confirm.tsx';
+import { clearDanger, markDanger } from '../mailSafety.ts';
 import { Composer, type ComposeMode } from '../ui/Composer.tsx';
 
 /** 'inbox', 'sent', 'archive', or a folder's id. */
@@ -35,6 +36,24 @@ const askDelete = (m: any) => m.source === 'lunchhub'
 const hue = (s: string) => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
 const initials = (n: string) => n.replace(/["<>]/g, '').split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((x) => x[0]?.toUpperCase()).join('') || '?';
 const who = (m: any) => ({ name: (m.sent ? 'Til ' : '') + (m.fromName || m.fromEmail || 'Ukendt'), email: m.fromEmail ?? '', hue: hue(m.fromEmail ?? m.fromName ?? ''), initials: initials(m.fromName || m.fromEmail || '?') });
+/** "I dag", "I går", "Mandag" …, then the month: mail grouped the way you think about it. */
+function dayLabel(iso: string | undefined, now: Date) {
+  if (!iso) return '';
+  const d = new Date(iso), a = new Date(now); a.setHours(0, 0, 0, 0);
+  const b = new Date(d); b.setHours(0, 0, 0, 0);
+  const days = Math.round((a.getTime() - b.getTime()) / 86400000);
+  if (days <= 0) return 'I dag';
+  if (days === 1) return 'I går';
+  if (days < 7) { const w = d.toLocaleDateString('da-DK', { weekday: 'long' }); return w.charAt(0).toUpperCase() + w.slice(1); }
+  const mo = d.toLocaleDateString('da-DK', { month: 'long', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) });
+  return mo.charAt(0).toUpperCase() + mo.slice(1);
+}
+/** Under a day heading the row only needs the time (this week) or the date. */
+const rowTime = (iso: string | undefined, now: Date) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return now.getTime() - d.getTime() < 6.5 * 86400000 ? d.toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString('da-DK', { day: 'numeric', month: 'short' });
+};
 const ago = (iso: string | undefined, now: Date) => { if (!iso) return ''; const s = Math.round((now.getTime() - new Date(iso).getTime()) / 1000); return s < 60 ? 'lige nu' : s < 3600 ? `for ${Math.round(s / 60)} min siden` : `kl. ${new Date(iso).toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' })}`; };
 
 /** All your mail accounts in one inbox. Archive and delete happen on the server too. */
@@ -58,10 +77,12 @@ export function Inbox() {
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const [writing, setWriting] = useState(false);
+  const [searching, setSearching] = useState(false);
   const mailAccts = useList('mailacct') as unknown as MailAccount[];
   const lhConns = useList('lhconn') as unknown as LhConn[];
   // LunchHub shows up as one more "account" in the picker.
   const accts = [...mailAccts, ...lhConns.map((c) => ({ id: c.id, name: c.name }))] as { id: string; name: string }[];
+  const multi = accts.length > 1 && acct === 'all';
   const everything = useList('mail', (a, b) => (b.at ?? '').localeCompare(a.at ?? '')) as any[];
   const all = everything.filter((m) => !m.archived);
   const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -126,16 +147,18 @@ export function Inbox() {
       <div className="mlist" data-lenis-prevent>
         <div className="mlist__head" data-enter>
           <div className="mlist__title"><h1>Mail</h1>
-            {accts.length > 0 && mailAvailable() && <span className="meta mlist__sync" title={syncErr || undefined}>{busy ? 'Henter …' : syncErr ? 'Kunne ikke hente alt' : synced ? `Hentet ${ago(synced, now)}` : ''}</span>}
-            {accts.length > 0 && mailAvailable() && <Btn size="sm" variant="text" icon="refresh" disabled={busy} onClick={refresh} aria-label="Hent nu" title="Hent nu" />}
+            {accts.length > 0 && mailAvailable() && syncErr && <span className="meta mlist__sync errtext" title={syncErr}>Kunne ikke hente alt</span>}
+            <span className="push-right" />
+            {everything.length > 0 && <Btn size="sm" variant="text" icon="search" className={searching ? 'is-on' : ''} onClick={() => { setSearching((x) => !x); if (searching) setQ(''); }} aria-label="Søg i mails" aria-pressed={searching} title="Søg" />}
+            {accts.length > 0 && mailAvailable() && <Btn size="sm" variant="text" icon="refresh" disabled={busy} onClick={refresh} aria-label="Hent nu" title={busy ? 'Henter …' : synced ? `Hentet ${ago(synced, now)}` : 'Hent nu'} className={busy ? 'is-spinning' : ''} />}
             {sendAccounts(e).length > 0 && mailAvailable() && <Btn size="sm" variant="text" icon="compose" className="mlist__new" onClick={() => setWriting(true)} aria-label="Ny mail" title="Ny mail" />}
-            {accts.length > 1 && (
-              <select className="mselect" value={acct} onChange={(x) => setAcct(x.target.value)} aria-label="Konto">
-                <option value="all">Alle konti</option>
-                {accts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-            )}
           </div>
+          {searching && (
+            <div className="msearchrow">
+              <input className="msearch" type="search" value={q} autoFocus onChange={(x) => setQ(x.target.value)} onKeyDown={(x) => { if (x.key === 'Escape') { setQ(''); setSearching(false); } }} placeholder="Søg i alle mails" aria-label="Søg i mails" enterKeyHint="search" />
+              <Btn size="sm" variant="text" onClick={() => { setQ(''); setSearching(false); }}>Annullér</Btn>
+            </div>
+          )}
           <div className="segmented mbox" role="tablist" aria-label="Mappe">
             {BOXES.map(([k, l]) => <button key={k} role="tab" aria-selected={box === k && !words.length} className={`${box === k && !words.length ? 'is-active' : ''} ${dropOn === k ? 'is-drop' : ''}`} onClick={() => { setBox(k); setQ(''); }}
               onDragOver={k === 'inbox' ? (ev) => { ev.preventDefault(); setDropOn(k); } : undefined} onDragLeave={() => setDropOn(null)} onDrop={k === 'inbox' ? (ev) => dropTo('inbox', ev) : undefined}>{l}{k === 'inbox' && unread > 0 && <span className="mbox__n num">{unread}</span>}</button>)}
@@ -143,16 +166,16 @@ export function Inbox() {
           <div className="mfolders" role="tablist" aria-label="Dine mapper">
             {fl.map((f) => {
               const n = folderUnread(f.id);
+              const sys = (f as any).system as string | undefined;
               return (
-                <button key={f.id} role="tab" aria-selected={box === f.id && !words.length} className={`mfolder ${box === f.id && !words.length ? 'is-active' : ''} ${dropOn === f.id ? 'is-drop' : ''}`} title={f.description || undefined}
+                <button key={f.id} role="tab" aria-selected={box === f.id && !words.length} className={`mfolder ${sys ? 'mfolder--danger' : ''} ${box === f.id && !words.length ? 'is-active' : ''} ${dropOn === f.id ? 'is-drop' : ''}`} title={f.description || undefined}
                   onClick={() => { setBox(f.id); setQ(''); }} onDragOver={(ev) => { ev.preventDefault(); setDropOn(f.id); }} onDragLeave={() => setDropOn(null)} onDrop={(ev) => dropTo(f.id, ev)}>
-                  <Icon name="folder" size="sm" /><span className="ellipsis">{f.name}</span><span className="num meta">{n ? <b>{n}</b> : folderCount(f.id)}</span>
+                  <Icon name={sys ? 'shield' : 'folder'} size="sm" /><span className="ellipsis">{f.name}</span><span className="num meta">{n ? <b>{n}</b> : folderCount(f.id)}</span>
                 </button>
               );
             })}
-            <button className="mfolder mfolder--add" onClick={() => setEditFolder('new')} title="Ny mappe. Du kan også bede Assist om at lave og fylde mapper."><Icon name="plus" size="sm" /><span>{fl.length ? 'Mappe' : 'Ny mappe'}</span></button>
+            <button className="mfolder mfolder--add" onClick={() => setEditFolder('new')} aria-label="Ny mappe" title="Ny mappe"><Icon name="plus" size="sm" />{!fl.length && <span>Ny mappe</span>}</button>
           </div>
-          {everything.length > 0 && <input className="msearch" type="search" value={q} onChange={(x) => setQ(x.target.value)} placeholder="Søg" aria-label="Søg i mails" />}
           {words.length > 0 ? (
             <div className="msearch__ask"><span className="meta">{rows.length} fundet i alle konti</span>
               <Btn size="sm" variant="text" icon="assist" onClick={() => { queueAssist(`Find i mine mails: ${q.trim()}. Fortæl hvad du fandt, og hvad jeg skal bruge det til.`); go({ screen: 'assist' }); }}>Spørg Assist</Btn></div>
@@ -160,30 +183,42 @@ export function Inbox() {
             <div className="mtools">
               {box === 'inbox' ? (
                 <div className="mfilter" role="radiogroup" aria-label="Vis">
-                  {FILTERS.map(([k, l]) => <button key={k} role="radio" aria-checked={filter === k} className={filter === k ? 'is-active' : ''} onClick={() => setFilter(k)}>{l} <span className="num">{count(k)}</span></button>)}
+                  {FILTERS.map(([k, l]) => { const n = count(k); return (k === 'all' || n > 0 || filter === k) && <button key={k} role="radio" aria-checked={filter === k} className={filter === k ? 'is-active' : ''} onClick={() => setFilter(k)}>{l} <span className="num">{n}</span></button>; })}
                 </div>
-              ) : fl.some((f) => f.id === box) ? (
+              ) : fl.some((f) => f.id === box) && !(fl.find((f) => f.id === box) as any)?.system ? (
                 <div className="mfolderbar"><span className="meta ellipsis">{fl.find((f) => f.id === box)?.description}</span>
                   <Btn size="sm" variant="text" icon="edit" onClick={() => setEditFolder(fl.find((f) => f.id === box) ?? null)}>Mappe og regler</Btn></div>
               ) : <span />}
-              <select className="mselect msort" value={sort} onChange={(x) => setSort(x.target.value as Sort)} aria-label="Sortér">{SORTS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+              <label className="msortbtn" title="Sortér"><Icon name="sort" size="sm" /><span className="sr-only">Sortér</span>
+                <select value={sort} onChange={(x) => setSort(x.target.value as Sort)} aria-label="Sortér">{SORTS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
             </div>
           )}
         </div>
         <div className="mrows">
-          {rows.slice(0, shown).map((m) => {
+          {rows.slice(0, shown).map((m, i, list) => {
             const p = who(m);
+            const day = sort === 'new' || sort === 'old' ? dayLabel(m.at, now) : '';
+            const head = day && (i === 0 || dayLabel(list[i - 1].at, now) !== day);
+            const danger = m.danger as 'phishing' | 'scam' | undefined;
+            const line = m.ai?.summary || m.preview || '';
             return (
-              <button key={m.id} id={`mrow-${m.id}`} draggable onDragStart={(ev) => { ev.dataTransfer.setData('text/centra-mail', m.id); ev.dataTransfer.effectAllowed = 'move'; }} className={`mrow ${m.unread ? 'is-unread' : ''} ${m.id === id ? 'is-selected' : ''}`} onClick={() => { go({ screen: 'inbox', id: m.id }); if (m.unread) setMailFlag(e, m, { unread: false }); }}>
-                {m.unread && <span className="unread-dot" aria-label="Ulæst" />}
-                <span className="avatar" style={vars({ '--h': p.hue })}>{p.initials}</span>
-                <span className="mrow__body">
-                  <span className="mrow__who"><b className="ellipsis">{p.name}</b><span className="meta num mrow__time">{fmt.clock(m.at, now)}</span></span>
-                  <span className="mrow__subj ellipsis">{m.subject}</span>
-                  {m.ai?.summary && <span className="mrow__ai meta ellipsis">{m.ai.summary}</span>}
-                  <span className="mrow__mark meta"><span>{m.acctName ?? m.acct}{m.mbox && box !== m.mbox ? ` · ${fl.find((f) => f.id === m.mbox)?.name ?? ''}` : ''}{m.sent && box !== 'sent' ? ' · sendt' : ''}{m.archived ? ' · arkiveret' : ''}</span>{m.watch ? <Pill tone="focus" icon="assist">Du bad om denne</Pill> : m.needsReply ? <Pill tone="focus">Venter på svar</Pill> : m.attachment ? <><Icon name="paperclip" size="sm" /><span>{m.cat === 'Kvitteringer' ? 'Kvittering' : 'Vedhæftning'}</span></> : null}{m.draft && <Pill tone="calm">Udkast</Pill>}</span>
-                </span>
-              </button>
+              <Fragment key={m.id}>
+                {head && <div className="mday" role="presentation">{day}</div>}
+                <button id={`mrow-${m.id}`} draggable onDragStart={(ev) => { ev.dataTransfer.setData('text/centra-mail', m.id); ev.dataTransfer.effectAllowed = 'move'; }} className={`mrow ${m.unread ? 'is-unread' : ''} ${m.id === id ? 'is-selected' : ''} ${danger ? 'is-danger' : ''}`} onClick={() => { go({ screen: 'inbox', id: m.id }); if (m.unread) setMailFlag(e, m, { unread: false }); }}>
+                  {m.unread && <span className="unread-dot" aria-label="Ulæst" />}
+                  {danger ? <span className="avatar avatar--danger" aria-hidden="true"><Icon name="shield" size="sm" /></span> : <span className="avatar" style={vars({ '--h': p.hue })}>{p.initials}</span>}
+                  <span className="mrow__body">
+                    <span className="mrow__who"><b className="ellipsis">{p.name}</b>{m.attachment && <Icon name="paperclip" size="sm" className="mrow__clip" />}<span className="meta num mrow__time">{day ? rowTime(m.at, now) : fmt.clock(m.at, now)}</span></span>
+                    <span className="mrow__subj ellipsis">{m.subject}</span>
+                    <span className="mrow__line">
+                      <span className="mrow__prev ellipsis">{multi && <span className="mrow__acct">{m.acctName ?? m.acct}{m.mbox && box !== m.mbox ? ` · ${fl.find((f) => f.id === m.mbox)?.name ?? ''}` : ''} · </span>}{m.sent && box !== 'sent' ? 'Sendt · ' : ''}{m.archived ? 'Arkiveret · ' : ''}{line}</span>
+                      {danger ? <Pill tone="danger" icon="shield">{danger === 'phishing' ? 'Phishing' : 'Svindel'}</Pill>
+                        : m.watch ? <Pill tone="focus" icon="assist">Du bad om denne</Pill> : m.needsReply ? <Pill tone="focus">Venter på svar</Pill> : null}
+                      {m.draft && <Pill tone="calm">Udkast</Pill>}
+                    </span>
+                  </span>
+                </button>
+              </Fragment>
             );
           })}
           <More at={moreAt} left={rows.length - shown} />
@@ -211,7 +246,6 @@ function Reader({ id, onMove, onBack }: { id: string; onMove: (m: any, a: 'archi
   // Native scrolling here: the mail itself is a frame, and wheel events from it must reach this pane.
   if (!m) return <div className="reader" />;
   const p = who(m);
-  const mode: ComposeMode | null = compose ?? (m.draft ? 'reply' : null);
   const others = [...(m.to ?? []), ...(m.cc ?? [])].length > 1;
   const canWrite = mailAvailable() && (senders.length > 0 || m.source === 'lunchhub');
 
@@ -225,6 +259,7 @@ function Reader({ id, onMove, onBack }: { id: string; onMove: (m: any, a: 'archi
           {m.source !== 'lunchhub' && <Btn size="sm" variant="text" icon="forward" disabled={!canWrite} onClick={() => setCompose('forward')}>Videresend</Btn>}
           <Btn size="sm" variant="text" icon="archive" onClick={() => onMove(m, 'archive')}>Arkivér</Btn>
           {!m.sent && <MoveTo m={m} />}
+          {!m.sent && !m.danger && m.source !== 'lunchhub' && <Btn size="sm" variant="text" icon="shield" onClick={() => { const before = { danger: m.danger ?? null, dangerWhy: m.dangerWhy ?? [], mbox: m.mbox ?? '', mboxManual: !!m.mboxManual }; markDanger(e, m, 'scam'); toast({ text: 'Flyttet til Svindel', action: { label: 'Fortryd', run: () => e.set('mail', m.id, before) } }); }}>Svindel</Btn>}
           <Btn size="sm" variant="text" icon="x" onClick={() => void askDelete(m).then((yes) => { if (yes) onMove(m, 'trash'); })}>{m.sent ? 'Fjern' : 'Slet'}</Btn>
           {m.source === 'lunchhub' && (m.lhStatus === 'besvaret'
             ? <Btn size="sm" variant="text" icon="reply" onClick={() => void setLunchHubStatus(e, m, 'ny').then(() => toast({ text: 'Markeret som ubesvaret i LunchHub' }), (x) => toast({ text: (x as Error).message }))}>Markér ubesvaret</Btn>
@@ -244,9 +279,33 @@ function Reader({ id, onMove, onBack }: { id: string; onMove: (m: any, a: 'archi
           </header>
           <h2 className="mailsubject">{m.subject}</h2>
           <div className="meta mailacct">{m.acctName}{m.source === 'lunchhub' && <span className={`lhstatus lhstatus--${m.lhStatus}`}>{m.lhStatus === 'besvaret' ? 'Besvaret' : m.lhStatus === 'arkiv' ? 'Arkiveret' : 'Ikke besvaret'}</span>}</div>
+          {m.danger && !m.dangerOk && <DangerNote m={m} onDelete={() => void askDelete(m).then((yes) => { if (yes) onMove(m, 'trash'); })} />}
           <MailView e={e} m={m} />
         </article>
-        {mode && <Composer key={`${m.id}-${mode}`} inline mode={mode} m={m} onClose={() => setCompose(null)} onSent={(archive) => { if (archive) onMove(m, 'archive'); }} />}
+        {m.draft && !compose && (
+          <button className="mdraft" onClick={() => setCompose('reply')}><Icon name="assist" size="sm" /><span className="ellipsis">{String(m.draft).split('\n')[0]}</span><span className="mdraft__go">Åbn udkast</span></button>
+        )}
+        {compose && <Composer key={`${m.id}-${compose}`} mode={compose} m={m} onClose={() => setCompose(null)} onSent={(archive) => { if (archive) onMove(m, 'archive'); }} />}
+      </div>
+    </div>
+  );
+}
+
+/** Why a mail was flagged as phishing or scam, and what to do: delete it, or say it's fine. */
+function DangerNote({ m, onDelete }: { m: any; onDelete: () => void }) {
+  const e = useEngine();
+  const toast = useToast();
+  const ph = m.danger === 'phishing';
+  return (
+    <div className="mdanger" role="alert">
+      <span className="mdanger__ic" aria-hidden="true"><Icon name="shield" /></span>
+      <div className="mdanger__body">
+        <h3>{ph ? 'Mistænkt phishing' : 'Mistænkt svindel'}</h3>
+        {(m.dangerWhy ?? []).length > 0 && <ul>{(m.dangerWhy as string[]).slice(0, 5).map((w) => <li key={w}>{w}</li>)}</ul>}
+        <div className="mdanger__acts">
+          <Btn size="sm" variant="primary" onClick={onDelete}>Slet</Btn>
+          <Btn size="sm" onClick={() => { const undo = clearDanger(e, m); toast({ text: `Flyttet til Indbakke. Mails fra ${m.fromEmail} bliver ikke markeret igen.`, action: { label: 'Fortryd', run: undo } }); }}>Ikke {ph ? 'phishing' : 'svindel'}</Btn>
+        </div>
       </div>
     </div>
   );

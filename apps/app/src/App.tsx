@@ -30,7 +30,9 @@ import { Photos } from './screens/Photos.tsx';
 import { Reminders } from './screens/Reminders.tsx';
 import { startReminders } from './reminderAlerts.ts';
 import { startPush, pushNow } from './push.ts';
+import { startKeyboard } from './keyboard.ts';
 import { Veil } from './ui/Veil.tsx';
+import { Icon } from './ui/Icon.tsx';
 import { startAlarms } from './alarms.ts';
 import { native, desktop, invoke } from './platform.ts';
 
@@ -61,7 +63,7 @@ export function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const open = (s: Session) => {
-    if (import.meta.env.VITE_E2E === '1') (window as any).__session = s; // test builds only: lets e2e seed data
+    if (import.meta.env.VITE_E2E === '1') { (window as any).__session = s; void import('./mailSafety.ts').then((x) => { (window as any).__centraTest = { screenMail: x.screenMail }; }); } // test builds only: lets e2e seed data
     s.relay.onClosedByServer = (code) => lock(code === 4001 ? 'Denne enhed er logget ud fra en anden enhed.' : 'Dit password er skiftet på en anden enhed. Log ind med det nye.', true);
     if (s.recoveryCode) setShowCode(s.recoveryCode);
     setSession(s);
@@ -117,14 +119,6 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
     addEventListener('keydown', onKey);
     return () => removeEventListener('keydown', onKey);
   }, [e, go]);
-  // Pull down at the top of the phone screen opens search.
-  useEffect(() => {
-    let y0: number | null = null;
-    const start = (t: TouchEvent) => { y0 = scrollY <= 0 ? t.touches[0].clientY : null; };
-    const end = (t: TouchEvent) => { if (y0 !== null && t.changedTouches[0].clientY - y0 > 90) setPalette(true); y0 = null; };
-    addEventListener('touchstart', start, { passive: true }); addEventListener('touchend', end);
-    return () => { removeEventListener('touchstart', start); removeEventListener('touchend', end); };
-  }, []);
   // In the Mac app, web links, mailto:, tel: and sms: open in the right app instead of nowhere.
   useEffect(() => {
     if (!native) return;
@@ -183,6 +177,13 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
         for (const m of people.slice(0, 4)) tell(m.fromName || m.fromEmail, m.subject);
         if (people.length > 4) tell('Mail', `${people.length - 4} nye mails mere`);
       }
+      // Scam and phishing go quietly to their folders (no push); a toast says it happened.
+      const caught = r.danger.map((id) => e.get(id) as any).filter((m) => m && Date.now() - new Date(m.at).getTime() < 3 * 86400000);
+      if (caught.length && !r.firstRun) {
+        const ph = caught.filter((m) => m.danger === 'phishing').length;
+        toast({ icon: 'shield', title: caught.length === 1 ? `Mistænkelig mail flyttet til ${ph ? 'Phishing' : 'Svindel'}` : `${caught.length} mistænkelige mails flyttet fra Indbakke`, text: caught.length === 1 ? `${caught[0].fromName || caught[0].fromEmail} · ${caught[0].subject}` : caught.slice(0, 3).map((m) => m.fromName || m.fromEmail).join(', '),
+          action: { label: 'Se', run: () => go({ screen: 'inbox', id: caught[0].id }) } });
+      }
       for (const h of r.hits) tell(`Mail fra ${h.mail.fromName || h.mail.fromEmail}`, h.mail.subject);
       for (const h of r.hits) toast({ person: { name: h.mail.fromName || h.mail.fromEmail }, title: `Mail fra ${h.mail.fromName || h.mail.fromEmail}`, text: `${h.mail.subject} · du bad Assist holde øje med "${h.watch.description}"`, sticky: true, action: { label: 'Åbn', run: () => go({ screen: 'inbox', id: h.mail.id }) } });
       if (Date.now() - lastFeeds > 14 * 60_000) { lastFeeds = Date.now(); await syncFeeds(e); }
@@ -208,6 +209,7 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
   const { relay } = useSession();
   useEffect(() => startPush(e, relay), [e, relay]);
   useEffect(() => startAlarms(e), [e]);
+  useEffect(() => startKeyboard(), []);
   // The Mac: keep running with the window closed, and start at login (once; then as set in Indstillinger).
   useEffect(() => {
     if (!desktop) return;
@@ -228,7 +230,7 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
     <RouteProvider value={{ route, go }}>
       <div className="app" ref={appRef}>
         <Sidebar onSearch={() => setPalette(true)} />
-        <button className="pull" onClick={() => setPalette(true)}>Søg eller spørg</button>
+        <button className="pull" onClick={() => setPalette(true)}><Icon name="search" size="sm" />Søg eller spørg</button>
         {screen}
         <TabBar onSearch={() => setPalette(true)} />
       </div>

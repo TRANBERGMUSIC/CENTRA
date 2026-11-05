@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSession } from '../state.tsx';
 import { invoke } from '../platform.ts';
-import { bioIsOn, bioKind, BIO_NAME, type BioKind } from '../biometrics.ts';
+import { bioIsOn, bioKind, whenBack, BIO_NAME, type BioKind } from '../biometrics.ts';
 import { Logo } from './Logo.tsx';
 import { Btn } from './primitives.tsx';
 import { lock } from '../lock.ts';
@@ -19,6 +19,7 @@ export function Veil() {
   const [err, setErr] = useState<string | null>(null);
   const [kind, setKind] = useState<BioKind>('none');
   const asking = useRef(false);
+  const tried = useRef(0);
   const field = useRef<HTMLInputElement>(null);
   const bio = kind !== 'none' && bioIsOn(session.user);
 
@@ -42,15 +43,14 @@ export function Veil() {
       const key = await invoke<number[]>('bio_unlock', { user: session.user.trim().toLowerCase() });
       key.fill(0);
       setOn(false);
-    } catch { setErr(null); field.current?.focus(); } finally { asking.current = false; }
+    } catch { setErr(null); field.current?.focus(); } finally { asking.current = false; tried.current = Date.now(); }
   }
   // Touch ID asks by itself when the window comes back.
   useEffect(() => {
     if (!on || !bio) return;
     const ask = () => { if (!document.hidden) void finger(); };
     ask();
-    document.addEventListener('visibilitychange', ask);
-    return () => document.removeEventListener('visibilitychange', ask);
+    return whenBack(ask, () => tried.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [on, bio]);
 

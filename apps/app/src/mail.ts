@@ -7,6 +7,7 @@
  */
 import type { SyncEngine } from '@centra/sync';
 import { sortByRules } from './mailFolders.ts';
+import { screenMail } from './mailSafety.ts';
 import { syncAllLunchHub, setLunchHubStatus } from './lunchhub.ts';
 import { isNative, invoke as native } from './platform.ts';
 
@@ -46,7 +47,7 @@ const wire = (a: MailAccount) => ({
   smtp_host: a.smtpHost.trim(), smtp_port: Number(a.smtpPort), smtp_security: a.smtpSecurity, from_name: a.fromName || null, from_email: a.email.trim(),
 });
 
-type Wire = { uid: number; message_id: string; in_reply_to: string; references: string; from_name: string; from_email: string; to: string[]; cc: string[]; subject: string; date: string; text: string; seen: boolean; flagged: boolean; answered: boolean; attachments: string[]; list: boolean; html?: string; parts?: Part[] };
+type Wire = { uid: number; message_id: string; in_reply_to: string; references: string; from_name: string; from_email: string; to: string[]; cc: string[]; subject: string; date: string; text: string; seen: boolean; flagged: boolean; answered: boolean; attachments: string[]; list: boolean; html?: string; parts?: Part[]; auth?: string; reply_to?: string; spam?: boolean };
 export type Part = { index: number; name: string; mime: string; size: number; cid: string; inline: boolean };
 /** HTML up to this size is kept with the mail; bigger mails fetch it again when opened. */
 const HTML_KEEP = 250_000;
@@ -89,6 +90,7 @@ export async function syncAccount(e: SyncEngine, a: MailAccount): Promise<SyncRe
         unread: !m.seen, flagged: m.flagged, answered: m.answered, attachments: m.attachments, attachment: m.attachments[0] ?? '',
         list: m.list, messageId: m.message_id, inReplyTo: m.in_reply_to, references: m.references, cat, needsReply, archived: false,
         html: (m.html?.length ?? 0) <= HTML_KEEP ? m.html ?? '' : '', parts: m.parts ?? [], full: true,
+        auth: m.auth ?? '', replyTo: m.reply_to ?? '', spam: !!m.spam,
       });
       added.push(id);
     }
@@ -265,7 +267,7 @@ export function matchWatches(e: SyncEngine, ids: string[]): { watch: any; mail: 
 let running = false;
 /** Fetches all enabled accounts; returns new mail ids and watch hits. */
 export async function syncAll(e: SyncEngine) {
-  if (running || !mailAvailable()) return { added: [] as string[], hits: [] as ReturnType<typeof matchWatches>, errors: [] as string[], firstLh: true, firstRun: true };
+  if (running || !mailAvailable()) return { added: [] as string[], hits: [] as ReturnType<typeof matchWatches>, errors: [] as string[], firstLh: true, firstRun: true, danger: [] as string[] };
   running = true;
   try {
     const accts = e.list('mailacct').filter((a: any) => a.enabled !== false) as unknown as MailAccount[];
@@ -275,7 +277,10 @@ export async function syncAll(e: SyncEngine) {
     const firstLh = (e.list('lhconn') as any[]).some((c) => c.enabled !== false && !c.since);
     const lh = await syncAllLunchHub(e);
     errors.push(...lh.errors);
-    sortByRules(e, [...added, ...lh.added]); // your folders' rules, the moment the mail arrives
-    return { added: [...added, ...lh.added], hits: firstRun ? [] : matchWatches(e, added), errors, firstLh, firstRun };
+    // Scam and phishing first (to their own folders), then your folders' rules, the moment mail arrives.
+    const danger = new Set(screenMail(e));
+    sortByRules(e, [...added, ...lh.added]);
+    const safe = added.filter((id) => !danger.has(id));
+    return { added: [...safe, ...lh.added], hits: firstRun ? [] : matchWatches(e, safe), errors, firstLh, firstRun, danger: [...danger] };
   } finally { running = false; }
 }

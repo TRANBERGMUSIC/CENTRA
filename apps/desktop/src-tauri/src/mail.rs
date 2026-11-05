@@ -45,6 +45,13 @@ pub struct Msg {
     pub html: String,
     /// Attachments and inline images: what they are, so the interface can fetch one when needed.
     pub parts: Vec<Part>,
+    /// What the receiving mail server found about the sender, e.g. "spf=pass dkim=fail dmarc=fail"
+    /// (from its Authentication-Results). Used to spot scam and phishing.
+    pub auth: String,
+    /// Where a reply would go, when it differs from the sender.
+    pub reply_to: String,
+    /// The mail server itself marked it as spam.
+    pub spam: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -274,6 +281,7 @@ fn text_of(m: &mail_parser::Message) -> String {
 fn parse(uid: u32, raw: &[u8], flags: &[imap::types::Flag]) -> Option<Msg> {
     let m = MessageParser::default().parse(raw)?;
     let from = addr_list(m.from()).into_iter().next().unwrap_or_default();
+    let reply_to = addr_list(m.reply_to()).into_iter().map(|x| x.1).find(|r| !r.eq_ignore_ascii_case(&from.1)).unwrap_or_default();
     let text = text_of(&m);
     let html = html_of(&m);
     let parts = parts_of(&m);
@@ -298,7 +306,21 @@ fn parse(uid: u32, raw: &[u8], flags: &[imap::types::Flag]) -> Option<Msg> {
         list: m.header("List-Unsubscribe").is_some() || m.header("List-Id").is_some(),
         html,
         parts,
+        auth: auth_of(m.header_raw("Authentication-Results").or_else(|| m.header_raw("ARC-Authentication-Results")).unwrap_or("")),
+        reply_to,
+        spam: ["X-Spam-Flag", "X-Spam-Status"].iter().any(|h| m.header_raw(*h).is_some_and(|v| v.trim_start().to_ascii_lowercase().starts_with("yes"))),
     })
+}
+
+/// "spf=pass dkim=fail dmarc=fail" out of an Authentication-Results header (the topmost one is the
+/// receiving server's own verdict).
+fn auth_of(raw: &str) -> String {
+    let l = raw.to_ascii_lowercase();
+    ["spf", "dkim", "dmarc"].iter().filter_map(|k| {
+        let at = l.find(&format!("{k}="))?;
+        let v: String = l[at + k.len() + 1..].chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
+        (!v.is_empty()).then(|| format!("{k}={v}"))
+    }).collect::<Vec<_>>().join(" ")
 }
 
 /// The raw message for one UID (looks in the given folder, INBOX by default).
@@ -736,6 +758,15 @@ mod tests {
         use base64::Engine;
         assert!(attachments(&out(vec![OutFile { name: "x".into(), mime: "a/b".into(), data: big }])).is_err());
         assert!(attachments(&out(vec![OutFile { name: "x".into(), mime: "a/b".into(), data: "!!!".into() }])).is_err());
+    }
+
+    #[test]
+    fn sender_checks() {
+        let raw = b"Authentication-Results: mx.google.com; spf=softfail smtp.mailfrom=x; dkim=none; dmarc=FAIL (p=REJECT)\r\nFrom: MitID <noreply@mitid-dk.example>\r\nReply-To: svar@andet.example\r\nX-Spam-Flag: YES\r\nSubject: Din MitID udloeber\r\n\r\nKlik her\r\n";
+        let m = parse(1, raw, &[]).unwrap();
+        assert_eq!(m.auth, "spf=softfail dkim=none dmarc=fail");
+        assert_eq!(m.reply_to, "svar@andet.example");
+        assert!(m.spam);
     }
 
     #[test]

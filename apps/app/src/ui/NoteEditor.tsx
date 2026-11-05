@@ -213,6 +213,8 @@ export function NoteEditor({ text, placeholderText, onLocalEdit }: { text: Y.Tex
       keymap.of([...markdownKeymap, ...yUndoManagerKeymap, ...defaultKeymap, indentWithTab]),
       yCollab(text, null),
       EditorView.lineWrapping,
+      // Room above the cursor for the toolbar, and below it so the line you write isn't on the keyboard's edge.
+      EditorView.scrollMargins.of(() => ({ top: 64, bottom: 56 })),
       placeholder(placeholderText),
       EditorView.contentAttributes.of({ 'aria-label': 'Indhold', autocapitalize: 'sentences', spellcheck: 'true' }),
       EditorView.updateListener.of((u) => {
@@ -225,7 +227,10 @@ export function NoteEditor({ text, placeholderText, onLocalEdit }: { text: Y.Tex
     ];
     const view = new EditorView({ parent: host.current!, state: EditorState.create({ doc: text.toString(), extensions }) });
     viewRef.current = view;
-    return () => { view.destroy(); viewRef.current = null; };
+    // The keyboard opened or the screen changed height: keep the cursor in sight, moving no more than needed.
+    const follow = () => { if (view.hasFocus) view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: 'nearest', yMargin: 56 }) }); };
+    addEventListener('centra-viewport', follow);
+    return () => { removeEventListener('centra-viewport', follow); view.destroy(); viewRef.current = null; };
   }, [text, placeholderText]);
 
   const run = (cmd: Cmd) => (e: React.MouseEvent) => { e.preventDefault(); if (viewRef.current) cmd(viewRef.current); };
