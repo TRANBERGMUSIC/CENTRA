@@ -5,6 +5,7 @@ mod biometry;
 #[cfg(desktop)]
 mod browser;
 mod contacts;
+mod logo;
 mod lunchhub;
 mod mail;
 mod native;
@@ -56,7 +57,7 @@ pub fn run() {
         })
         .manage(browser::Browser::default())
         .invoke_handler(tauri::generate_handler![
-            mail::mail_test, mail::mail_fetch, mail::mail_update, mail::mail_send, mail::fetch_calendar, mail::mail_body, mail::mail_part, mail::mail_save_part,
+            mail::mail_test, mail::mail_fetch, mail::mail_update, mail::mail_send, mail::fetch_calendar, mail::mail_body, mail::mail_part, mail::mail_save_part, logo::mail_logo,
             webupdate::web_ready, webupdate::web_info, webupdate::web_update_check, webupdate::session_stash, webupdate::session_take,
             biometry::bio_kind, biometry::bio_enable, biometry::bio_unlock, biometry::bio_disable,
             contacts::contacts_fetch, contacts::contacts_status,
@@ -69,7 +70,7 @@ pub fn run() {
     // The iPhone app: the same commands without the browser (links open in Safari).
     #[cfg(mobile)]
     let builder = builder.invoke_handler(tauri::generate_handler![
-        mail::mail_test, mail::mail_fetch, mail::mail_update, mail::mail_send, mail::fetch_calendar, mail::mail_body, mail::mail_part, mail::mail_save_part,
+        mail::mail_test, mail::mail_fetch, mail::mail_update, mail::mail_send, mail::fetch_calendar, mail::mail_body, mail::mail_part, mail::mail_save_part, logo::mail_logo,
         webupdate::web_ready, webupdate::web_info, webupdate::web_update_check, webupdate::session_stash, webupdate::session_take,
         biometry::bio_kind, biometry::bio_enable, biometry::bio_unlock, biometry::bio_disable,
         contacts::contacts_fetch, contacts::contacts_status,

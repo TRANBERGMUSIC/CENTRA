@@ -11,6 +11,7 @@ import { queueAssist } from './Assist.tsx';
 import { folders as listFolders, moveToFolder, removeFolder, sortByRules, type MailFolder, type FolderRule } from '../mailFolders.ts';
 import { ask } from '../ui/Confirm.tsx';
 import { clearDanger, markDanger } from '../mailSafety.ts';
+import { useLogo } from '../logos.ts';
 import { Composer, type ComposeMode } from '../ui/Composer.tsx';
 
 /** 'inbox', 'sent', 'archive', or a folder's id. */
@@ -206,7 +207,7 @@ export function Inbox() {
                 {head && <div className="mday" role="presentation">{day}</div>}
                 <button id={`mrow-${m.id}`} draggable onDragStart={(ev) => { ev.dataTransfer.setData('text/centra-mail', m.id); ev.dataTransfer.effectAllowed = 'move'; }} className={`mrow ${m.unread ? 'is-unread' : ''} ${m.id === id ? 'is-selected' : ''} ${danger ? 'is-danger' : ''}`} onClick={() => { go({ screen: 'inbox', id: m.id }); if (m.unread) setMailFlag(e, m, { unread: false }); }}>
                   {m.unread && <span className="unread-dot" aria-label="Ulæst" />}
-                  {danger ? <span className="avatar avatar--danger" aria-hidden="true"><Icon name="shield" size="sm" /></span> : <span className="avatar" style={vars({ '--h': p.hue })}>{p.initials}</span>}
+                  {danger ? <span className="avatar avatar--danger" aria-hidden="true"><Icon name="shield" size="sm" /></span> : <SenderAvatar m={m} />}
                   <span className="mrow__body">
                     <span className="mrow__who"><b className="ellipsis">{p.name}</b>{m.attachment && <Icon name="paperclip" size="sm" className="mrow__clip" />}<span className="meta num mrow__time">{day ? rowTime(m.at, now) : fmt.clock(m.at, now)}</span></span>
                     <span className="mrow__subj ellipsis">{m.subject}</span>
@@ -270,7 +271,7 @@ function Reader({ id, onMove, onBack }: { id: string; onMove: (m: any, a: 'archi
         </div>
         <article className="mailcard">
           <header className="mailhead">
-            <span className="avatar avatar--lg" style={vars({ '--h': p.hue })}>{p.initials}</span>
+            <SenderAvatar m={m} lg />
             <div className="mailhead__who">
               <div className="mailhead__line"><span className="strong ellipsis">{p.name}</span><time className="meta num">{new Date(m.at).toLocaleString('da-DK', { day: 'numeric', month: 'short', year: new Date(m.at).getFullYear() === new Date().getFullYear() ? undefined : 'numeric', hour: '2-digit', minute: '2-digit' })}</time></div>
               <div className="meta ellipsis">{m.sent ? `Fra dig${m.to?.length ? ` til ${m.to.join(', ')}` : ''}` : <>{p.email}{m.to?.length ? ` · til ${m.to.join(', ')}` : ''}</>}{m.cc?.length ? ` · cc ${m.cc.join(', ')}` : ''}</div>
@@ -289,6 +290,17 @@ function Reader({ id, onMove, onBack }: { id: string; onMove: (m: any, a: 'archi
       </div>
     </div>
   );
+}
+
+/** The sender's company logo when it has one (Google, Netflix …), otherwise their initials. */
+function SenderAvatar({ m, lg }: { m: any; lg?: boolean }) {
+  const e = useEngine();
+  const p = who(m);
+  // Only once the mail has been looked over for scam and phishing: a fake sender's site is never asked.
+  const logo = useLogo(e, m.sent ? m.to?.[0] : m.fromEmail, !!m.danger || !m.screened || m.source === 'lunchhub');
+  return logo
+    ? <span className={`avatar avatar--logo ${lg ? 'avatar--lg' : ''}`} aria-hidden="true"><img src={logo} alt="" draggable={false} /></span>
+    : <span className={`avatar ${lg ? 'avatar--lg' : ''}`} style={vars({ '--h': p.hue })}>{p.initials}</span>;
 }
 
 /** Why a mail was flagged as phishing or scam, and what to do: delete it, or say it's fine. */
@@ -423,7 +435,7 @@ function ContactRail({ id }: { id?: string }) {
   const fromSame = mails.filter((x) => x.fromEmail === m.fromEmail && x.id !== m.id).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5);
   return (
     <aside className="details" aria-label="Kontakt">
-      <div className="contact"><span className="avatar avatar--lg" style={vars({ '--h': p.hue })}>{p.initials}</span><div><div className="strong">{p.name}</div><div className="meta">{p.email}</div></div></div>
+      <div className="contact"><SenderAvatar m={m} lg /><div><div className="strong">{p.name}</div><div className="meta">{p.email}</div></div></div>
       {(() => {
         const known = persons.find((x) => x.email && x.email.toLowerCase() === p.email.toLowerCase());
         if (known) return <button className="tag pad-top" onClick={() => go({ screen: 'contacts', id: known.id })}>Åbn kontakt</button>;
