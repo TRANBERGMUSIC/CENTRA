@@ -6,7 +6,7 @@
 import { openWithKey, type Session } from './session.ts';
 import { RelayError } from '@centra/sync';
 
-import { native as desktop, invoke } from './platform.ts';
+import { native as desktop, desktop as onMac, invoke } from './platform.ts';
 const flag = (user: string) => `centra.touchid.${user.trim().toLowerCase()}`;
 
 export type BioKind = 'touchid' | 'faceid' | 'opticid' | 'none';
@@ -68,15 +68,22 @@ export async function bioUnlock(user: string): Promise<Session> {
 }
 
 /**
+ * May Face ID / Touch ID ask right now? Only when CENTRA is in front of you: on the Mac the window
+ * must be open and active (it keeps running in the background with the window closed, and must not
+ * ask then); on the iPhone the app must be on screen.
+ */
+export const canAskNow = () => !document.hidden && (!onMac || document.hasFocus());
+
+/**
  * Calls fn whenever you come back to CENTRA (the app or window shown again, or focused after being
  * away). The Face ID / Touch ID prompt itself takes the focus for a moment, so a focus right after
  * an attempt, or after a blink of a blur, doesn't count: cancelling never loops.
  */
 export function whenBack(fn: () => void, lastTry: () => number): () => void {
   let blurAt = 0;
-  const vis = () => { if (!document.hidden) fn(); };
+  const vis = () => { if (canAskNow()) fn(); };
   const blur = () => { blurAt = Date.now(); };
-  const focus = () => { const now = Date.now(); if (now - lastTry() > 2500 && now - blurAt > 2000) fn(); };
+  const focus = () => { const now = Date.now(); if (now - lastTry() > 2500 && now - blurAt > 2000 && canAskNow()) fn(); };
   document.addEventListener('visibilitychange', vis);
   addEventListener('blur', blur);
   addEventListener('focus', focus);

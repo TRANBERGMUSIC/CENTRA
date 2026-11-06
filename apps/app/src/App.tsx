@@ -28,6 +28,7 @@ import { markReady, watchWebUpdates, justUpdated } from './webupdate.ts';
 import { resumeAfterUpdate } from './session.ts';
 import { Photos } from './screens/Photos.tsx';
 import { Reminders } from './screens/Reminders.tsx';
+import { Boards } from './screens/Boards.tsx';
 import { startReminders } from './reminderAlerts.ts';
 import { startPush, pushNow } from './push.ts';
 import { startKeyboard } from './keyboard.ts';
@@ -223,7 +224,7 @@ function Shell({ theme, setTheme, firstOpen }: { theme: Theme; setTheme: (t: The
   const screen = {
     today: <Today firstOpen={opened.current} />, notes: <Notes />, inbox: <Inbox />, goals: <Goals />,
     calendar: <Calendar />, assist: <Assist />, settings: <Settings theme={theme} setTheme={setTheme} />, connections: <Connections />,
-    contacts: <Contacts />, reminders: <Reminders />, outlays: <Outlays />, expenses: <Expenses />, usage: <UsageScreen />, photos: <Photos />,
+    contacts: <Contacts />, reminders: <Reminders />, boards: <Boards />, outlays: <Outlays />, expenses: <Expenses />, usage: <UsageScreen />, photos: <Photos />,
   }[route.screen] ?? <Today firstOpen={false} />;
 
   return (

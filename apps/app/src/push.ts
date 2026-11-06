@@ -73,7 +73,7 @@ export function startPush(e: SyncEngine, relay: unknown): () => void {
   let soon: ReturnType<typeof setTimeout> | undefined;
   const later = () => { clearTimeout(soon); soon = setTimeout(() => void send(), 1500); };
   const offOpen = relay.onOpen(() => { sent = ''; void token(); later(); });
-  const offChange = e.on((ids) => { if ([...ids].some((id) => { const t = (e.get(id) as any)?.type; return !t || t === 'reminder' || t === 'event' || t === 'alarm' || id === 'setting-alarms'; })) later(); });
+  const offChange = e.on((ids) => { if ([...ids].some((id) => { const t = (e.get(id) as any)?.type; return !t || t === 'reminder' || t === 'event' || t === 'alarm' || t === 'bcard' || id === 'setting-alarms'; })) later(); });
   // Times roll forward (repeating events, alarms): the plan is refreshed now and then.
   const every = setInterval(() => { sent = ''; void send(); }, 15 * 60_000);
   if (relay.connected) { void token(); later(); }

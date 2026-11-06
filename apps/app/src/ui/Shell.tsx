@@ -22,7 +22,7 @@ type NavItem = [Route['screen'], IconName, string];
 export const SECTIONS: { title: string; items: NavItem[] }[] = [
   { title: 'Overblik', items: [['today', 'today', 'I dag'], ['calendar', 'calendar', 'Kalender'], ['reminders', 'bell', 'Huskeliste']] },
   { title: 'Kommunikation', items: [['inbox', 'inbox', 'Indbakke'], ['contacts', 'contacts', 'Kontakter']] },
-  { title: 'Noter og mål', items: [['notes', 'notes', 'Noter'], ['goals', 'goals', 'Mål'], ['photos', 'camera', 'Billeder']] },
+  { title: 'Noter og mål', items: [['notes', 'notes', 'Noter'], ['boards', 'board', 'Boards'], ['goals', 'goals', 'Mål'], ['photos', 'camera', 'Billeder']] },
   { title: 'Økonomi', items: [['outlays', 'receipt', 'Udlæg'], ['expenses', 'wallet', 'Udgifter'], ['usage', 'hash', 'Claude-forbrug']] },
   { title: 'System', items: [['connections', 'link', 'Forbindelser'], ['settings', 'settings', 'Indstillinger']] },
 ];
@@ -137,6 +137,7 @@ function MenuSheet({ counts, onClose, onSearch }: { counts: Record<string, numbe
   const now = new Date();
   const events = useList('event') as any[];
   const reminderList = useList('reminder');
+  const boardList = useList('board');
   const notes = useList('note'), persons = useList('person'), photos = useList('photo'), goals = useList('goal'), accts = useList('mailacct'), costs = useList('expense');
   const day0 = new Date(now); day0.setHours(0, 0, 0, 0);
   const today = occurrences(events, day0, new Date(day0.getTime() + 86400000));
@@ -150,6 +151,7 @@ function MenuSheet({ counts, onClose, onSearch }: { counts: Record<string, numbe
     photos: `${photos.length} ${photos.length === 1 ? 'billede' : 'billeder'}`,
     outlays: owed || owe ? [owed && `Til gode ${kr(owed, { short: true })}`, owe && `skylder ${kr(owe, { short: true })}`].filter(Boolean).join(' · ') : 'Alt er gjort op',
     expenses: costs.length ? `${costs.length} faste udgifter` : 'Ingen endnu',
+    boards: (() => { const n = (boardList as any[]).filter((b) => !b.archived).length; return n ? `${n} ${n === 1 ? 'board' : 'boards'}` : 'Ingen endnu'; })(),
     reminders: (() => { const open = (reminderList as any[]).filter((r) => !r.done); const late = open.filter((r) => r.at && new Date(r.at) <= now).length; return open.length ? `${open.length} at huske${late ? ` · ${late} nu` : ''}` : 'Intet at huske'; })(),
     connections: accts.length ? `${accts.length} ${accts.length === 1 ? 'konto' : 'konti'}` : 'Mail og kalender',
   };

@@ -1,6 +1,6 @@
 /**
  * Everything that should tell you something at a time: reminders on the huskeliste, alerts before
- * calendar events ("15 min før"), and alarms (vækkeure). One list, used three ways:
+ * calendar events ("15 min før"), alarms (vækkeure), and deadlines on board cards. One list, used three ways:
  *  - the relay sends them as push to the iPhone (push.ts), also with every app closed,
  *  - the iPhone plans them itself when the relay can't push (reminderAlerts.ts),
  *  - the Mac shows them while CENTRA runs (it keeps running with the window closed).
@@ -9,7 +9,7 @@ import type { SyncEngine } from '@centra/sync';
 import { reminders } from './reminders.ts';
 import { occurrences, type CalEvent } from './calendar.ts';
 
-export type DueItem = { id: string; at: number; title: string; body: string; kind: 'reminder' | 'event' | 'alarm'; ref: string };
+export type DueItem = { id: string; at: number; title: string; body: string; kind: 'reminder' | 'event' | 'alarm' | 'card'; ref: string };
 
 /** Minutes before an event, as offered in the event editor (null = no alert). */
 export const ALERTS: [number | null, string][] = [[null, 'Ingen'], [0, 'Når den starter'], [5, '5 min før'], [15, '15 min før'], [30, '30 min før'], [60, '1 time før'], [120, '2 timer før'], [1440, '1 dag før']];
@@ -57,6 +57,14 @@ export function dueItems(e: SyncEngine, opts: { days?: number; alarms?: boolean;
     if (at <= now.getTime() - 60_000 || at >= to.getTime()) continue;
     const when = `${hm(start)}${o.place ? ' · ' + o.place : ''}`;
     out.push({ id: `ev:${o.id}`.slice(0, 64), at, title: o.title, body: `${before(o.alert ?? 0)} · ${when}`, kind: 'event', ref: o.sourceId ?? o.id });
+  }
+  // A card's deadline: when it comes (cards that are done stay quiet).
+  for (const c of e.list('bcard') as any[]) {
+    if (c.done || !c.due) continue;
+    const at = new Date(c.due).getTime();
+    if (!(at > now.getTime() - 60_000 && at < to.getTime())) continue;
+    const b = e.get(c.board) as any;
+    out.push({ id: `card:${c.id}`, at, title: `Frist: ${c.title}`.slice(0, 120), body: b?.name ? `${b.name} · ${hm(new Date(at))}` : hm(new Date(at)), kind: 'card', ref: c.id });
   }
   if (opts.alarms !== false) for (const a of e.list('alarm') as unknown as Alarm[]) {
     if (!a.on) continue;

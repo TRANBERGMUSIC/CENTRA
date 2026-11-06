@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSession } from '../state.tsx';
 import { invoke } from '../platform.ts';
-import { bioIsOn, bioKind, whenBack, BIO_NAME, type BioKind } from '../biometrics.ts';
+import { bioIsOn, bioKind, whenBack, canAskNow, BIO_NAME, type BioKind } from '../biometrics.ts';
 import { Logo } from './Logo.tsx';
 import { Btn } from './primitives.tsx';
 import { lock } from '../lock.ts';
@@ -48,7 +48,7 @@ export function Veil() {
   // Touch ID asks by itself when the window comes back.
   useEffect(() => {
     if (!on || !bio) return;
-    const ask = () => { if (!document.hidden) void finger(); };
+    const ask = () => { if (canAskNow()) void finger(); };
     ask();
     return whenBack(ask, () => tried.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps

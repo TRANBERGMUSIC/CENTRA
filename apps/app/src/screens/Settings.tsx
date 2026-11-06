@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { explain } from '../session.ts';
-import { lock, backgroundOn, setBackground } from '../lock.ts';
+import { lock, backgroundOn, setBackground, AUTOLOCK_CHOICES, autoLockMinutes, setAutoLockMinutes } from '../lock.ts';
 import { WsRelay } from '@centra/sync';
 import { SYNC } from '../session.ts';
 import { invoke as call } from '../platform.ts';
@@ -212,7 +212,7 @@ function SecurityPanel() {
           <div className="kv"><span>Password</span><Btn size="sm" onClick={() => setForm('password')}>Skift password</Btn></div>
           <div className="kv"><span>Gendannelsesnøgle</span><Btn size="sm" onClick={() => setForm('recovery')}>Lav ny</Btn></div>
           <BioRow />
-          <div className="kv"><span>Automatisk lås<span className="meta block">15 min · 5 min i baggrunden</span></span><Btn size="sm" onClick={() => lock()}>Lås nu</Btn></div>
+          <AutoLock />
         </>
       )}
     </Panel>
@@ -353,5 +353,20 @@ function NotifyPanel() {
       {desktop && <div className="kv"><span>Kør i baggrunden og start ved login<span className="meta block">{bg ? 'Lukker du vinduet, kører CENTRA videre' : 'Fra'}</span></span>
         <input type="checkbox" checked={bg} aria-label="Kør i baggrunden og start ved login" onChange={(x) => { const on = x.target.checked; setBg(on); setBackground(on); void call(on ? 'plugin:autostart|enable' : 'plugin:autostart|disable').catch(() => {}); void call('set_background', { on }).catch(() => {}); }} /></div>}
     </Panel>
+  );
+}
+
+/** When CENTRA locks itself on this device (or never), and a button to lock right now. */
+function AutoLock() {
+  const [m, setM] = useState(autoLockMinutes());
+  return (
+    <div className="kv"><span>Automatisk lås</span>
+      <span className="kv__acts">
+        <select className="kvinput" value={m} aria-label="Automatisk lås" onChange={(x) => { const v = Number(x.target.value); setM(v); setAutoLockMinutes(v); }}>
+          {AUTOLOCK_CHOICES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        <Btn size="sm" onClick={() => lock()}>Lås nu</Btn>
+      </span>
+    </div>
   );
 }

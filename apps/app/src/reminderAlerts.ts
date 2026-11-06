@@ -79,7 +79,7 @@ export function startReminders(e: SyncEngine, toast: Toast, go: Go): () => void 
       if (shown.has(k) || x.at > now) continue;
       shown.add(k);
       if (now - x.at > 6 * 3600_000) continue; // long past (the app was closed): the list shows it as overdue
-      toast({ icon: 'bell', title: x.title, text: x.body, sticky: x.kind !== 'event', action: x.kind === 'reminder' ? { label: 'Klaret', run: () => setDone(e, x.ref, true) } : undefined });
+      toast({ icon: 'bell', title: x.title, text: x.body, sticky: x.kind !== 'event', action: x.kind === 'reminder' ? { label: 'Klaret', run: () => setDone(e, x.ref, true) } : x.kind === 'card' ? { label: 'Færdig', run: () => e.set('bcard', x.ref, { done: true }) } : undefined });
       // The iPhone already showed it (pushed or planned); on the Mac and in a browser it's shown now.
       if (!mobileApp) {
         if (native) void invoke('plugin:notification|notify', { options: { id: notifyId(k), title: x.title, body: x.body } }).catch(() => {});

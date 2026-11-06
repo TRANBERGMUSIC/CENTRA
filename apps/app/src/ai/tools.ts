@@ -15,6 +15,7 @@ import { goalStats, type Goal, type GoalUpdate } from '../goals.ts';
 import type { Route } from '../state.tsx';
 import { tallyNet, lineExplain, toLines, type Tally } from '../money.ts';
 import { searchPhotos, storePhoto, type Photo } from '../photos.ts';
+import { addBoard, addCard, addList, findBoard, findList, listsOf, moveCard, cardsOf, boardsContext, type BCard } from '../boards.ts';
 import { ME, findPerson, findOrCreatePerson, balances, debts, payDebt, iOwe, owed, total, shares, payBack, perMonth, cancelLink, serviceFor, CATEGORIES, people, personName, kr, type Person, type Outlay, type Payment, type Expense } from '../money.ts';
 
 export type Undo =
@@ -41,7 +42,7 @@ const obj = (properties: Record<string, unknown>, required: string[] = []) => ({
 const KINDS: Record<string, string> = {
   note: 'note', event: 'aftale', goal: 'mål', goalUpdate: 'målopdatering', person: 'kontakt', outlay: 'udlæg', tally: 'regnestykke',
   payment: 'betaling', expense: 'fast udgift', memory: 'hukommelse', photo: 'billede', mail: 'mail', mailfolder: 'mailmappe',
-  notefolder: 'notemappe', calcat: 'kalendertype', suggestion: 'forslag', reminder: 'huskeliste-punkt', alarm: 'vækkeur', mailacct: 'mailkonto', lhconn: 'LunchHub-forbindelse', feed: 'kalenderabonnement',
+  notefolder: 'notemappe', calcat: 'kalendertype', suggestion: 'forslag', reminder: 'huskeliste-punkt', alarm: 'vækkeur', board: 'board', blist: 'board-liste', bcard: 'board-kort', mailacct: 'mailkonto', lhconn: 'LunchHub-forbindelse', feed: 'kalenderabonnement',
 };
 const KIND_KEYS = Object.keys(KINDS);
 /** One line about a record, for find_items. */
@@ -60,6 +61,21 @@ function summary(e: SyncEngine, r: any): string {
   if (r.email) bits.push(r.email);
   if (r.folder) bits.push(r.folder);
   return [String(name).slice(0, 120), ...bits].filter(Boolean).join(' · ');
+}
+
+/** Cards from Assist onto a board: list by name (made when missing), deadline, notes, checklist. */
+function putCards(e: SyncEngine, board: string, cards: any[]): string[] {
+  const ids: string[] = [];
+  for (const x of cards.slice(0, 100)) {
+    const title = String(x?.title ?? '').trim();
+    if (!title) continue;
+    const lists = listsOf(e, board);
+    const list = x.list ? findList(e, board, String(x.list)) ?? { id: addList(e, board, String(x.list)) } : lists[0] ?? { id: addList(e, board, 'Skal laves') };
+    const due = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(String(x.due ?? '')) ? new Date(String(x.due).length === 10 ? `${x.due}T09:00` : String(x.due)).toISOString() : null;
+    const checklist = Array.isArray(x.checklist) ? x.checklist.map((t: unknown) => String(t).trim()).filter(Boolean).slice(0, 50).map((text: string) => ({ id: Math.random().toString(36).slice(2, 10), text, done: false })) : [];
+    ids.push(addCard(e, board, list.id, title, { due, notes: String(x.notes ?? '').slice(0, 5000), checklist }));
+  }
+  return ids;
 }
 
 export const TOOLS: ToolDef[] = [
@@ -303,6 +319,28 @@ export const TOOLS: ToolDef[] = [
       date: str('optional day, YYYY-MM-DD'),
       time: str('optional time, HH:MM (Danish time)'),
     }, ['text']),
+  },
+  {
+    name: 'create_board',
+    description: 'Make a new board (like Trello) for a project, with its lists. Without lists it gets "Skal laves", "I gang", "Færdig". Cards can be put on it at once.',
+    input_schema: obj({
+      name: str('the board\'s name, e.g. the project'),
+      lists: { type: 'array', items: { type: 'string' }, description: 'optional list names, left to right' },
+      cards: { type: 'array', items: { type: 'object', properties: { title: { type: 'string' }, list: { type: 'string', description: 'list name; default the first' }, due: { type: 'string', description: 'optional deadline YYYY-MM-DD or YYYY-MM-DDTHH:MM' }, notes: { type: 'string' } }, required: ['title'] }, description: 'optional cards to put on it' },
+    }, ['name']),
+  },
+  {
+    name: 'add_cards',
+    description: 'Put cards on a board (Boards in the context). A board is found by id or name; a list by id or name (default the first list; a new list is made when the name doesn\'t exist). Use a checklist for steps inside one task.',
+    input_schema: obj({
+      board: str('board id or name'),
+      cards: { type: 'array', items: { type: 'object', properties: { title: { type: 'string' }, list: { type: 'string' }, due: { type: 'string', description: 'YYYY-MM-DD or YYYY-MM-DDTHH:MM' }, notes: { type: 'string' }, checklist: { type: 'array', items: { type: 'string' } } }, required: ['title'] } },
+    }, ['board', 'cards']),
+  },
+  {
+    name: 'move_card',
+    description: 'Move a card to another list on its board ("sæt X til I gang", "X er færdig" → the done list) or mark it done. By card id from Boards in the context.',
+    input_schema: obj({ card: str('the card id'), list: str('list id or name to move it to (optional)'), done: { type: 'boolean', description: 'mark the card done / not done' } }, ['card']),
   },
   {
     name: 'complete_reminder',
@@ -719,6 +757,29 @@ export function runTool(e: SyncEngine, name: string, input: any): ToolResult {
       const when = at ? whenLabel(at.toISOString()) : '';
       return { result: { ok: true, id, at: at?.toISOString() ?? null, when: when || 'uden tidspunkt' }, action: { label: `Husk: ${input.text}${when ? ' · ' + when : ''}`, undo: { kind: 'remove', type: 'reminder', id }, open: { screen: 'reminders' } } };
     }
+    case 'create_board': {
+      const lists = Array.isArray(input.lists) && input.lists.length ? input.lists.map(String) : undefined;
+      const id = addBoard(e, String(input.name ?? ''), undefined, lists);
+      const cards = putCards(e, id, Array.isArray(input.cards) ? input.cards : []);
+      return { result: { ok: true, id, lists: listsOf(e, id).map((l) => l.name), cards: cards.length }, action: { label: `Board: ${input.name}${cards.length ? ` · ${cards.length} kort` : ''}`, undo: { kind: 'many', steps: [...cards.map((c) => ({ kind: 'remove' as const, type: 'bcard', id: c })), ...listsOf(e, id).map((l) => ({ kind: 'remove' as const, type: 'blist', id: l.id })), { kind: 'remove', type: 'board', id }] }, open: { screen: 'boards', id } } };
+    }
+    case 'add_cards': {
+      const b = findBoard(e, String(input.board ?? ''));
+      if (!b) throw new Error('Fandt ikke boardet');
+      const before = new Set(listsOf(e, b.id).map((l) => l.id));
+      const ids = putCards(e, b.id, Array.isArray(input.cards) ? input.cards : []);
+      const newLists = listsOf(e, b.id).filter((l) => !before.has(l.id)).map((l) => ({ kind: 'remove' as const, type: 'blist', id: l.id }));
+      return { result: { ok: true, ids }, action: { label: `${b.name}: ${ids.length} ${ids.length === 1 ? 'kort' : 'kort'}`, undo: { kind: 'many', steps: [...ids.map((id) => ({ kind: 'remove' as const, type: 'bcard', id })), ...newLists] }, open: { screen: 'boards', id: b.id } } };
+    }
+    case 'move_card': {
+      const c = e.get(String(input.card)) as unknown as BCard | null;
+      if (!c || (c as any).type !== 'bcard') throw new Error('Fandt ikke kortet');
+      const fields = { list: c.list, order: c.order, done: !!c.done };
+      let to = '';
+      if (input.list) { const l = findList(e, c.board, String(input.list)); if (!l) throw new Error('Fandt ikke listen'); moveCard(e, c.id, l.id, 1e9); to = l.name; }
+      if (typeof input.done === 'boolean') e.set('bcard', c.id, { done: input.done });
+      return { result: { ok: true }, action: { label: `${c.title}${to ? ` → ${to}` : ''}${input.done === true ? ' · færdig' : ''}`, undo: { kind: 'restore', type: 'bcard', id: c.id, fields }, open: { screen: 'boards', id: c.board } } };
+    }
     case 'complete_reminder': {
       const r = e.get(String(input.id)) as any;
       if (!r || r.type !== 'reminder') throw new Error('Fandt ikke punktet på huskelisten');
@@ -862,6 +923,7 @@ export function contextFor(e: SyncEngine): string {
     sec('Faste aftaler', fixed, '(ingen)'),
     sec('Enkeltaftaler de næste 8 dage', soon, '(ingen)'),
     sec('Huskeliste (ikke klaret)', remind, '(tom)'),
+    sec('Boards (lister og åbne kort, id i [])', boardsContext(e) ? [boardsContext(e)] : [], '(ingen)'),
     sec('Mål', goals, '(ingen)'),
     sec('Notemapper', noteFolders.length ? [noteFolders.join(' · ')] : [], '(kun Indbakke)'),
     sec('Kalendertyper', [calTypes(e).map((t) => t.name).join(' · ')], ''),
